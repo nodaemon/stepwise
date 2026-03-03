@@ -1,6 +1,6 @@
 # 使用示例
 
-本文档提供 Search Light Agent Team 的完整使用示例。
+本文档提供 StepWise 的完整使用示例。
 
 ---
 
@@ -19,10 +19,10 @@
 ### 执行单个任务
 
 ```typescript
-import { AgentTeam } from 'search-light-agent-team';
+import { StepWise } from 'stepwise';
 
 async function main() {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
 
   // 设置任务名称
   agent.setTaskName('SimpleTask');
@@ -46,10 +46,10 @@ main();
 ### 带会话恢复的任务
 
 ```typescript
-import { AgentTeam } from 'search-light-agent-team';
+import { StepWise } from 'stepwise';
 
 async function main() {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
   agent.setTaskName('SessionExample');
 
   // 第一次执行，获得 sessionId
@@ -75,10 +75,10 @@ main();
 ### 收集 API 接口
 
 ```typescript
-import { AgentTeam, OutputFormat } from 'search-light-agent-team';
+import { StepWise, OutputFormat } from 'stepwise';
 
 async function collectAPIs() {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
   agent.setTaskName('CollectAPIs');
 
   const outputFormat: OutputFormat = {
@@ -115,10 +115,10 @@ collectAPIs();
 ### 批量处理数据
 
 ```typescript
-import { AgentTeam } from 'search-light-agent-team';
+import { StepWise } from 'stepwise';
 
 async function processAPIs(apis: any[]) {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
   agent.setTaskName('ProcessAPIs');
 
   for (const api of apis) {
@@ -151,10 +151,10 @@ async function processAPIs(apis: any[]) {
 ### 处理并收集结果
 
 ```typescript
-import { AgentTeam, OutputFormat } from 'search-light-agent-team';
+import { StepWise, OutputFormat } from 'stepwise';
 
 async function generateTests(apis: any[]) {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
   agent.setTaskName('GenerateTests');
 
   const outputFormat: OutputFormat = {
@@ -203,10 +203,10 @@ async function generateTests(apis: any[]) {
 假设你有一个长时间运行的任务，执行到一半被中断：
 
 ```typescript
-import { AgentTeam } from 'search-light-agent-team';
+import { StepWise } from 'stepwise';
 
 async function analyzeProject() {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
 
   // 恢复模式：设置要恢复的任务目录
   // agent.setResumePath('AnalyzeProject_2026_03_03_14_30_00');
@@ -262,7 +262,7 @@ analyzeProject();
 
 ```typescript
 async function resumeProject() {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
 
   // 设置恢复路径（中断的任务目录）
   agent.setResumePath('AnalyzeProject_2026_03_03_14_30_00');
@@ -304,10 +304,10 @@ resumeProject();
 调试模式下，收集任务只返回第一条数据，适合验证任务流程是否正确：
 
 ```typescript
-import { AgentTeam } from 'search-light-agent-team';
+import { StepWise } from 'stepwise';
 
 async function debugFlow() {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
 
   // 启用调试模式
   agent.enableDebugMode(true);
@@ -344,7 +344,7 @@ debugFlow();
 ### 代码审查工具
 
 ```typescript
-import { AgentTeam, OutputFormat } from 'search-light-agent-team';
+import { StepWise, OutputFormat } from 'stepwise';
 
 /**
  * 自动代码审查工具
@@ -353,10 +353,10 @@ import { AgentTeam, OutputFormat } from 'search-light-agent-team';
  * 3. 生成审查报告
  */
 class CodeReviewer {
-  private agent: AgentTeam;
+  private agent: StepWise;
 
   constructor() {
-    this.agent = new AgentTeam();
+    this.agent = new StepWise();
   }
 
   async review(projectPath: string, resumePath?: string) {
@@ -468,13 +468,13 @@ main();
 ### API 文档生成器
 
 ```typescript
-import { AgentTeam } from 'search-light-agent-team';
+import { StepWise } from 'stepwise';
 
 /**
  * 自动生成 API 文档
  */
 async function generateAPIDocs(projectPath: string) {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
   agent.setTaskName('GenerateAPIDocs');
 
   // 1. 收集 API 定义

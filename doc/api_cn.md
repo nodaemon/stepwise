@@ -1,12 +1,12 @@
 # API 文档
 
-本文档详细介绍 Search Light Agent Team 的所有 API 接口。
+本文档详细介绍 StepWise 的所有 API 接口。
 
 ---
 
 ## 目录
 
-- [AgentTeam 类](#agentteam-类)
+- [StepWise 类](#stepwise-类)
   - [全局设置](#全局设置)
   - [任务执行](#任务执行)
   - [辅助方法](#辅助方法)
@@ -15,14 +15,14 @@
 
 ---
 
-## AgentTeam 类
+## StepWise 类
 
 主类，提供任务编排的核心功能。
 
 ```typescript
-import { AgentTeam } from 'search-light-agent-team';
+import { StepWise } from 'stepwise';
 
-const agent = new AgentTeam();
+const agent = new StepWise();
 ```
 
 ---
@@ -43,7 +43,7 @@ const agent = new AgentTeam();
 
 ```typescript
 agent.setTaskName('AnalyzeCodebase');
-// 生成目录: agent_team_exec_infos/AnalyzeCodebase_2026_03_03_10_30_00/
+// 生成目录: stepwise_exec_infos/AnalyzeCodebase_2026_03_03_10_30_00/
 ```
 
 ---
@@ -499,7 +499,7 @@ type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report';
 
 ```typescript
 // 目录名常量
-const EXEC_INFO_DIR = 'agent_team_exec_infos';  // 执行信息根目录
+const EXEC_INFO_DIR = 'stepwise_exec_infos';  // 执行信息根目录
 const DATA_DIR = 'data';        // 数据目录
 const LOGS_DIR = 'logs';        // 日志目录
 const COLLECT_DIR = 'collect';  // 收集数据目录

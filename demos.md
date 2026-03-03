@@ -1,6 +1,6 @@
 # Examples
 
-This document provides complete usage examples for Search Light Agent Team.
+This document provides complete usage examples for StepWise.
 
 ---
 
@@ -19,10 +19,10 @@ This document provides complete usage examples for Search Light Agent Team.
 ### Execute a Single Task
 
 ```typescript
-import { AgentTeam } from 'search-light-agent-team';
+import { StepWise } from 'stepwise';
 
 async function main() {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
 
   // Set task name
   agent.setTaskName('SimpleTask');
@@ -46,10 +46,10 @@ main();
 ### Task with Session Recovery
 
 ```typescript
-import { AgentTeam } from 'search-light-agent-team';
+import { StepWise } from 'stepwise';
 
 async function main() {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
   agent.setTaskName('SessionExample');
 
   // First execution, get sessionId
@@ -75,10 +75,10 @@ main();
 ### Collect API Interfaces
 
 ```typescript
-import { AgentTeam, OutputFormat } from 'search-light-agent-team';
+import { StepWise, OutputFormat } from 'stepwise';
 
 async function collectAPIs() {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
   agent.setTaskName('CollectAPIs');
 
   const outputFormat: OutputFormat = {
@@ -115,10 +115,10 @@ collectAPIs();
 ### Batch Process Data
 
 ```typescript
-import { AgentTeam } from 'search-light-agent-team';
+import { StepWise } from 'stepwise';
 
 async function processAPIs(apis: any[]) {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
   agent.setTaskName('ProcessAPIs');
 
   for (const api of apis) {
@@ -151,10 +151,10 @@ async function processAPIs(apis: any[]) {
 ### Process and Collect Results
 
 ```typescript
-import { AgentTeam, OutputFormat } from 'search-light-agent-team';
+import { StepWise, OutputFormat } from 'stepwise';
 
 async function generateTests(apis: any[]) {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
   agent.setTaskName('GenerateTests');
 
   const outputFormat: OutputFormat = {
@@ -203,10 +203,10 @@ async function generateTests(apis: any[]) {
 Assume you have a long-running task that was interrupted halfway:
 
 ```typescript
-import { AgentTeam } from 'search-light-agent-team';
+import { StepWise } from 'stepwise';
 
 async function analyzeProject() {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
 
   // Recovery mode: set the task directory to recover from
   // agent.setResumePath('AnalyzeProject_2026_03_03_14_30_00');
@@ -262,7 +262,7 @@ If the task was interrupted during step 3:
 
 ```typescript
 async function resumeProject() {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
 
   // Set recovery path (interrupted task directory)
   agent.setResumePath('AnalyzeProject_2026_03_03_14_30_00');
@@ -304,10 +304,10 @@ resumeProject();
 In debug mode, collection tasks return only the first data item, suitable for validating workflow correctness:
 
 ```typescript
-import { AgentTeam } from 'search-light-agent-team';
+import { StepWise } from 'stepwise';
 
 async function debugFlow() {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
 
   // Enable debug mode
   agent.enableDebugMode(true);
@@ -344,7 +344,7 @@ debugFlow();
 ### Code Review Tool
 
 ```typescript
-import { AgentTeam, OutputFormat } from 'search-light-agent-team';
+import { StepWise, OutputFormat } from 'stepwise';
 
 /**
  * Automated Code Review Tool
@@ -353,10 +353,10 @@ import { AgentTeam, OutputFormat } from 'search-light-agent-team';
  * 3. Generate review report
  */
 class CodeReviewer {
-  private agent: AgentTeam;
+  private agent: StepWise;
 
   constructor() {
-    this.agent = new AgentTeam();
+    this.agent = new StepWise();
   }
 
   async review(projectPath: string, resumePath?: string) {
@@ -468,13 +468,13 @@ main();
 ### API Documentation Generator
 
 ```typescript
-import { AgentTeam } from 'search-light-agent-team';
+import { StepWise } from 'stepwise';
 
 /**
  * Auto-generate API Documentation
  */
 async function generateAPIDocs(projectPath: string) {
-  const agent = new AgentTeam();
+  const agent = new StepWise();
   agent.setTaskName('GenerateAPIDocs');
 
   // 1. Collect API definitions

@@ -1,7 +1,7 @@
-# Search Light Agent Team
+# StepWise
 
 <p align="center">
-  <strong>A powerful tool for building AI agents that reliably complete complex coding tasks</strong>
+  <strong>Step-by-step task orchestration for Claude Code - build reliable AI workflows with checkpoint recovery</strong>
 </p>
 
 <p align="center">
@@ -14,18 +14,18 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/npm/v/search-light-agent-team" alt="npm version">
-  <img src="https://img.shields.io/npm/l/search-light-agent-team" alt="license">
-  <img src="https://img.shields.io/node/v/search-light-agent-team" alt="node version">
+  <img src="https://img.shields.io/npm/v/stepwise" alt="npm version">
+  <img src="https://img.shields.io/npm/l/stepwise" alt="license">
+  <img src="https://img.shields.io/node/v/stepwise" alt="node version">
 </p>
 
 ---
 
 ## Introduction
 
-Search Light Agent Team is an agent orchestration tool built on Node.js and TypeScript. It enables you to break down complex coding tasks into multiple steps, customize prompts for each step, and delegate execution to Claude Code's AI programming agent.
+StepWise is an agent orchestration tool built on Node.js and TypeScript. It enables you to break down complex coding tasks into multiple steps, customize prompts for each step, and delegate execution to Claude Code's AI programming agent.
 
-### Why Search Light Agent Team?
+### Why StepWise?
 
 In real-world development, we often encounter complex automation tasks such as:
 
@@ -33,7 +33,7 @@ In real-world development, we often encounter complex automation tasks such as:
 - Processing collected data item by item
 - Generating summary reports
 
-These tasks typically require multi-step coordination and are prone to interruption due to long execution times. Search Light Agent Team provides:
+These tasks typically require multi-step coordination and are prone to interruption due to long execution times. StepWise provides:
 
 - **Task Orchestration**: Flexibly define multi-step task workflows
 - **Checkpoint Recovery**: Resume execution from interruption points
@@ -52,7 +52,7 @@ These tasks typically require multi-step coordination and are prone to interrupt
 ### Install Dependencies
 
 ```bash
-npm install search-light-agent-team
+npm install stepwise
 ```
 
 ### Build Project
@@ -68,9 +68,9 @@ npm run build
 ### Basic Example
 
 ```typescript
-import { AgentTeam } from 'search-light-agent-team';
+import { StepWise } from 'stepwise';
 
-const agent = new AgentTeam();
+const agent = new StepWise();
 
 // Set task name
 agent.setTaskName('AnalyzeAPIs');
@@ -99,7 +99,7 @@ console.log(`Collected ${result.data.length} APIs`);
 When a task is interrupted during execution, you can resume from the checkpoint:
 
 ```typescript
-const agent = new AgentTeam();
+const agent = new StepWise();
 
 // Set the task directory to recover from
 agent.setResumePath('AnalyzeAPIs_2026_03_03_10_30_00');
@@ -115,7 +115,7 @@ await agent.execProcessData('Process API: $name', data[0]);  // Resume from here
 
 ## Core Features
 
-### 🔄 Task Orchestration
+### Task Orchestration
 
 Support for multiple task types with flexible combinations:
 
@@ -127,7 +127,7 @@ Support for multiple task types with flexible combinations:
 | Process & Collect | `execProcessDataAndCollect` | Process data and collect results |
 | Report Task | `execReport` | Generate summary report |
 
-### 🔁 Checkpoint Recovery
+### Checkpoint Recovery
 
 Task progress is automatically recorded during execution, supporting recovery from interruption points:
 
@@ -136,7 +136,7 @@ Task progress is automatically recorded during execution, supporting recovery fr
 agent.setResumePath('TaskName_2026_03_03_10_30_00');
 ```
 
-### 🐛 Debug Mode
+### Debug Mode
 
 In debug mode, collection tasks return only the first data item for quick workflow validation:
 
@@ -144,12 +144,12 @@ In debug mode, collection tasks return only the first data item for quick workfl
 agent.enableDebugMode(true);
 ```
 
-### 📁 Data Persistence
+### Data Persistence
 
 Automatic task directory structure generation:
 
 ```
-agent_team_exec_infos/
+stepwise_exec_infos/
 └── TaskName_2026_03_03_10_30_00/
     ├── data/                    # Execution state
     │   └── progress.json
@@ -167,7 +167,7 @@ agent_team_exec_infos/
 
 ## How It Works
 
-Search Light Agent Team is built on Claude Code's headless mode:
+StepWise is built on Claude Code's headless mode:
 
 ```bash
 # Execute task in new session

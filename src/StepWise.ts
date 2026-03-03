@@ -37,10 +37,10 @@ import {
 } from './constants';
 
 /**
- * AgentTeam 主类
+ * StepWise 主类
  * 实现复杂代码任务处理流程的接口
  */
-export class AgentTeam {
+export class StepWise {
   private taskName: string = 'default';
   private taskDir: string = '';
   private resumePath: string = '';
@@ -191,7 +191,7 @@ export class AgentTeam {
       if (task) {
         // 检查类型是否匹配
         if (task.taskType !== taskType) {
-          console.warn(`[AgentTeam] 警告: 任务 ${this.executionIndex} 类型不匹配 - 历史: ${task.taskType}, 当前: ${taskType}`);
+          console.warn(`[StepWise] 警告: 任务 ${this.executionIndex} 类型不匹配 - 历史: ${task.taskType}, 当前: ${taskType}`);
         }
         // 返回历史序号，让 isTaskCompleted 判断是否跳过
         return this.executionIndex;

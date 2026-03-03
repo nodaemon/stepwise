@@ -1,7 +1,7 @@
 {
-  "name": "search-light-agent-team",
+  "name": "stepwise",
   "version": "1.0.0",
-  "description": "高效构建具备稳定完成复杂代码任务智能体的工具",
+  "description": "Step-by-step task orchestration for Claude Code - build reliable AI workflows with checkpoint recovery",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -9,9 +9,14 @@
     "clean": "rm -rf dist"
   },
   "keywords": [
-    "agent",
+    "stepwise",
     "claude",
-    "automation"
+    "agent",
+    "workflow",
+    "orchestration",
+    "automation",
+    "task-orchestration",
+    "checkpoint-recovery"
   ],
   "author": "",
   "license": "MIT",

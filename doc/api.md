@@ -1,12 +1,12 @@
 # API Reference
 
-This document provides detailed API reference for Search Light Agent Team.
+This document provides detailed API reference for StepWise.
 
 ---
 
 ## Table of Contents
 
-- [AgentTeam Class](#agentteam-class)
+- [StepWise Class](#stepwise-class)
   - [Global Settings](#global-settings)
   - [Task Execution](#task-execution)
   - [Helper Methods](#helper-methods)
@@ -15,14 +15,14 @@ This document provides detailed API reference for Search Light Agent Team.
 
 ---
 
-## AgentTeam Class
+## StepWise Class
 
 The main class providing core task orchestration functionality.
 
 ```typescript
-import { AgentTeam } from 'search-light-agent-team';
+import { StepWise } from 'stepwise';
 
-const agent = new AgentTeam();
+const agent = new StepWise();
 ```
 
 ---
@@ -43,7 +43,7 @@ Sets the task name used to generate the task directory.
 
 ```typescript
 agent.setTaskName('AnalyzeCodebase');
-// Creates directory: agent_team_exec_infos/AnalyzeCodebase_2026_03_03_10_30_00/
+// Creates directory: stepwise_exec_infos/AnalyzeCodebase_2026_03_03_10_30_00/
 ```
 
 ---
@@ -499,7 +499,7 @@ type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report';
 
 ```typescript
 // Directory name constants
-const EXEC_INFO_DIR = 'agent_team_exec_infos';  // Execution info root directory
+const EXEC_INFO_DIR = 'stepwise_exec_infos';  // Execution info root directory
 const DATA_DIR = 'data';        // Data directory
 const LOGS_DIR = 'logs';        // Logs directory
 const COLLECT_DIR = 'collect';  // Collected data directory

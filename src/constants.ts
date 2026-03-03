@@ -3,7 +3,7 @@
  */
 
 /** 执行信息目录名 */
-export const EXEC_INFO_DIR = 'agent_team_exec_infos';
+export const EXEC_INFO_DIR = 'stepwise_exec_infos';
 
 /** 数据目录名 */
 export const DATA_DIR = 'data';
