@@ -134,13 +134,14 @@ export class ClaudeExecutor {
 
       const child = childProcess.spawn('claude', args, {
         cwd,
-        shell: true,
         env: {
           ...process.env,
           // 禁用分页，确保输出完整
           PAGER: 'cat'
         }
       });
+
+      child.stdin.end(); 
 
       let stdout = '';
       let stderr = '';

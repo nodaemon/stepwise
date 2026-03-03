@@ -11,6 +11,12 @@ export const DATA_DIR = 'data';
 /** 日志目录名 */
 export const LOGS_DIR = 'logs';
 
+/** 收集数据目录名 */
+export const COLLECT_DIR = 'collect';
+
+/** 报告数据目录名 */
+export const REPORT_DIR = 'report';
+
 /** 进度文件名 */
 export const PROGRESS_FILE = 'progress.json';
 

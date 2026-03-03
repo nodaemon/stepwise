@@ -6,6 +6,7 @@ import {
   CollectResult,
   OutputFormat,
   TaskStatus,
+  TaskStatusType,
   ProgressInfo
 } from './types';
 import { generateUUID } from './utils/uuid';
@@ -29,6 +30,8 @@ import {
   DATA_DIR,
   PROGRESS_FILE,
   SESSIONS_DIR,
+  COLLECT_DIR,
+  REPORT_DIR,
   TaskType,
   TASK_TYPE_NAMES
 } from './constants';
@@ -43,12 +46,11 @@ export class AgentTeam {
   private resumePath: string = '';
   private debugMode: boolean = false;
   private taskCounter: number = 0;
+  private executionIndex: number = 0;  // 恢复模式下用于匹配历史任务序号
   private currentSessionId: string = '';
   private logger: Logger | null = null;
   private executor: ClaudeExecutor;
   private progress: ProgressInfo | null = null;
-  /** 当前日志层级路径，用于支持嵌套任务 */
-  private logLevelPath: number[] = [];
 
   constructor() {
     this.executor = createExecutor();
@@ -116,8 +118,7 @@ export class AgentTeam {
         taskDir: this.taskDir,
         taskCounter: 0,
         tasks: [],
-        lastUpdated: Date.now(),
-        logLevelPath: []
+        lastUpdated: Date.now()
       };
       this.saveProgress();
     }
@@ -161,15 +162,50 @@ export class AgentTeam {
     const progressFile = path.join(this.taskDir, DATA_DIR, PROGRESS_FILE);
     this.progress = loadJsonFile<ProgressInfo>(progressFile);
     if (this.progress) {
-      this.taskCounter = this.progress.taskCounter;
-      this.logLevelPath = this.progress.logLevelPath || [];
+      // 恢复模式：executionIndex 从 0 开始，每次调用 getNextTaskIndex 时递增
+      // taskCounter 设置为历史最大序号，用于后续新任务继续编号
+      if (this.progress.tasks.length > 0) {
+        const maxIndex = Math.max(...this.progress.tasks.map(t => t.taskIndex));
+        this.taskCounter = maxIndex;
+      } else {
+        this.taskCounter = 0;
+      }
+      // executionIndex 初始化为 0，调用时从 1 开始匹配
+      this.executionIndex = 0;
     }
   }
 
   /**
    * 获取下一个任务序号
+   * 恢复模式下按调用顺序递增，从 1 开始匹配历史任务序号
    */
-  private getNextTaskIndex(): number {
+  private getNextTaskIndex(taskType: TaskType): number {
+    // 恢复模式下，按调用顺序递增匹配历史记录
+    if (this.resumePath && this.progress) {
+      // 从 1 开始递增，匹配历史任务序号
+      this.executionIndex++;
+
+      // 检查该序号的历史状态
+      const task = this.progress.tasks.find(t => t.taskIndex === this.executionIndex);
+
+      if (task) {
+        // 检查类型是否匹配
+        if (task.taskType !== taskType) {
+          console.warn(`[AgentTeam] 警告: 任务 ${this.executionIndex} 类型不匹配 - 历史: ${task.taskType}, 当前: ${taskType}`);
+        }
+        // 返回历史序号，让 isTaskCompleted 判断是否跳过
+        return this.executionIndex;
+      }
+
+      // 没有历史记录，说明是新任务
+      this.taskCounter = this.executionIndex;
+      this.progress.taskCounter = this.executionIndex;
+      this.progress.lastUpdated = Date.now();
+      this.saveProgress();
+      return this.executionIndex;
+    }
+
+    // 新任务模式，正常递增
     this.taskCounter++;
     if (this.progress) {
       this.progress.taskCounter = this.taskCounter;
@@ -180,45 +216,74 @@ export class AgentTeam {
   }
 
   /**
-   * 获取当前日志层级名称
-   * 例如: "1_task", "2_collect", "3_1_process", "3_1_1_process"
+   * 记录任务开始（状态为 in_progress）
    */
-  private getLogName(taskType: TaskType): string {
+  private recordTaskStart(
+    taskIndex: number,
+    taskName: string,
+    sessionId: string,
+    taskType: TaskType,
+    outputFileName?: string
+  ): void {
+    this.recordTaskStatus(taskIndex, taskName, sessionId, taskType, 'in_progress', outputFileName);
+  }
+
+  /**
+   * 记录任务完成
+   */
+  private recordTaskComplete(
+    taskIndex: number,
+    taskName: string,
+    sessionId: string,
+    taskType: TaskType,
+    outputFileName?: string
+  ): void {
+    this.recordTaskStatus(taskIndex, taskName, sessionId, taskType, 'completed', outputFileName);
+  }
+
+  /**
+   * 获取当前日志目录名称
+   */
+  private getLogName(taskIndex: number, taskType: TaskType): string {
     const typeName = TASK_TYPE_NAMES[taskType];
-    if (this.logLevelPath.length === 0) {
-      return `${this.taskCounter}_${typeName}`;
-    }
-    const prefix = this.logLevelPath.join('_');
-    return `${prefix}_${this.taskCounter}_${typeName}`;
+    return `${taskIndex}_${typeName}`;
   }
 
   /**
-   * 进入子任务层级
-   * 在执行处理任务前调用，用于生成嵌套日志目录
+   * 获取收集类任务的输出目录
+   * 格式: collect/序号_类型名/
    */
-  enterSubLevel(): void {
-    this.logLevelPath.push(this.taskCounter);
-    this.taskCounter = 0; // 重置子层级计数器
-    if (this.progress) {
-      this.progress.logLevelPath = [...this.logLevelPath];
-      this.progress.taskCounter = this.taskCounter;
-      this.saveProgress();
-    }
+  private getCollectOutputDir(taskIndex: number, taskType: TaskType): string {
+    const typeName = TASK_TYPE_NAMES[taskType];
+    const dir = path.join(this.taskDir, COLLECT_DIR, `${taskIndex}_${typeName}`);
+    ensureDir(dir);
+    return dir;
   }
 
   /**
-   * 退出子任务层级
-   * 在处理任务完成后调用
+   * 获取报告任务的输出目录
+   * 格式: report/
    */
-  exitSubLevel(): void {
-    if (this.logLevelPath.length > 0) {
-      this.taskCounter = this.logLevelPath.pop() || 0;
-      if (this.progress) {
-        this.progress.logLevelPath = [...this.logLevelPath];
-        this.progress.taskCounter = this.taskCounter;
-        this.saveProgress();
-      }
-    }
+  private getReportOutputDir(): string {
+    const dir = path.join(this.taskDir, REPORT_DIR);
+    ensureDir(dir);
+    return dir;
+  }
+
+  /**
+   * 获取收集类任务的完整输出路径
+   */
+  private getCollectOutputPath(taskIndex: number, taskType: TaskType, outputFileName: string): string {
+    const dir = this.getCollectOutputDir(taskIndex, taskType);
+    return path.join(dir, outputFileName);
+  }
+
+  /**
+   * 获取报告任务的完整输出路径
+   */
+  private getReportOutputPath(outputFileName: string): string {
+    const dir = this.getReportOutputDir();
+    return path.join(dir, outputFileName);
   }
 
   /**
@@ -229,23 +294,34 @@ export class AgentTeam {
     taskName: string,
     sessionId: string,
     taskType: TaskType,
-    completed: boolean,
+    status: TaskStatusType,
     outputFileName?: string
   ): void {
     if (!this.progress) return;
+
+    // 查找是否已存在该任务的记录
+    const existingIndex = this.progress.tasks.findIndex(
+      (t) => t.taskIndex === taskIndex && t.taskType === taskType
+    );
 
     const taskStatus: TaskStatus = {
       taskIndex,
       taskName,
       sessionId,
-      completed,
+      status,
       timestamp: Date.now(),
       taskType,
-      outputFileName,
-      logLevelPath: [...this.logLevelPath]
+      outputFileName
     };
 
-    this.progress.tasks.push(taskStatus);
+    if (existingIndex >= 0) {
+      // 更新现有记录
+      this.progress.tasks[existingIndex] = taskStatus;
+    } else {
+      // 添加新记录
+      this.progress.tasks.push(taskStatus);
+    }
+
     this.saveProgress();
   }
 
@@ -254,14 +330,61 @@ export class AgentTeam {
    */
   private isTaskCompleted(taskIndex: number, taskType: TaskType): boolean {
     if (!this.progress) return false;
-    return this.progress.tasks.some(
-      (t) =>
-        t.taskIndex === taskIndex &&
-        t.taskType === taskType &&
-        t.completed &&
-        // 比较层级路径是否一致
-        JSON.stringify(t.logLevelPath) === JSON.stringify(this.logLevelPath)
+    const task = this.progress.tasks.find(
+      (t) => t.taskIndex === taskIndex
     );
+    // 只有当类型匹配且状态为 completed 时才返回 true
+    return task?.taskType === taskType && task?.status === 'completed';
+  }
+
+  /**
+   * 检查任务是否正在进行中
+   */
+  private isTaskInProgress(taskIndex: number, taskType: TaskType): boolean {
+    if (!this.progress) return false;
+    const task = this.progress.tasks.find(
+      (t) => t.taskIndex === taskIndex
+    );
+    // 只有当类型匹配且状态为 in_progress 时才返回 true
+    return task?.taskType === taskType && task?.status === 'in_progress';
+  }
+
+  /**
+   * 清理未完成任务的相关文件
+   */
+  private cleanupInProgressTask(taskIndex: number, taskType: TaskType): void {
+    if (!this.progress) return;
+
+    const task = this.progress.tasks.find(
+      (t) => t.taskIndex === taskIndex
+    );
+
+    if (!task) return;
+
+    // 删除任务日志目录
+    const typeName = TASK_TYPE_NAMES[taskType];
+    const logDirName = `${taskIndex}_${typeName}`;
+    const logDir = path.join(this.taskDir, 'logs', logDirName);
+    if (fs.existsSync(logDir)) {
+      fs.rmSync(logDir, { recursive: true, force: true });
+    }
+
+    // 删除收集类任务的输出文件
+    if (taskType === 'collect' || taskType === 'process_collect') {
+      if (task.outputFileName) {
+        const outputPath = this.getCollectOutputPath(taskIndex, taskType, task.outputFileName);
+        if (fs.existsSync(outputPath)) {
+          fs.unlinkSync(outputPath);
+        }
+      }
+    } else if (taskType === 'report') {
+      if (task.outputFileName) {
+        const outputPath = this.getReportOutputPath(task.outputFileName);
+        if (fs.existsSync(outputPath)) {
+          fs.unlinkSync(outputPath);
+        }
+      }
+    }
   }
 
   /**
@@ -273,8 +396,7 @@ export class AgentTeam {
       (t) =>
         t.taskIndex === taskIndex &&
         t.taskType === taskType &&
-        t.completed &&
-        JSON.stringify(t.logLevelPath) === JSON.stringify(this.logLevelPath)
+        t.status === 'completed'
     );
     return task?.sessionId;
   }
@@ -282,9 +404,9 @@ export class AgentTeam {
   /**
    * 创建任务日志目录
    */
-  private createTaskLogDir(taskType: TaskType): string {
+  private createTaskLogDir(taskIndex: number, taskType: TaskType): string {
     if (!this.logger) return '';
-    const logName = this.getLogName(taskType);
+    const logName = this.getLogName(taskIndex, taskType);
     return this.logger.createTaskLogDirByName(logName);
   }
 
@@ -294,8 +416,8 @@ export class AgentTeam {
   async execPrompt(prompt: string, options?: ExecOptions): Promise<ExecutionResult> {
     this.ensureInitialized();
 
-    const taskIndex = this.getNextTaskIndex();
     const taskType: TaskType = 'task';
+    const taskIndex = this.getNextTaskIndex(taskType);
 
     // 检查是否需要恢复
     if (this.resumePath && this.isTaskCompleted(taskIndex, taskType)) {
@@ -310,8 +432,13 @@ export class AgentTeam {
       };
     }
 
+    // 检查是否有 in_progress 的任务需要重新执行
+    if (this.resumePath && this.isTaskInProgress(taskIndex, taskType)) {
+      this.cleanupInProgressTask(taskIndex, taskType);
+    }
+
     const sessionId = options?.sessionId || generateUUID();
-    const taskLogDir = this.createTaskLogDir(taskType);
+    const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
 
     // 记录任务开始
     this.logger?.logTaskStart(taskIndex, taskType, sessionId, prompt);
@@ -320,6 +447,9 @@ export class AgentTeam {
     if (taskLogDir) {
       this.logger?.writeTaskLog(taskLogDir, 'prompt.txt', prompt);
     }
+
+    // 记录任务状态为 in_progress
+    this.recordTaskStart(taskIndex, `${taskIndex}_task`, sessionId, taskType);
 
     // 执行任务
     const result = await this.executor.execute(prompt, {
@@ -343,8 +473,10 @@ export class AgentTeam {
     // 记录任务完成
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
 
-    // 记录状态
-    this.recordTaskStatus(taskIndex, `${taskIndex}_task`, sessionId, taskType, result.success);
+    // 更新任务状态为 completed
+    if (result.success) {
+      this.recordTaskComplete(taskIndex, `${taskIndex}_task`, sessionId, taskType);
+    }
 
     return result;
   }
@@ -360,14 +492,15 @@ export class AgentTeam {
   ): Promise<CollectResult> {
     this.ensureInitialized();
 
-    const taskIndex = this.getNextTaskIndex();
     const taskType: TaskType = 'collect';
+    const taskIndex = this.getNextTaskIndex(taskType);
 
     // 检查是否需要恢复
     if (this.resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
       this.logger?.logTaskSkipped(taskIndex, taskType);
-      const data = this.loadCollectData(outputFileName);
+      const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
+      const data = loadJsonFile<Record<string, any>[]>(outputPath) || [];
       return {
         sessionId: sessionId || '',
         output: '',
@@ -378,12 +511,17 @@ export class AgentTeam {
       };
     }
 
-    const sessionId = options?.sessionId || generateUUID();
-    const taskLogDir = this.createTaskLogDir(taskType);
-    const outputPath = path.join(this.taskDir, outputFileName);
+    // 检查是否有 in_progress 的任务需要重新执行
+    if (this.resumePath && this.isTaskInProgress(taskIndex, taskType)) {
+      this.cleanupInProgressTask(taskIndex, taskType);
+    }
 
-    // 构建完整提示词
-    const extraPrompt = buildCollectPrompt(outputFormat, outputFileName);
+    const sessionId = options?.sessionId || generateUUID();
+    const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
+    const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
+
+    // 构建完整提示词（使用绝对路径确保写入位置正确）
+    const extraPrompt = buildCollectPrompt(outputFormat, outputPath);
     const fullPrompt = buildFullPrompt(prompt, extraPrompt);
 
     // 记录任务开始
@@ -393,6 +531,9 @@ export class AgentTeam {
     if (taskLogDir) {
       this.logger?.writeTaskLog(taskLogDir, 'prompt.txt', fullPrompt);
     }
+
+    // 记录任务状态为 in_progress
+    this.recordTaskStart(taskIndex, `${taskIndex}_collect`, sessionId, taskType, outputFileName);
 
     // 执行任务
     const result = await this.executor.execute(fullPrompt, {
@@ -416,21 +557,16 @@ export class AgentTeam {
     // 读取收集的数据
     let data: Record<string, any>[] = [];
     if (result.success && fileExists(outputPath)) {
-      data = this.loadCollectData(outputFileName);
+      data = loadJsonFile<Record<string, any>[]>(outputPath) || [];
     }
 
     // 记录任务完成
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
 
-    // 记录状态
-    this.recordTaskStatus(
-      taskIndex,
-      `${taskIndex}_collect`,
-      sessionId,
-      taskType,
-      result.success,
-      outputFileName
-    );
+    // 更新任务状态为 completed
+    if (result.success) {
+      this.recordTaskComplete(taskIndex, `${taskIndex}_collect`, sessionId, taskType, outputFileName);
+    }
 
     return {
       ...result,
@@ -467,14 +603,14 @@ export class AgentTeam {
   ): Promise<ExecutionResult> {
     this.ensureInitialized();
 
-    const taskIndex = this.getNextTaskIndex();
     const taskType: TaskType = 'process';
+    const taskIndex = this.getNextTaskIndex(taskType);
 
     // 替换变量
     const processedPrompt = replaceVariables(prompt, data);
 
     const sessionId = options?.sessionId || generateUUID();
-    const taskLogDir = this.createTaskLogDir(taskType);
+    const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
 
     // 记录任务开始
     this.logger?.logTaskStart(taskIndex, taskType, sessionId, processedPrompt);
@@ -484,6 +620,9 @@ export class AgentTeam {
       this.logger?.writeTaskLog(taskLogDir, 'prompt.txt', processedPrompt);
       this.logger?.writeTaskLog(taskLogDir, 'input_data.json', JSON.stringify(data, null, 2));
     }
+
+    // 记录任务状态为 in_progress
+    this.recordTaskStart(taskIndex, `${taskIndex}_process`, sessionId, taskType);
 
     // 执行任务
     const result = await this.executor.execute(processedPrompt, {
@@ -507,8 +646,10 @@ export class AgentTeam {
     // 记录任务完成
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
 
-    // 记录状态
-    this.recordTaskStatus(taskIndex, `${taskIndex}_process`, sessionId, taskType, result.success);
+    // 更新任务状态为 completed
+    if (result.success) {
+      this.recordTaskComplete(taskIndex, `${taskIndex}_process`, sessionId, taskType);
+    }
 
     return result;
   }
@@ -525,19 +666,19 @@ export class AgentTeam {
   ): Promise<CollectResult> {
     this.ensureInitialized();
 
-    const taskIndex = this.getNextTaskIndex();
     const taskType: TaskType = 'process_collect';
+    const taskIndex = this.getNextTaskIndex(taskType);
 
     // 替换变量
     const processedPrompt = replaceVariables(prompt, data);
 
-    // 构建完整提示词
-    const extraPrompt = buildCollectPrompt(outputFormat, outputFileName);
-    const fullPrompt = buildFullPrompt(processedPrompt, extraPrompt);
-
     const sessionId = options?.sessionId || generateUUID();
-    const taskLogDir = this.createTaskLogDir(taskType);
-    const outputPath = path.join(this.taskDir, outputFileName);
+    const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
+    const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
+
+    // 构建完整提示词（使用绝对路径确保写入位置正确）
+    const extraPrompt = buildCollectPrompt(outputFormat, outputPath);
+    const fullPrompt = buildFullPrompt(processedPrompt, extraPrompt);
 
     // 记录任务开始
     this.logger?.logTaskStart(taskIndex, taskType, sessionId, fullPrompt);
@@ -547,6 +688,9 @@ export class AgentTeam {
       this.logger?.writeTaskLog(taskLogDir, 'prompt.txt', fullPrompt);
       this.logger?.writeTaskLog(taskLogDir, 'input_data.json', JSON.stringify(data, null, 2));
     }
+
+    // 记录任务状态为 in_progress
+    this.recordTaskStart(taskIndex, `${taskIndex}_process_and_collect`, sessionId, taskType, outputFileName);
 
     // 执行任务
     const result = await this.executor.execute(fullPrompt, {
@@ -570,21 +714,16 @@ export class AgentTeam {
     // 读取收集的数据
     let collectedData: Record<string, any>[] = [];
     if (result.success && fileExists(outputPath)) {
-      collectedData = this.loadCollectData(outputFileName);
+      collectedData = loadJsonFile<Record<string, any>[]>(outputPath) || [];
     }
 
     // 记录任务完成
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
 
-    // 记录状态
-    this.recordTaskStatus(
-      taskIndex,
-      `${taskIndex}_process_and_collect`,
-      sessionId,
-      taskType,
-      result.success,
-      outputFileName
-    );
+    // 更新任务状态为 completed
+    if (result.success) {
+      this.recordTaskComplete(taskIndex, `${taskIndex}_process_and_collect`, sessionId, taskType, outputFileName);
+    }
 
     return {
       ...result,
@@ -603,14 +742,15 @@ export class AgentTeam {
   ): Promise<CollectResult> {
     this.ensureInitialized();
 
-    const taskIndex = this.getNextTaskIndex();
     const taskType: TaskType = 'report';
+    const taskIndex = this.getNextTaskIndex(taskType);
 
     // 检查是否需要恢复
     if (this.resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
       this.logger?.logTaskSkipped(taskIndex, taskType);
-      const data = this.loadCollectData(outputFileName);
+      const outputPath = this.getReportOutputPath(outputFileName);
+      const data = loadJsonFile<Record<string, any>[]>(outputPath) || [];
       return {
         sessionId: sessionId || '',
         output: '',
@@ -621,12 +761,17 @@ export class AgentTeam {
       };
     }
 
-    const sessionId = options?.sessionId || generateUUID();
-    const taskLogDir = this.createTaskLogDir(taskType);
-    const outputPath = path.join(this.taskDir, outputFileName);
+    // 检查是否有 in_progress 的任务需要重新执行
+    if (this.resumePath && this.isTaskInProgress(taskIndex, taskType)) {
+      this.cleanupInProgressTask(taskIndex, taskType);
+    }
 
-    // 构建完整提示词
-    const extraPrompt = buildReportPrompt(outputFormat, outputFileName);
+    const sessionId = options?.sessionId || generateUUID();
+    const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
+    const outputPath = this.getReportOutputPath(outputFileName);
+
+    // 构建完整提示词（使用绝对路径确保写入位置正确）
+    const extraPrompt = buildReportPrompt(outputFormat, outputPath);
     const fullPrompt = buildFullPrompt(prompt, extraPrompt);
 
     // 记录任务开始
@@ -636,6 +781,9 @@ export class AgentTeam {
     if (taskLogDir) {
       this.logger?.writeTaskLog(taskLogDir, 'prompt.txt', fullPrompt);
     }
+
+    // 记录任务状态为 in_progress
+    this.recordTaskStart(taskIndex, `${taskIndex}_report`, sessionId, taskType, outputFileName);
 
     // 执行任务
     const result = await this.executor.execute(fullPrompt, {
@@ -659,21 +807,16 @@ export class AgentTeam {
     // 读取报告数据
     let data: Record<string, any>[] = [];
     if (result.success && fileExists(outputPath)) {
-      data = this.loadCollectData(outputFileName);
+      data = loadJsonFile<Record<string, any>[]>(outputPath) || [];
     }
 
     // 记录任务完成
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
 
-    // 记录状态
-    this.recordTaskStatus(
-      taskIndex,
-      `${taskIndex}_report`,
-      sessionId,
-      taskType,
-      result.success,
-      outputFileName
-    );
+    // 更新任务状态为 completed
+    if (result.success) {
+      this.recordTaskComplete(taskIndex, `${taskIndex}_report`, sessionId, taskType, outputFileName);
+    }
 
     return {
       ...result,

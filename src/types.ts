@@ -57,25 +57,28 @@ export interface CollectResult extends ExecutionResult {
 }
 
 /**
+ * 任务状态枚举
+ */
+export type TaskStatusType = 'pending' | 'in_progress' | 'completed';
+
+/**
  * 任务状态
  */
 export interface TaskStatus {
   /** 任务序号 */
   taskIndex: number;
-  /** 任务层级名称，如 1_task, 2_collect, 3_1_process */
+  /** 任务名称，如 1_task, 2_collect, 3_process */
   taskName: string;
   /** 会话ID */
   sessionId: string;
-  /** 是否完成 */
-  completed: boolean;
+  /** 任务状态 */
+  status: TaskStatusType;
   /** 执行时间戳 */
   timestamp: number;
   /** 任务类型 */
   taskType: 'task' | 'collect' | 'process' | 'process_collect' | 'report';
   /** 输出文件名（仅收集类任务） */
   outputFileName?: string;
-  /** 日志层级路径，用于恢复时判断任务位置 */
-  logLevelPath: number[];
 }
 
 /**
@@ -92,6 +95,4 @@ export interface ProgressInfo {
   tasks: TaskStatus[];
   /** 最后更新时间 */
   lastUpdated: number;
-  /** 日志层级路径，用于嵌套任务的日志目录命名 */
-  logLevelPath: number[];
 }
