@@ -6,6 +6,9 @@ import { MAX_RETRIES } from '../constants';
 import { Logger } from './logger';
 import * as fs from 'fs';
 
+/** 默认执行超时时间：3 小时 */
+const DEFAULT_TIMEOUT_MS = 3 * 60 * 60 * 1000;
+
 /**
  * Claude 执行器选项
  */
@@ -18,6 +21,8 @@ export interface ExecutorOptions {
   logger?: Logger;
   taskIndex?: number;
   taskType?: string;
+  /** 执行超时时间（毫秒），默认 10 分钟 */
+  timeout?: number;
 }
 
 /**
@@ -45,6 +50,9 @@ export class ClaudeExecutor {
     const startTime = Date.now();
 
     let lastError: string | undefined;
+    let lastStdout: string = '';
+    let lastStderr: string = '';
+    let lastExitCode: number | null = null;
     let attempts = 0;
 
     while (attempts < MAX_RETRIES) {
@@ -52,6 +60,10 @@ export class ClaudeExecutor {
 
       try {
         const result = await this.runClaudeCommand(prompt, sessionId, options);
+
+        lastStdout = result.stdout;
+        lastStderr = result.stderr;
+        lastExitCode = result.exitCode;
 
         if (result.exitCode === 0) {
           const duration = Date.now() - startTime;
@@ -64,8 +76,8 @@ export class ClaudeExecutor {
           };
         }
 
-        // 非零退出码
-        lastError = result.stderr || `Claude exited with code ${result.exitCode}`;
+        // 非零退出码，构建完整错误信息
+        lastError = this.buildErrorMessage(result);
 
         if (attempts < MAX_RETRIES) {
           options.logger?.logTaskRetry(
@@ -76,7 +88,8 @@ export class ClaudeExecutor {
           );
         }
       } catch (error) {
-        lastError = error instanceof Error ? error.message : String(error);
+        // 捕获所有异常，构建完整错误信息
+        lastError = this.buildCatchErrorMessage(error);
 
         if (attempts < MAX_RETRIES) {
           options.logger?.logTaskRetry(
@@ -89,10 +102,27 @@ export class ClaudeExecutor {
       }
     }
 
-    // 所有重试都失败
+    // 所有重试都失败，打印完整诊断信息
     const duration = Date.now() - startTime;
-    console.error(`任务执行失败，已重试 ${MAX_RETRIES} 次，退出进程`);
-    console.error(`错误信息: ${lastError}`);
+    const fullErrorReport = this.buildFullErrorReport(
+      lastError,
+      lastStdout,
+      lastStderr,
+      lastExitCode,
+      attempts,
+      duration,
+      sessionId,
+      options
+    );
+
+    console.error(fullErrorReport);
+
+    // 保存完整错误报告到日志文件
+    if (options.taskLogDir) {
+      const errorReportFile = path.join(options.taskLogDir, 'error_report.txt');
+      fs.writeFileSync(errorReportFile, fullErrorReport, 'utf-8');
+    }
+
     process.exit(1);
     // 以下代码不会执行，但 TypeScript 需要返回值
     return {
@@ -106,6 +136,104 @@ export class ClaudeExecutor {
   }
 
   /**
+   * 构建错误消息（非零退出码情况）
+   */
+  private buildErrorMessage(result: ExecutorResult): string {
+    const parts: string[] = [];
+    parts.push(`Claude exited with code ${result.exitCode}`);
+
+    if (result.stderr) {
+      parts.push(`stderr: ${result.stderr}`);
+    }
+
+    if (result.stdout) {
+      // stdout 可能很长，但为了调试需要完整输出
+      parts.push(`stdout: ${result.stdout}`);
+    }
+
+    return parts.join('\n');
+  }
+
+  /**
+   * 构建异常错误消息
+   */
+  private buildCatchErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      const parts: string[] = [];
+      parts.push(`Exception: ${error.message}`);
+
+      if (error.stack) {
+        parts.push(`Stack trace:\n${error.stack}`);
+      }
+
+      // 检查是否有 cause
+      if ((error as any).cause) {
+        parts.push(`Caused by: ${String((error as any).cause)}`);
+      }
+
+      return parts.join('\n');
+    }
+    return `Unknown error: ${String(error)}`;
+  }
+
+  /**
+   * 构建完整错误报告
+   */
+  private buildFullErrorReport(
+    lastError: string | undefined,
+    lastStdout: string,
+    lastStderr: string,
+    lastExitCode: number | null,
+    attempts: number,
+    duration: number,
+    sessionId: string,
+    options: ExecutorOptions
+  ): string {
+    const lines: string[] = [];
+    const separator = '='.repeat(80);
+
+    lines.push(separator);
+    lines.push('任务执行失败报告');
+    lines.push(separator);
+    lines.push('');
+
+    lines.push('【基本信息】');
+    lines.push(`时间: ${new Date().toISOString()}`);
+    lines.push(`任务序号: ${options.taskIndex || 0}`);
+    lines.push(`任务类型: ${options.taskType || 'task'}`);
+    lines.push(`会话ID: ${sessionId}`);
+    lines.push(`重试次数: ${attempts}`);
+    lines.push(`总耗时: ${(duration / 1000).toFixed(2)}s`);
+    lines.push('');
+
+    lines.push('【退出状态】');
+    lines.push(`退出码: ${lastExitCode}`);
+    lines.push('');
+
+    lines.push('【错误信息】');
+    lines.push(lastError || '(无)');
+    lines.push('');
+
+    lines.push('【stderr 输出】');
+    lines.push(lastStderr || '(空)');
+    lines.push('');
+
+    lines.push('【stdout 输出】');
+    lines.push(lastStdout || '(空)');
+    lines.push('');
+
+    lines.push('【工作目录】');
+    lines.push(options.cwd || process.cwd());
+    lines.push('');
+
+    lines.push(separator);
+    lines.push('所有重试均失败，进程退出');
+    lines.push(separator);
+
+    return lines.join('\n');
+  }
+
+  /**
    * 运行 claude 命令
    */
   private async runClaudeCommand(
@@ -113,23 +241,40 @@ export class ClaudeExecutor {
     sessionId: string,
     options: ExecutorOptions
   ): Promise<ExecutorResult> {
-    const args = this.buildArgs(prompt, sessionId, options.useResume === true);
+    const taskLogDir = options.taskLogDir;
     const cwd = options.cwd || process.cwd();
+    const timeout = options.timeout || DEFAULT_TIMEOUT_MS;
+
+    // 构建 debug 日志文件路径
+    const claudeDebugFile = taskLogDir ? path.join(taskLogDir, 'claude_debug.log') : undefined;
+
+    const args = this.buildArgs(prompt, sessionId, options.useResume === true, claudeDebugFile);
+
+    // 构建完整的命令字符串用于日志记录
+    const fullCommand = this.buildCommandString('claude', args);
 
     return new Promise((resolve, reject) => {
-      const taskLogDir = options.taskLogDir;
+      // 记录完整命令到汇总日志
+      options.logger?.writeSummaryLog(`执行命令: ${fullCommand}`);
 
       // 保存执行信息到日志目录
       if (taskLogDir) {
         const execInfoFile = path.join(taskLogDir, 'execution_info.json');
         const execInfo = {
+          command: fullCommand,
           sessionId,
           args,
           cwd,
+          timeout,
           timestamp: new Date().toISOString(),
-          useResume: options.useResume === true
+          useResume: options.useResume === true,
+          claudeDebugFile
         };
         fs.writeFileSync(execInfoFile, JSON.stringify(execInfo, null, 2), 'utf-8');
+
+        // 单独保存完整命令到文件，方便调试
+        const commandFile = path.join(taskLogDir, 'command.txt');
+        fs.writeFileSync(commandFile, fullCommand, 'utf-8');
       }
 
       const child = childProcess.spawn('claude', args, {
@@ -141,7 +286,25 @@ export class ClaudeExecutor {
         }
       });
 
-      child.stdin.end(); 
+      // 设置超时
+      const timeoutId = setTimeout(() => {
+        const timeoutError = new Error(
+          `Claude process timed out after ${timeout}ms (${timeout / 1000}s)`
+        );
+        // 先尝试优雅终止
+        child.kill('SIGTERM');
+
+        // 3秒后强制终止
+        setTimeout(() => {
+          if (!child.killed) {
+            child.kill('SIGKILL');
+          }
+        }, 3000);
+
+        reject(timeoutError);
+      }, timeout);
+
+      child.stdin.end();
 
       let stdout = '';
       let stderr = '';
@@ -155,10 +318,12 @@ export class ClaudeExecutor {
       });
 
       child.on('error', (error) => {
+        clearTimeout(timeoutId);
         reject(error);
       });
 
       child.on('close', (code) => {
+        clearTimeout(timeoutId);
         resolve({
           stdout,
           stderr,
@@ -170,9 +335,20 @@ export class ClaudeExecutor {
 
   /**
    * 构建命令行参数
+   * @param claudeDebugFile Claude debug 日志文件路径，用于记录 Claude 内部执行过程
    */
-  private buildArgs(prompt: string, sessionId: string, isResume?: boolean): string[] {
+  private buildArgs(
+    prompt: string,
+    sessionId: string,
+    isResume?: boolean,
+    claudeDebugFile?: string
+  ): string[] {
     const args = ['--dangerously-skip-permissions'];
+
+    // 添加 debug 日志输出，记录 Claude 思考和执行过程
+    if (claudeDebugFile) {
+      args.push('--debug-file', claudeDebugFile);
+    }
 
     if (isResume) {
       args.push('--resume', sessionId);
@@ -183,6 +359,23 @@ export class ClaudeExecutor {
     args.push('-p', prompt);
 
     return args;
+  }
+
+  /**
+   * 构建完整的命令字符串用于日志记录
+   * 对包含特殊字符的参数进行适当的引号处理
+   */
+  private buildCommandString(command: string, args: string[]): string {
+    const escapedArgs = args.map(arg => {
+      // 如果参数包含空格、换行、引号等特殊字符，需要用单引号包裹
+      if (/[\s'"`\$\n\r\t\\]/.test(arg)) {
+        // 先转义单引号（单引号内不能直接包含单引号，需要用 '\'' 来结束引用、转义单引号、重新开始引用）
+        const escaped = arg.replace(/'/g, "'\\''");
+        return `'${escaped}'`;
+      }
+      return arg;
+    });
+    return `${command} ${escapedArgs.join(' ')}`;
   }
 }
 

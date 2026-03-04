@@ -97,7 +97,9 @@ export class Logger {
   ): void {
     const typeName = TASK_TYPE_NAMES[taskType];
     this.writeSummaryLog(`任务 ${taskIndex}_${typeName} 开始执行 [sessionId: ${sessionId}]`);
-    this.writeSummaryLog(`提示词:\n${prompt.substring(0, 500)}${prompt.length > 500 ? '...' : ''}`);
+    // 打印完整提示词，不截断
+    this.writeSummaryLog(`提示词:\n${prompt}`);
+    this.writeSummaryLog(`提示词长度: ${prompt.length} 字符`);
   }
 
   /**
