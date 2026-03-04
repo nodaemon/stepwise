@@ -548,7 +548,7 @@ export class StepWise {
     const useResume = !options?.newSession && !!this.currentSessionId;
 
     // 构建完整提示词（使用绝对路径确保写入位置正确）
-    const extraPrompt = buildCollectPrompt(outputFormat, outputPath);
+    const extraPrompt = buildCollectPrompt(outputFormat, outputPath, options?.cwd);
     const fullPrompt = buildFullPrompt(prompt, extraPrompt);
 
     // 记录任务开始
@@ -708,7 +708,7 @@ export class StepWise {
     const useResume = !options?.newSession && !!this.currentSessionId;
 
     // 构建完整提示词（使用绝对路径确保写入位置正确）
-    const extraPrompt = buildCollectPrompt(outputFormat, outputPath);
+    const extraPrompt = buildCollectPrompt(outputFormat, outputPath, options?.cwd);
     const fullPrompt = buildFullPrompt(processedPrompt, extraPrompt);
 
     // 记录任务开始
@@ -805,7 +805,7 @@ export class StepWise {
     const useResume = !options?.newSession && !!this.currentSessionId;
 
     // 构建完整提示词（使用绝对路径确保写入位置正确）
-    const extraPrompt = buildReportPrompt(outputFormat, outputPath);
+    const extraPrompt = buildReportPrompt(outputFormat, outputPath, options?.cwd);
     const fullPrompt = buildFullPrompt(prompt, extraPrompt);
 
     // 记录任务开始
