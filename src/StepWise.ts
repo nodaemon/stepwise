@@ -441,7 +441,7 @@ export class StepWise {
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
 
     // 记录任务开始
-    this.logger?.logTaskStart(taskIndex, taskType, sessionId, prompt);
+    this.logger?.logTaskStart(taskIndex, taskType);
 
     // 保存提示词
     if (taskLogDir) {
@@ -525,7 +525,7 @@ export class StepWise {
     const fullPrompt = buildFullPrompt(prompt, extraPrompt);
 
     // 记录任务开始
-    this.logger?.logTaskStart(taskIndex, taskType, sessionId, fullPrompt);
+    this.logger?.logTaskStart(taskIndex, taskType);
 
     // 保存提示词
     if (taskLogDir) {
@@ -613,7 +613,7 @@ export class StepWise {
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
 
     // 记录任务开始
-    this.logger?.logTaskStart(taskIndex, taskType, sessionId, processedPrompt);
+    this.logger?.logTaskStart(taskIndex, taskType);
 
     // 保存提示词和数据
     if (taskLogDir) {
@@ -681,7 +681,7 @@ export class StepWise {
     const fullPrompt = buildFullPrompt(processedPrompt, extraPrompt);
 
     // 记录任务开始
-    this.logger?.logTaskStart(taskIndex, taskType, sessionId, fullPrompt);
+    this.logger?.logTaskStart(taskIndex, taskType);
 
     // 保存提示词和数据
     if (taskLogDir) {
@@ -775,7 +775,7 @@ export class StepWise {
     const fullPrompt = buildFullPrompt(prompt, extraPrompt);
 
     // 记录任务开始
-    this.logger?.logTaskStart(taskIndex, taskType, sessionId, fullPrompt);
+    this.logger?.logTaskStart(taskIndex, taskType);
 
     // 保存提示词
     if (taskLogDir) {

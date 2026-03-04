@@ -92,14 +92,10 @@ export class Logger {
   logTaskStart(
     taskIndex: number,
     taskType: TaskType,
-    sessionId: string,
-    prompt: string
+    sessionId: string
   ): void {
     const typeName = TASK_TYPE_NAMES[taskType];
     this.writeSummaryLog(`任务 ${taskIndex}_${typeName} 开始执行 [sessionId: ${sessionId}]`);
-    // 打印完整提示词，不截断
-    this.writeSummaryLog(`提示词:\n${prompt}`);
-    this.writeSummaryLog(`提示词长度: ${prompt.length} 字符`);
   }
 
   /**
