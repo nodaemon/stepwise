@@ -126,10 +126,15 @@ agent.enableDebugMode(false); // 禁用
 
 ```typescript
 interface ExecOptions {
-  cwd?: string;       // 工作目录，默认当前进程目录
-  sessionId?: string; // 会话ID，指定则使用 --resume 恢复
+  cwd?: string;        // 工作目录，默认当前进程目录
+  newSession?: boolean; // 是否使用新会话，默认 false（复用上一个会话）
 }
 ```
+
+**会话行为说明**
+
+- `newSession: false`（默认）：复用上一个任务的 session id。如果没有上一个会话，则创建新的。
+- `newSession: true`：创建新的 session id，开始一个新的对话上下文。
 
 **ExecutionResult**
 
@@ -400,6 +405,25 @@ const data = agent.loadCollectData('my_data.json');
 
 ---
 
+#### getCurrentSessionId(): string
+
+获取当前任务执行使用的 session id。
+
+**返回值**
+
+| 类型 | 描述 |
+|------|------|
+| string | 当前 session id，未初始化时返回空字符串 |
+
+**示例**
+
+```typescript
+const sessionId = agent.getCurrentSessionId();
+console.log('当前会话ID:', sessionId);
+```
+
+---
+
 ## 类型定义
 
 ### ExecOptions
@@ -408,8 +432,8 @@ const data = agent.loadCollectData('my_data.json');
 
 ```typescript
 interface ExecOptions {
-  cwd?: string;       // 工作目录
-  sessionId?: string; // 会话ID
+  cwd?: string;        // 工作目录
+  newSession?: boolean; // 是否使用新会话（默认：false）
 }
 ```
 

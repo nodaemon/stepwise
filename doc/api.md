@@ -126,10 +126,15 @@ Executes a normal task.
 
 ```typescript
 interface ExecOptions {
-  cwd?: string;       // Working directory, defaults to current process directory
-  sessionId?: string; // Session ID, uses --resume if specified
+  cwd?: string;        // Working directory, defaults to current process directory
+  newSession?: boolean; // Whether to use a new session, defaults to false (reuse previous session)
 }
 ```
+
+**Session Behavior**
+
+- `newSession: false` (default): Reuses the previous task's session ID. If no previous session exists, creates a new one.
+- `newSession: true`: Creates a new session ID, starting a fresh conversation context.
 
 **ExecutionResult**
 
@@ -400,6 +405,25 @@ Gets the current task count.
 
 ---
 
+#### getCurrentSessionId(): string
+
+Gets the current session ID being used for task execution.
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| string | Current session ID, empty string if not yet initialized |
+
+**Example**
+
+```typescript
+const sessionId = agent.getCurrentSessionId();
+console.log('Current session:', sessionId);
+```
+
+---
+
 ## Type Definitions
 
 ### ExecOptions
@@ -408,8 +432,8 @@ Execution options.
 
 ```typescript
 interface ExecOptions {
-  cwd?: string;       // Working directory
-  sessionId?: string; // Session ID
+  cwd?: string;        // Working directory
+  newSession?: boolean; // Whether to use a new session (default: false)
 }
 ```
 

@@ -45,7 +45,9 @@ isDebugMode(): boolean
 ### 串行任务
 
 ```typescript
-// 使用claude执行提示词，cwd未指定则使用当前进程的cwd，sessionId未指定则新生成一个uuid，sessionId指定了则使用--resume方式恢复执行
+// 使用claude执行提示词，cwd未指定则使用当前进程的cwd
+// newSession 未指定或为 false: 复用上一个任务的 session id（如果没有则创建新的）
+// newSession 为 true: 创建新的 session id
 // 返回本次执行的ExecutionResult中各个字段的信息
 execPrompt(prompt: string, options?: ExecOptions): Promise<ExecutionResult>
 ```
@@ -94,7 +96,7 @@ execReport(prompt: string, outputFormat: OutputFormat, outputFileName: string, o
 ```typescript
 interface ExecOptions {
   cwd?: string;
-  sessionId?: string;  // 有值: 使用 --resume; 无值: 生成新 UUID 使用 --session-id
+  newSession?: boolean;  // true: 创建新 session; false/未指定: 复用上一个 session（默认）
 }
 
 interface OutputFormat {

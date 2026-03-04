@@ -52,17 +52,22 @@ async function main() {
   const agent = new StepWise();
   agent.setTaskName('SessionExample');
 
-  // First execution, get sessionId
+  // First execution, creates a new session automatically
   const result1 = await agent.execPrompt('List all files in the src directory');
   console.log('Session ID:', result1.sessionId);
 
-  // Continue execution with the same sessionId, maintaining context
+  // Continue execution, automatically reuses the previous session, maintaining context
   const result2 = await agent.execPrompt(
-    'Count how many TypeScript files are among these files',
-    { sessionId: result1.sessionId }
+    'Count how many TypeScript files are among these files'
   );
 
   console.log('Result:', result2.output);
+
+  // If you need a new session, explicitly specify newSession: true
+  const result3 = await agent.execPrompt(
+    'Start a new independent task',
+    { newSession: true }
+  );
 }
 
 main();

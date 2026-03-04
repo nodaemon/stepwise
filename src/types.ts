@@ -4,8 +4,12 @@
 export interface ExecOptions {
   /** 工作目录，未指定则使用当前进程的cwd */
   cwd?: string;
-  /** 会话ID，有值则使用 --resume 恢复执行，无值则生成新 UUID 使用 --session-id */
-  sessionId?: string;
+  /**
+   * 是否使用新会话，默认 false
+   * - false: 复用上一个任务的 session id（如果没有则创建新的）
+   * - true: 创建新的 session id
+   */
+  newSession?: boolean;
 }
 
 /**

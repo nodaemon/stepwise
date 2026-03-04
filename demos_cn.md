@@ -52,17 +52,22 @@ async function main() {
   const agent = new StepWise();
   agent.setTaskName('SessionExample');
 
-  // 第一次执行，获得 sessionId
+  // 第一次执行，自动创建新 session
   const result1 = await agent.execPrompt('列出 src 目录下的所有文件');
   console.log('Session ID:', result1.sessionId);
 
-  // 使用相同的 sessionId 继续执行，保持上下文
+  // 继续执行，自动复用上一个 session，保持上下文
   const result2 = await agent.execPrompt(
-    '统计这些文件中有多少个 TypeScript 文件',
-    { sessionId: result1.sessionId }
+    '统计这些文件中有多少个 TypeScript 文件'
   );
 
   console.log('结果:', result2.output);
+
+  // 如果需要新 session，显式指定 newSession: true
+  const result3 = await agent.execPrompt(
+    '开始一个新的独立任务',
+    { newSession: true }
+  );
 }
 
 main();

@@ -47,6 +47,7 @@ export class StepWise {
   private debugMode: boolean = false;
   private taskCounter: number = 0;
   private executionIndex: number = 0;  // 恢复模式下用于匹配历史任务序号
+  /** 当前会话ID，用于默认复用上一个任务的session */
   private currentSessionId: string = '';
   private logger: Logger | null = null;
   private executor: ClaudeExecutor;
@@ -85,6 +86,26 @@ export class StepWise {
    */
   isDebugMode(): boolean {
     return this.debugMode;
+  }
+
+  /**
+   * 获取当前的 session id
+   * 用于外部获取当前会话ID
+   */
+  getCurrentSessionId(): string {
+    return this.currentSessionId;
+  }
+
+  /**
+   * 获取或创建 session id
+   * - 如果 newSession 为 true，创建新的 session id
+   * - 否则复用 currentSessionId（如果没有则创建新的）
+   */
+  private getOrCreateSessionId(newSession?: boolean): string {
+    if (newSession || !this.currentSessionId) {
+      this.currentSessionId = generateUUID();
+    }
+    return this.currentSessionId;
   }
 
   /**
@@ -437,11 +458,14 @@ export class StepWise {
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
-    const sessionId = options?.sessionId || generateUUID();
+    // 获取或创建 session id：默认复用上一个，newSession 为 true 时创建新的
+    const sessionId = this.getOrCreateSessionId(options?.newSession);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
+    // 是否使用 resume 模式：只有复用已有 session 时才使用 resume
+    const useResume = !options?.newSession && !!this.currentSessionId;
 
     // 记录任务开始
-    this.logger?.logTaskStart(taskIndex, taskType);
+    this.logger?.logTaskStart(taskIndex, taskType, sessionId);
 
     // 保存提示词
     if (taskLogDir) {
@@ -455,7 +479,7 @@ export class StepWise {
     const result = await this.executor.execute(prompt, {
       cwd: options?.cwd,
       sessionId: sessionId,
-      useResume: !!options?.sessionId,
+      useResume,
       taskLogDir,
       logger: this.logger!,
       taskIndex,
@@ -516,16 +540,19 @@ export class StepWise {
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
-    const sessionId = options?.sessionId || generateUUID();
+    // 获取或创建 session id：默认复用上一个，newSession 为 true 时创建新的
+    const sessionId = this.getOrCreateSessionId(options?.newSession);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
+    // 是否使用 resume 模式：只有复用已有 session 时才使用 resume
+    const useResume = !options?.newSession && !!this.currentSessionId;
 
     // 构建完整提示词（使用绝对路径确保写入位置正确）
     const extraPrompt = buildCollectPrompt(outputFormat, outputPath);
     const fullPrompt = buildFullPrompt(prompt, extraPrompt);
 
     // 记录任务开始
-    this.logger?.logTaskStart(taskIndex, taskType);
+    this.logger?.logTaskStart(taskIndex, taskType, sessionId);
 
     // 保存提示词
     if (taskLogDir) {
@@ -539,7 +566,7 @@ export class StepWise {
     const result = await this.executor.execute(fullPrompt, {
       cwd: options?.cwd,
       sessionId: sessionId,
-      useResume: !!options?.sessionId,
+      useResume,
       taskLogDir,
       logger: this.logger!,
       taskIndex,
@@ -609,11 +636,14 @@ export class StepWise {
     // 替换变量
     const processedPrompt = replaceVariables(prompt, data);
 
-    const sessionId = options?.sessionId || generateUUID();
+    // 获取或创建 session id：默认复用上一个，newSession 为 true 时创建新的
+    const sessionId = this.getOrCreateSessionId(options?.newSession);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
+    // 是否使用 resume 模式：只有复用已有 session 时才使用 resume
+    const useResume = !options?.newSession && !!this.currentSessionId;
 
     // 记录任务开始
-    this.logger?.logTaskStart(taskIndex, taskType);
+    this.logger?.logTaskStart(taskIndex, taskType, sessionId);
 
     // 保存提示词和数据
     if (taskLogDir) {
@@ -628,7 +658,7 @@ export class StepWise {
     const result = await this.executor.execute(processedPrompt, {
       cwd: options?.cwd,
       sessionId: sessionId,
-      useResume: !!options?.sessionId,
+      useResume,
       taskLogDir,
       logger: this.logger!,
       taskIndex,
@@ -672,16 +702,19 @@ export class StepWise {
     // 替换变量
     const processedPrompt = replaceVariables(prompt, data);
 
-    const sessionId = options?.sessionId || generateUUID();
+    // 获取或创建 session id：默认复用上一个，newSession 为 true 时创建新的
+    const sessionId = this.getOrCreateSessionId(options?.newSession);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
+    // 是否使用 resume 模式：只有复用已有 session 时才使用 resume
+    const useResume = !options?.newSession && !!this.currentSessionId;
 
     // 构建完整提示词（使用绝对路径确保写入位置正确）
     const extraPrompt = buildCollectPrompt(outputFormat, outputPath);
     const fullPrompt = buildFullPrompt(processedPrompt, extraPrompt);
 
     // 记录任务开始
-    this.logger?.logTaskStart(taskIndex, taskType);
+    this.logger?.logTaskStart(taskIndex, taskType, sessionId);
 
     // 保存提示词和数据
     if (taskLogDir) {
@@ -696,7 +729,7 @@ export class StepWise {
     const result = await this.executor.execute(fullPrompt, {
       cwd: options?.cwd,
       sessionId: sessionId,
-      useResume: !!options?.sessionId,
+      useResume,
       taskLogDir,
       logger: this.logger!,
       taskIndex,
@@ -766,16 +799,19 @@ export class StepWise {
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
-    const sessionId = options?.sessionId || generateUUID();
+    // 获取或创建 session id：默认复用上一个，newSession 为 true 时创建新的
+    const sessionId = this.getOrCreateSessionId(options?.newSession);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const outputPath = this.getReportOutputPath(outputFileName);
+    // 是否使用 resume 模式：只有复用已有 session 时才使用 resume
+    const useResume = !options?.newSession && !!this.currentSessionId;
 
     // 构建完整提示词（使用绝对路径确保写入位置正确）
     const extraPrompt = buildReportPrompt(outputFormat, outputPath);
     const fullPrompt = buildFullPrompt(prompt, extraPrompt);
 
     // 记录任务开始
-    this.logger?.logTaskStart(taskIndex, taskType);
+    this.logger?.logTaskStart(taskIndex, taskType, sessionId);
 
     // 保存提示词
     if (taskLogDir) {
@@ -789,7 +825,7 @@ export class StepWise {
     const result = await this.executor.execute(fullPrompt, {
       cwd: options?.cwd,
       sessionId: sessionId,
-      useResume: !!options?.sessionId,
+      useResume,
       taskLogDir,
       logger: this.logger!,
       taskIndex,
