@@ -340,7 +340,7 @@ await agent.execReport(
 
 #### saveCollectData(data: Record\<string, any\>[], fileName?: string): void
 
-Saves collected data to disk.
+Saves collected data to disk. The data file is stored in the current working directory (cwd), not the task directory.
 
 **Parameters**
 
@@ -359,7 +359,7 @@ agent.saveCollectData(result.data, 'my_data.json');
 
 #### loadCollectData(fileName?: string): Record\<string, any\>[]
 
-Loads collected data from disk.
+Loads collected data from disk. Reads the file from the current working directory (cwd), not the task directory.
 
 **Parameters**
 

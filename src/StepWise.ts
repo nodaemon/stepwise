@@ -602,20 +602,18 @@ export class StepWise {
   }
 
   /**
-   * 保存收集的数据到磁盘
+   * 保存收集的数据到磁盘（存储在当前工作目录）
    */
   saveCollectData(data: Record<string, any>[], fileName: string = 'collect_data.json'): void {
-    this.ensureInitialized();
-    const outputPath = path.join(this.taskDir, fileName);
+    const outputPath = path.join(process.cwd(), fileName);
     appendJsonArray(outputPath, data);
   }
 
   /**
-   * 从磁盘加载收集的数据
+   * 从磁盘加载收集的数据（从当前工作目录读取）
    */
   loadCollectData(fileName: string = 'collect_data.json'): Record<string, any>[] {
-    this.ensureInitialized();
-    const filePath = path.join(this.taskDir, fileName);
+    const filePath = path.join(process.cwd(), fileName);
     const data = loadJsonFile<Record<string, any>[]>(filePath);
     return data || [];
   }

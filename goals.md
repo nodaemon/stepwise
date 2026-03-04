@@ -60,10 +60,10 @@ execPrompt(prompt: string, options?: ExecOptions): Promise<ExecutionResult>
 // 除了普通的任务返回信息，还需要从磁盘读取生成的json数组，返回CollectResult中的data
 execCollectPrompt(prompt: string, outputFormat: OutputFormat, outputFileName: string, options?: ExecOptions): Promise<CollectResult>
 
-// 保存收集的数据到磁盘
+// 保存收集的数据到磁盘（存储在当前工作目录cwd）
 saveCollectData(data: Record<string, any>[], fileName?: string): void
 
-// 从磁盘加载收集的数据
+// 从磁盘加载收集的数据（从当前工作目录cwd读取）
 loadCollectData(fileName?: string): Record<string, any>[]
 ```
 

@@ -340,7 +340,7 @@ await agent.execReport(
 
 #### saveCollectData(data: Record\<string, any\>[], fileName?: string): void
 
-保存收集的数据到磁盘。
+保存收集的数据到磁盘。数据文件存储在当前工作目录（cwd），而非任务目录。
 
 **参数**
 
@@ -359,7 +359,7 @@ agent.saveCollectData(result.data, 'my_data.json');
 
 #### loadCollectData(fileName?: string): Record\<string, any\>[]
 
-从磁盘加载收集的数据。
+从磁盘加载收集的数据。从当前工作目录（cwd）读取文件，而非任务目录。
 
 **参数**
 
