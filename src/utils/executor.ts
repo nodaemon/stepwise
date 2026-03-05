@@ -245,6 +245,12 @@ export class ClaudeExecutor {
     const cwd = options.cwd || process.cwd();
     const timeout = options.timeout || DEFAULT_TIMEOUT_MS;
 
+    // 校验 timeout 必须为正数
+    if (options.timeout !== undefined && options.timeout <= 0) {
+      console.error(`错误: timeout 必须为正数，当前值: ${options.timeout}`);
+      process.exit(1);
+    }
+
     // 校验 cwd 是否存在
     if (!fs.existsSync(cwd)) {
       console.error(`错误: 工作目录不存在: ${cwd}`);

@@ -435,6 +435,11 @@ export class StepWise {
    * 执行普通任务
    */
   async execPrompt(prompt: string, options?: ExecOptions): Promise<ExecutionResult> {
+    // 校验 prompt 不能为空
+    if (!prompt || prompt.trim() === '') {
+      throw new Error('错误: prompt 不能为空');
+    }
+
     this.ensureInitialized();
 
     const taskType: TaskType = 'task';
@@ -514,6 +519,11 @@ export class StepWise {
     outputFileName: string,
     options?: ExecOptions
   ): Promise<CollectResult> {
+    // 校验 prompt 不能为空
+    if (!prompt || prompt.trim() === '') {
+      throw new Error('错误: prompt 不能为空');
+    }
+
     this.ensureInitialized();
 
     const taskType: TaskType = 'collect';
@@ -626,6 +636,11 @@ export class StepWise {
     data: Record<string, any>,
     options?: ExecOptions
   ): Promise<ExecutionResult> {
+    // 校验 prompt 不能为空
+    if (!prompt || prompt.trim() === '') {
+      throw new Error('错误: prompt 不能为空');
+    }
+
     this.ensureInitialized();
 
     const taskType: TaskType = 'process';
@@ -692,6 +707,11 @@ export class StepWise {
     outputFileName: string,
     options?: ExecOptions
   ): Promise<CollectResult> {
+    // 校验 prompt 不能为空
+    if (!prompt || prompt.trim() === '') {
+      throw new Error('错误: prompt 不能为空');
+    }
+
     this.ensureInitialized();
 
     const taskType: TaskType = 'process_collect';
@@ -771,6 +791,11 @@ export class StepWise {
     outputFileName: string,
     options?: ExecOptions
   ): Promise<CollectResult> {
+    // 校验 prompt 不能为空
+    if (!prompt || prompt.trim() === '') {
+      throw new Error('错误: prompt 不能为空');
+    }
+
     this.ensureInitialized();
 
     const taskType: TaskType = 'report';
