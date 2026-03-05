@@ -245,6 +245,13 @@ export class ClaudeExecutor {
     const cwd = options.cwd || process.cwd();
     const timeout = options.timeout || DEFAULT_TIMEOUT_MS;
 
+    // 校验 cwd 是否存在
+    if (!fs.existsSync(cwd)) {
+      console.error(`错误: 工作目录不存在: ${cwd}`);
+      console.error('请检查传入的 cwd 参数是否正确');
+      process.exit(1);
+    }
+
     // 构建 debug 日志文件路径
     const claudeDebugFile = taskLogDir ? path.join(taskLogDir, 'claude_debug.log') : undefined;
 
