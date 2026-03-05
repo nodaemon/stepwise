@@ -117,6 +117,111 @@ async function collectAPIs() {
 collectAPIs();
 ```
 
+### 检查任务
+
+```typescript
+import { StepWise } from 'stepwise';
+
+async function checkProjectQuality() {
+  const agent = new StepWise();
+  agent.setTaskName('CheckProject');
+
+  // 检查项目是否有合适的单元测试
+  const testCheck = await agent.execCheckPrompt(
+    '检查项目是否有合适的单元测试（至少 5 个测试文件）',
+    'check_tests.json'
+  );
+
+  console.log(`有单元测试: ${testCheck.result}`);
+
+  // 检查项目是否有合适的文档
+  const docCheck = await agent.execCheckPrompt(
+    '检查项目是否有合适的 README 文档',
+    'check_docs.json'
+  );
+
+  console.log(`有文档: ${docCheck.result}`);
+
+  // 根据检查结果进行条件执行
+  if (!testCheck.result) {
+    console.log('警告：项目缺少单元测试！');
+  }
+}
+
+checkProjectQuality();
+```
+
+### 处理检查任务
+
+```typescript
+import { StepWise } from 'stepwise';
+
+async function validateAPIs(apis: any[]) {
+  const agent = new StepWise();
+  agent.setTaskName('ValidateAPIs');
+
+  for (const api of apis) {
+    // 检查每个 API 是否有合适的文档
+    const docCheck = await agent.execProcessDataAndCheck(
+      '检查 $name API 是否有合适的文档（至少 100 个字符）',
+      api,
+      `check_doc_${api.name}.json`
+    );
+
+    // 检查每个 API 是否有输入验证
+    const validationCheck = await agent.execProcessDataAndCheck(
+      '检查 $name API 是否有正确的输入验证',
+      api,
+      `check_validation_${api.name}.json`
+    );
+
+    console.log(`${api.name}:`);
+    console.log(`  - 有文档: ${docCheck.result}`);
+    console.log(`  - 有验证: ${validationCheck.result}`);
+  }
+}
+
+// 假设 apis 是之前收集的数据
+// validateAPIs(apis);
+```
+
+### 处理报告任务
+
+```typescript
+import { StepWise } from 'stepwise';
+
+async function generateProjectReports(projects: any[]) {
+  const agent = new StepWise();
+  agent.setTaskName('ProjectReports');
+
+  for (const project of projects) {
+    // 为每个项目生成分析报告
+    const result = await agent.execProcessDataAndReport(
+      '分析位于 $path 的 $name 项目并生成质量报告',
+      project,
+      {
+        keys: [
+          { name: 'projectName', description: '项目名称', type: 'string' },
+          { name: 'qualityScore', description: '质量分数 (0-100)', type: 'number' },
+          { name: 'issues', description: '问题列表', type: 'array' },
+          { name: 'recommendations', description: '改进建议', type: 'array' }
+        ]
+      },
+      `report_${project.name}.json`
+    );
+
+    console.log(`生成 ${project.name} 报告:`, result.data);
+  }
+}
+
+// 假设 projects 是之前收集的数据
+// const projects = [
+//   { name: 'frontend', path: '/src/frontend' },
+//   { name: 'backend', path: '/src/backend' }
+// ];
+// generateProjectReports(projects);
+```
+
 ### 批量处理数据
 
 ```typescript

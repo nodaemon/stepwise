@@ -220,6 +220,102 @@ console.log(`Collected ${result.data.length} interfaces`);
 
 ---
 
+#### execCheckPrompt(prompt: string, outputFileName: string, options?: ExecOptions): Promise\<CheckResult\>
+
+Executes a check task, returning a boolean result (true/false). The AI is instructed to output the result to a JSON file, which is then read and returned.
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| prompt | string | Check question/prompt |
+| outputFileName | string | Output file name |
+| options | ExecOptions | Execution options (optional) |
+
+**CheckResult**
+
+```typescript
+interface CheckResult extends ExecutionResult {
+  result: boolean; // Check result: true or false
+}
+```
+
+**Example**
+
+```typescript
+const result = await agent.execCheckPrompt(
+  'Check if the project has proper unit tests',
+  'check_result.json'
+);
+
+if (result.success && result.result) {
+  console.log('Check passed');
+} else {
+  console.log('Check failed');
+}
+```
+
+---
+
+#### execProcessDataAndCheck(prompt: string, data: Record\<string, any\>, outputFileName: string, options?: ExecOptions): Promise\<CheckResult\>
+
+Executes a processing check task, similar to execCheckPrompt but supports variable substitution in the prompt.
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| prompt | string | Prompt template, supports variable substitution |
+| data | Record<string, any> | Data object |
+| outputFileName | string | Output file name |
+| options | ExecOptions | Execution options (optional) |
+
+**Variable Substitution**
+
+Use `$variableName` format in prompts, which will be replaced with corresponding values from data:
+
+```typescript
+// Prompt template
+const prompt = 'Check if $name function has proper error handling';
+
+// Data
+const data = { name: 'getUser' };
+
+// Actual executed prompt
+// Check if getUser function has proper error handling
+```
+
+**CheckResult**
+
+```typescript
+interface CheckResult extends ExecutionResult {
+  result: boolean; // Check result: true or false
+}
+```
+
+**Example**
+
+```typescript
+const apis = [
+  { name: 'login', path: '/api/login' },
+  { name: 'logout', path: '/api/logout' }
+];
+
+for (const api of apis) {
+  const result = await agent.execProcessDataAndCheck(
+    'Check if $name API has proper input validation',
+    api,
+    `check_${api.name}.json`
+  );
+
+  if (result.result) {
+    console.log(`${api.name} has proper validation`);
+  }
+}
+```
+
+---
+
 #### execProcessData(prompt: string, data: Record\<string, any\>, options?: ExecOptions): Promise\<ExecutionResult\>
 
 Executes a processing task for a single data item.
@@ -332,6 +428,63 @@ await agent.execReport(
   },
   'api_report.json'
 );
+```
+
+---
+
+#### execProcessDataAndReport(prompt: string, data: Record\<string, any\>, outputFormat: OutputFormat, outputFileName: string, options?: ExecOptions): Promise\<CollectResult\>
+
+Executes a processing report task, similar to execReport but supports variable substitution in the prompt.
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| prompt | string | Prompt template, supports variable substitution |
+| data | Record<string, any> | Data object |
+| outputFormat | OutputFormat | Output format definition |
+| outputFileName | string | Output file name |
+| options | ExecOptions | Execution options (optional) |
+
+**Variable Substitution**
+
+Use `$variableName` format in prompts, which will be replaced with corresponding values from data:
+
+```typescript
+// Prompt template
+const prompt = 'Generate analysis report for $name project';
+
+// Data
+const data = { name: 'MyApp' };
+
+// Actual executed prompt
+// Generate analysis report for MyApp project
+```
+
+**Example**
+
+```typescript
+const projects = [
+  { name: 'frontend', path: '/src/frontend', type: 'React' },
+  { name: 'backend', path: '/src/backend', type: 'Express' }
+];
+
+for (const project of projects) {
+  const result = await agent.execProcessDataAndReport(
+    'Generate code quality report for $name ($type) project located at $path',
+    project,
+    {
+      keys: [
+        { name: 'score', description: 'Quality score', type: 'number' },
+        { name: 'issues', description: 'Issues found', type: 'array' },
+        { name: 'suggestions', description: 'Suggestions', type: 'array' }
+      ]
+    },
+    `report_${project.name}.json`
+  );
+
+  console.log(`${project.name} report:`, result.data);
+}
 ```
 
 ---

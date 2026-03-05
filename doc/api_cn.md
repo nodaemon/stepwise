@@ -220,6 +220,102 @@ console.log(`收集到 ${result.data.length} 个接口`);
 
 ---
 
+#### execCheckPrompt(prompt: string, outputFileName: string, options?: ExecOptions): Promise\<CheckResult\>
+
+执行检查任务，返回布尔值结果（true/false）。通过添加提示词要求 AI 将结果输出到 JSON 文件中，然后读取并返回。
+
+**参数**
+
+| 参数 | 类型 | 描述 |
+|------|------|------|
+| prompt | string | 检查问题/提示词 |
+| outputFileName | string | 输出文件名 |
+| options | ExecOptions | 执行选项（可选） |
+
+**CheckResult**
+
+```typescript
+interface CheckResult extends ExecutionResult {
+  result: boolean; // 检查结果：true 或 false
+}
+```
+
+**示例**
+
+```typescript
+const result = await agent.execCheckPrompt(
+  '检查项目是否有合适的单元测试',
+  'check_result.json'
+);
+
+if (result.success && result.result) {
+  console.log('检查通过');
+} else {
+  console.log('检查未通过');
+}
+```
+
+---
+
+#### execProcessDataAndCheck(prompt: string, data: Record\<string, any\>, outputFileName: string, options?: ExecOptions): Promise\<CheckResult\>
+
+执行处理检查任务，类似于 execCheckPrompt，但支持在提示词中进行变量替换。
+
+**参数**
+
+| 参数 | 类型 | 描述 |
+|------|------|------|
+| prompt | string | 提示词模板，支持变量替换 |
+| data | Record<string, any> | 数据对象 |
+| outputFileName | string | 输出文件名 |
+| options | ExecOptions | 执行选项（可选） |
+
+**变量替换**
+
+提示词中使用 `$变量名` 格式，会被替换为 data 中对应的值：
+
+```typescript
+// 提示词模板
+const prompt = '检查 $name 函数是否有正确的错误处理';
+
+// 数据
+const data = { name: 'getUser' };
+
+// 实际执行的提示词
+// 检查 getUser 函数是否有正确的错误处理
+```
+
+**CheckResult**
+
+```typescript
+interface CheckResult extends ExecutionResult {
+  result: boolean; // 检查结果：true 或 false
+}
+```
+
+**示例**
+
+```typescript
+const apis = [
+  { name: 'login', path: '/api/login' },
+  { name: 'logout', path: '/api/logout' }
+];
+
+for (const api of apis) {
+  const result = await agent.execProcessDataAndCheck(
+    '检查 $name API 是否有正确的输入验证',
+    api,
+    `check_${api.name}.json`
+  );
+
+  if (result.result) {
+    console.log(`${api.name} 有正确的验证`);
+  }
+}
+```
+
+---
+
 #### execProcessData(prompt: string, data: Record\<string, any\>, options?: ExecOptions): Promise\<ExecutionResult\>
 
 执行处理任务，处理单条数据。
@@ -332,6 +428,63 @@ await agent.execReport(
   },
   'api_report.json'
 );
+```
+
+---
+
+#### execProcessDataAndReport(prompt: string, data: Record\<string, any\>, outputFormat: OutputFormat, outputFileName: string, options?: ExecOptions): Promise\<CollectResult\>
+
+执行处理报告任务，类似于 execReport，但支持在提示词中进行变量替换。
+
+**参数**
+
+| 参数 | 类型 | 描述 |
+|------|------|------|
+| prompt | string | 提示词模板，支持变量替换 |
+| data | Record<string, any> | 数据对象 |
+| outputFormat | OutputFormat | 输出格式定义 |
+| outputFileName | string | 输出文件名 |
+| options | ExecOptions | 执行选项（可选） |
+
+**变量替换**
+
+提示词中使用 `$变量名` 格式，会被替换为 data 中对应的值：
+
+```typescript
+// 提示词模板
+const prompt = '为 $name 项目生成代码质量报告';
+
+// 数据
+const data = { name: 'MyApp' };
+
+// 实际执行的提示词
+// 为 MyApp 项目生成代码质量报告
+```
+
+**示例**
+
+```typescript
+const projects = [
+  { name: 'frontend', path: '/src/frontend', type: 'React' },
+  { name: 'backend', path: '/src/backend', type: 'Express' }
+];
+
+for (const project of projects) {
+  const result = await agent.execProcessDataAndReport(
+    '为位于 $path 的 $name ($type) 项目生成代码质量报告',
+    project,
+    {
+      keys: [
+        { name: 'score', description: '质量分数', type: 'number' },
+        { name: 'issues', description: '发现的问题', type: 'array' },
+        { name: 'suggestions', description: '改进建议', type: 'array' }
+      ]
+    },
+    `report_${project.name}.json`
+  );
+
+  console.log(`${project.name} 报告:`, result.data);
+}
 ```
 
 ---

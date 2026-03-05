@@ -67,6 +67,19 @@ saveCollectData(data: Record<string, any>[], fileName?: string): void
 loadCollectData(fileName?: string): Record<string, any>[]
 ```
 
+### 检查任务
+
+```typescript
+// 用户不用输入json格式的输出字段描述，输出的数据只有true/false
+// 通过添加提示词要求AI输出到json文件中，然后再读取出来，返回CheckResult中的result
+// 输出格式为 { "result": true 或 false }
+execCheckPrompt(prompt: string, outputFileName: string, options?: ExecOptions): Promise<CheckResult>
+
+// 与 execCheckPrompt 功能一样，但是支持处理输入数据，替换掉提示词中的变量
+// 类似于 execProcessData 和 execCollectPrompt 的关系
+execProcessDataAndCheck(prompt: string, data: Record<string, any>, outputFileName: string, options?: ExecOptions): Promise<CheckResult>
+```
+
 ### 处理任务
 
 ```typescript
@@ -87,6 +100,10 @@ execProcessDataAndCollect(prompt: string, data: Record<string, any>, outputForma
 // 额外提示词必须是中文，且明确告知文件已存在时追加合并，对于primary_key相同的数据需要去重。
 // 除了普通的任务返回信息，还需要从磁盘读取生成的json数组，返回CollectResult中的data
 execReport(prompt: string, outputFormat: OutputFormat, outputFileName: string, options?: ExecOptions): Promise<CollectResult>
+
+// 与 execReport 功能一样，但是支持处理输入数据，替换掉提示词中的变量
+// 类似于 execProcessData 和 execProcessDataAndCollect 的关系
+execProcessDataAndReport(prompt: string, data: Record<string, any>, outputFormat: OutputFormat, outputFileName: string, options?: ExecOptions): Promise<CollectResult>
 ```
 
 ---

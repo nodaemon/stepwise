@@ -128,6 +128,86 @@ function getDirWarning(cwd?: string, outputFileName?: string): string | null {
 }
 
 /**
+ * 构建检查任务的额外提示词
+ * @param outputFileName 输出文件名（应为绝对路径）
+ * @param checkQuestion 检查问题描述
+ * @param cwd Claude 命令执行的工作目录
+ * @returns 额外提示词
+ */
+export function buildCheckPrompt(
+  outputFileName: string,
+  checkQuestion: string,
+  cwd?: string
+): string {
+  const requirements: string[] = [
+    '1. 输出 JSON 格式',
+    '2. 如果文件已存在，覆盖文件内容',
+    '3. 确保 JSON 格式正确',
+    '4. 请直接将结果写入文件，不需要在回复中展示'
+  ];
+
+  // 当 cwd 和 process.cwd() 不一致时，添加明确说明
+  const dirWarning = getDirWarning(cwd, outputFileName);
+  if (dirWarning) {
+    requirements.push(dirWarning);
+  }
+
+  return `
+请检查以下问题，并将结果写入到 ${outputFileName} 文件中：
+
+检查问题：${checkQuestion}
+
+输出格式：
+{
+  "result": true 或 false
+}
+
+要求：
+${requirements.join('\n')}
+`;
+}
+
+/**
+ * 构建处理检查任务的额外提示词
+ * @param outputFileName 输出文件名（应为绝对路径）
+ * @param checkQuestion 检查问题描述（已替换变量）
+ * @param cwd Claude 命令执行的工作目录
+ * @returns 额外提示词
+ */
+export function buildProcessCheckPrompt(
+  outputFileName: string,
+  checkQuestion: string,
+  cwd?: string
+): string {
+  const requirements: string[] = [
+    '1. 输出 JSON 格式',
+    '2. 如果文件已存在，覆盖文件内容',
+    '3. 确保 JSON 格式正确',
+    '4. 请直接将结果写入文件，不需要在回复中展示'
+  ];
+
+  // 当 cwd 和 process.cwd() 不一致时，添加明确说明
+  const dirWarning = getDirWarning(cwd, outputFileName);
+  if (dirWarning) {
+    requirements.push(dirWarning);
+  }
+
+  return `
+请检查以下问题，并将结果写入到 ${outputFileName} 文件中：
+
+检查问题：${checkQuestion}
+
+输出格式：
+{
+  "result": true 或 false
+}
+
+要求：
+${requirements.join('\n')}
+`;
+}
+
+/**
  * 构建完整的提示词
  * @param originalPrompt 原始提示词
  * @param extraPrompt 额外提示词

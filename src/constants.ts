@@ -30,7 +30,7 @@ export const EXECUTE_LOG = 'execute.log';
 export const MAX_RETRIES = 3;
 
 /** 任务类型 */
-export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report';
+export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check';
 
 /** 任务类型名称映射 */
 export const TASK_TYPE_NAMES: Record<TaskType, string> = {
@@ -38,5 +38,6 @@ export const TASK_TYPE_NAMES: Record<TaskType, string> = {
   collect: 'collect',
   process: 'process',
   process_collect: 'process_and_collect',
-  report: 'report'
+  report: 'report',
+  check: 'check'
 };

@@ -117,6 +117,111 @@ async function collectAPIs() {
 collectAPIs();
 ```
 
+### Check Task
+
+```typescript
+import { StepWise } from 'stepwise';
+
+async function checkProjectQuality() {
+  const agent = new StepWise();
+  agent.setTaskName('CheckProject');
+
+  // Check if project has proper unit tests
+  const testCheck = await agent.execCheckPrompt(
+    'Check if the project has proper unit tests (at least 5 test files)',
+    'check_tests.json'
+  );
+
+  console.log(`Has unit tests: ${testCheck.result}`);
+
+  // Check if project has proper documentation
+  const docCheck = await agent.execCheckPrompt(
+    'Check if the project has proper README documentation',
+    'check_docs.json'
+  );
+
+  console.log(`Has documentation: ${docCheck.result}`);
+
+  // Use check results for conditional execution
+  if (!testCheck.result) {
+    console.log('Warning: Project lacks unit tests!');
+  }
+}
+
+checkProjectQuality();
+```
+
+### Process Check Task
+
+```typescript
+import { StepWise } from 'stepwise';
+
+async function validateAPIs(apis: any[]) {
+  const agent = new StepWise();
+  agent.setTaskName('ValidateAPIs');
+
+  for (const api of apis) {
+    // Check each API for proper documentation
+    const docCheck = await agent.execProcessDataAndCheck(
+      'Check if $name API has proper documentation (at least 100 characters)',
+      api,
+      `check_doc_${api.name}.json`
+    );
+
+    // Check each API for input validation
+    const validationCheck = await agent.execProcessDataAndCheck(
+      'Check if $name API has proper input validation',
+      api,
+      `check_validation_${api.name}.json`
+    );
+
+    console.log(`${api.name}:`);
+    console.log(`  - Has documentation: ${docCheck.result}`);
+    console.log(`  - Has validation: ${validationCheck.result}`);
+  }
+}
+
+// Assuming apis is previously collected data
+// validateAPIs(apis);
+```
+
+### Process Report Task
+
+```typescript
+import { StepWise } from 'stepwise';
+
+async function generateProjectReports(projects: any[]) {
+  const agent = new StepWise();
+  agent.setTaskName('ProjectReports');
+
+  for (const project of projects) {
+    // Generate analysis report for each project
+    const result = await agent.execProcessDataAndReport(
+      'Analyze $name project located at $path and generate quality report',
+      project,
+      {
+        keys: [
+          { name: 'projectName', description: 'Project name', type: 'string' },
+          { name: 'qualityScore', description: 'Quality score (0-100)', type: 'number' },
+          { name: 'issues', description: 'List of issues', type: 'array' },
+          { name: 'recommendations', description: 'Recommendations', type: 'array' }
+        ]
+      },
+      `report_${project.name}.json`
+    );
+
+    console.log(`Generated report for ${project.name}:`, result.data);
+  }
+}
+
+// Assuming projects is previously collected data
+// const projects = [
+//   { name: 'frontend', path: '/src/frontend' },
+//   { name: 'backend', path: '/src/backend' }
+// ];
+// generateProjectReports(projects);
+```
+
 ### Batch Process Data
 
 ```typescript

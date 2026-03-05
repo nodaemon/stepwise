@@ -4,6 +4,7 @@ import {
   ExecOptions,
   ExecutionResult,
   CollectResult,
+  CheckResult,
   OutputFormat,
   TaskStatus,
   TaskStatusType,
@@ -22,6 +23,8 @@ import {
 import {
   buildCollectPrompt,
   buildReportPrompt,
+  buildCheckPrompt,
+  buildProcessCheckPrompt,
   buildFullPrompt,
   replaceVariables
 } from './utils/promptBuilder';
@@ -391,7 +394,7 @@ export class StepWise {
     }
 
     // 删除收集类任务的输出文件
-    if (taskType === 'collect' || taskType === 'process_collect') {
+    if (taskType === 'collect' || taskType === 'process_collect' || taskType === 'check') {
       if (task.outputFileName) {
         const outputPath = this.getCollectOutputPath(taskIndex, taskType, task.outputFileName);
         if (fs.existsSync(outputPath)) {
@@ -608,6 +611,212 @@ export class StepWise {
     return {
       ...result,
       data: this.debugMode && data.length > 0 ? [data[0]] : data
+    };
+  }
+
+  /**
+   * 执行检查任务
+   */
+  async execCheckPrompt(
+    prompt: string,
+    outputFileName: string,
+    options?: ExecOptions
+  ): Promise<CheckResult> {
+    // 校验 prompt 不能为空
+    if (!prompt || prompt.trim() === '') {
+      throw new Error('错误: prompt 不能为空');
+    }
+
+    this.ensureInitialized();
+
+    const taskType: TaskType = 'check';
+    const taskIndex = this.getNextTaskIndex(taskType);
+
+    // 检查是否需要恢复
+    if (this.resumePath && this.isTaskCompleted(taskIndex, taskType)) {
+      const sessionId = this.getCompletedSessionId(taskIndex, taskType);
+      this.logger?.logTaskSkipped(taskIndex, taskType);
+      const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
+      const checkData = loadJsonFile<{ result: boolean }>(outputPath);
+      return {
+        sessionId: sessionId || '',
+        output: '',
+        success: true,
+        timestamp: Date.now(),
+        duration: 0,
+        result: checkData?.result ?? false
+      };
+    }
+
+    // 检查是否有 in_progress 的任务需要重新执行
+    if (this.resumePath && this.isTaskInProgress(taskIndex, taskType)) {
+      this.cleanupInProgressTask(taskIndex, taskType);
+    }
+
+    // 获取或创建 session id：默认复用上一个，newSession 为 true 时创建新的
+    const sessionId = this.getOrCreateSessionId(options?.newSession);
+    const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
+    const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
+    // 是否使用 resume 模式：只有复用已有 session 时才使用 resume
+    const useResume = !options?.newSession && !!this.currentSessionId;
+
+    // 构建完整提示词（使用绝对路径确保写入位置正确）
+    const extraPrompt = buildCheckPrompt(outputPath, prompt, options?.cwd);
+    const fullPrompt = buildFullPrompt(prompt, extraPrompt);
+
+    // 记录任务开始
+    this.logger?.logTaskStart(taskIndex, taskType, sessionId);
+
+    // 保存提示词
+    if (taskLogDir) {
+      this.logger?.writeTaskLog(taskLogDir, 'prompt.txt', fullPrompt);
+    }
+
+    // 记录任务状态为 in_progress
+    this.recordTaskStart(taskIndex, `${taskIndex}_check`, sessionId, taskType, outputFileName);
+
+    // 执行任务
+    const result = await this.executor.execute(fullPrompt, {
+      cwd: options?.cwd,
+      sessionId: sessionId,
+      useResume,
+      taskLogDir,
+      logger: this.logger!,
+      taskIndex,
+      taskType
+    });
+
+    // 保存输出
+    if (taskLogDir) {
+      this.logger?.writeTaskLog(taskLogDir, 'output.txt', result.output);
+      if (result.error) {
+        this.logger?.writeTaskLog(taskLogDir, 'error.txt', result.error);
+      }
+    }
+
+    // 读取检查结果
+    let checkResult = false;
+    if (result.success && fileExists(outputPath)) {
+      const checkData = loadJsonFile<{ result: boolean }>(outputPath);
+      checkResult = checkData?.result ?? false;
+    }
+
+    // 记录任务完成
+    this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
+
+    // 更新任务状态为 completed
+    if (result.success) {
+      this.recordTaskComplete(taskIndex, `${taskIndex}_check`, sessionId, taskType, outputFileName);
+    }
+
+    return {
+      ...result,
+      result: checkResult
+    };
+  }
+
+  /**
+   * 执行处理检查任务
+   */
+  async execProcessDataAndCheck(
+    prompt: string,
+    data: Record<string, any>,
+    outputFileName: string,
+    options?: ExecOptions
+  ): Promise<CheckResult> {
+    // 校验 prompt 不能为空
+    if (!prompt || prompt.trim() === '') {
+      throw new Error('错误: prompt 不能为空');
+    }
+
+    this.ensureInitialized();
+
+    const taskType: TaskType = 'check';
+    const taskIndex = this.getNextTaskIndex(taskType);
+
+    // 检查是否需要恢复
+    if (this.resumePath && this.isTaskCompleted(taskIndex, taskType)) {
+      const sessionId = this.getCompletedSessionId(taskIndex, taskType);
+      this.logger?.logTaskSkipped(taskIndex, taskType);
+      const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
+      const checkData = loadJsonFile<{ result: boolean }>(outputPath);
+      return {
+        sessionId: sessionId || '',
+        output: '',
+        success: true,
+        timestamp: Date.now(),
+        duration: 0,
+        result: checkData?.result ?? false
+      };
+    }
+
+    // 检查是否有 in_progress 的任务需要重新执行
+    if (this.resumePath && this.isTaskInProgress(taskIndex, taskType)) {
+      this.cleanupInProgressTask(taskIndex, taskType);
+    }
+
+    // 替换变量
+    const processedPrompt = replaceVariables(prompt, data);
+
+    // 获取或创建 session id：默认复用上一个，newSession 为 true 时创建新的
+    const sessionId = this.getOrCreateSessionId(options?.newSession);
+    const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
+    const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
+    // 是否使用 resume 模式：只有复用已有 session 时才使用 resume
+    const useResume = !options?.newSession && !!this.currentSessionId;
+
+    // 构建完整提示词（使用绝对路径确保写入位置正确）
+    const extraPrompt = buildProcessCheckPrompt(outputPath, processedPrompt, options?.cwd);
+    const fullPrompt = buildFullPrompt(processedPrompt, extraPrompt);
+
+    // 记录任务开始
+    this.logger?.logTaskStart(taskIndex, taskType, sessionId);
+
+    // 保存提示词
+    if (taskLogDir) {
+      this.logger?.writeTaskLog(taskLogDir, 'prompt.txt', fullPrompt);
+    }
+
+    // 记录任务状态为 in_progress
+    this.recordTaskStart(taskIndex, `${taskIndex}_check`, sessionId, taskType, outputFileName);
+
+    // 执行任务
+    const result = await this.executor.execute(fullPrompt, {
+      cwd: options?.cwd,
+      sessionId: sessionId,
+      useResume,
+      taskLogDir,
+      logger: this.logger!,
+      taskIndex,
+      taskType
+    });
+
+    // 保存输出
+    if (taskLogDir) {
+      this.logger?.writeTaskLog(taskLogDir, 'output.txt', result.output);
+      if (result.error) {
+        this.logger?.writeTaskLog(taskLogDir, 'error.txt', result.error);
+      }
+    }
+
+    // 读取检查结果
+    let checkResult = false;
+    if (result.success && fileExists(outputPath)) {
+      const checkData = loadJsonFile<{ result: boolean }>(outputPath);
+      checkResult = checkData?.result ?? false;
+    }
+
+    // 记录任务完成
+    this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
+
+    // 更新任务状态为 completed
+    if (result.success) {
+      this.recordTaskComplete(taskIndex, `${taskIndex}_check`, sessionId, taskType, outputFileName);
+    }
+
+    return {
+      ...result,
+      result: checkResult
     };
   }
 
@@ -880,6 +1089,111 @@ export class StepWise {
     return {
       ...result,
       data: this.debugMode && data.length > 0 ? [data[0]] : data
+    };
+  }
+
+  /**
+   * 执行处理报告任务
+   */
+  async execProcessDataAndReport(
+    prompt: string,
+    data: Record<string, any>,
+    outputFormat: OutputFormat,
+    outputFileName: string,
+    options?: ExecOptions
+  ): Promise<CollectResult> {
+    // 校验 prompt 不能为空
+    if (!prompt || prompt.trim() === '') {
+      throw new Error('错误: prompt 不能为空');
+    }
+
+    this.ensureInitialized();
+
+    const taskType: TaskType = 'report';
+    const taskIndex = this.getNextTaskIndex(taskType);
+
+    // 检查是否需要恢复
+    if (this.resumePath && this.isTaskCompleted(taskIndex, taskType)) {
+      const sessionId = this.getCompletedSessionId(taskIndex, taskType);
+      this.logger?.logTaskSkipped(taskIndex, taskType);
+      const outputPath = this.getReportOutputPath(outputFileName);
+      const reportData = loadJsonFile<Record<string, any>[]>(outputPath) || [];
+      return {
+        sessionId: sessionId || '',
+        output: '',
+        success: true,
+        timestamp: Date.now(),
+        duration: 0,
+        data: this.debugMode && reportData.length > 0 ? [reportData[0]] : reportData
+      };
+    }
+
+    // 检查是否有 in_progress 的任务需要重新执行
+    if (this.resumePath && this.isTaskInProgress(taskIndex, taskType)) {
+      this.cleanupInProgressTask(taskIndex, taskType);
+    }
+
+    // 替换变量
+    const processedPrompt = replaceVariables(prompt, data);
+
+    // 获取或创建 session id：默认复用上一个，newSession 为 true 时创建新的
+    const sessionId = this.getOrCreateSessionId(options?.newSession);
+    const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
+    const outputPath = this.getReportOutputPath(outputFileName);
+    // 是否使用 resume 模式：只有复用已有 session 时才使用 resume
+    const useResume = !options?.newSession && !!this.currentSessionId;
+
+    // 构建完整提示词（使用绝对路径确保写入位置正确）
+    const extraPrompt = buildReportPrompt(outputFormat, outputPath, options?.cwd);
+    const fullPrompt = buildFullPrompt(processedPrompt, extraPrompt);
+
+    // 记录任务开始
+    this.logger?.logTaskStart(taskIndex, taskType, sessionId);
+
+    // 保存提示词
+    if (taskLogDir) {
+      this.logger?.writeTaskLog(taskLogDir, 'prompt.txt', fullPrompt);
+    }
+
+    // 记录任务状态为 in_progress
+    this.recordTaskStart(taskIndex, `${taskIndex}_report`, sessionId, taskType, outputFileName);
+
+    // 执行任务
+    const result = await this.executor.execute(fullPrompt, {
+      cwd: options?.cwd,
+      sessionId: sessionId,
+      useResume,
+      taskLogDir,
+      logger: this.logger!,
+      taskIndex,
+      taskType
+    });
+
+    // 保存输出
+    if (taskLogDir) {
+      this.logger?.writeTaskLog(taskLogDir, 'output.txt', result.output);
+      if (result.error) {
+        this.logger?.writeTaskLog(taskLogDir, 'error.txt', result.error);
+      }
+    }
+
+    // 读取报告数据
+    let reportData: Record<string, any>[] = [];
+    if (result.success && fileExists(outputPath)) {
+      reportData = loadJsonFile<Record<string, any>[]>(outputPath) || [];
+    }
+
+    // 记录任务完成
+    this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
+
+    // 更新任务状态为 completed
+    if (result.success) {
+      this.recordTaskComplete(taskIndex, `${taskIndex}_report`, sessionId, taskType, outputFileName);
+    }
+
+    return {
+      ...result,
+      data: this.debugMode && reportData.length > 0 ? [reportData[0]] : reportData
     };
   }
 

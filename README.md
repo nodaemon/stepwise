@@ -123,6 +123,7 @@ Support for multiple task types with flexible combinations:
 |-----------|--------|-------|
 | Normal Task | `execPrompt` | Execute a single prompt task |
 | Collection Task | `execCollectPrompt` | Collect data and save as JSON |
+| Check Task | `execCheckPrompt` | Check condition and return true/false |
 | Processing Task | `execProcessData` | Process single data item |
 | Process & Collect | `execProcessDataAndCollect` | Process data and collect results |
 | Report Task | `execReport` | Generate summary report |

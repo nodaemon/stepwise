@@ -123,6 +123,7 @@ await agent.execProcessData('处理 API: $name', data[0]);  // 从这里继续
 |---------|------|------|
 | 普通任务 | `execPrompt` | 执行单个提示词任务 |
 | 收集任务 | `execCollectPrompt` | 收集数据并保存为 JSON |
+| 检查任务 | `execCheckPrompt` | 检查条件并返回 true/false |
 | 处理任务 | `execProcessData` | 处理单条数据 |
 | 处理收集任务 | `execProcessDataAndCollect` | 处理数据并收集结果 |
 | 报告任务 | `execReport` | 生成汇总报告 |

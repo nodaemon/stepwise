@@ -61,6 +61,14 @@ export interface CollectResult extends ExecutionResult {
 }
 
 /**
+ * 检查任务结果
+ */
+export interface CheckResult extends ExecutionResult {
+  /** 检查结果 */
+  result: boolean;
+}
+
+/**
  * 任务状态枚举
  */
 export type TaskStatusType = 'pending' | 'in_progress' | 'completed';
@@ -80,7 +88,7 @@ export interface TaskStatus {
   /** 执行时间戳 */
   timestamp: number;
   /** 任务类型 */
-  taskType: 'task' | 'collect' | 'process' | 'process_collect' | 'report';
+  taskType: 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check';
   /** 输出文件名（仅收集类任务） */
   outputFileName?: string;
 }
