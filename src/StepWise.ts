@@ -274,6 +274,31 @@ export class StepWise {
   }
 
   /**
+   * 判断是否应该使用 resume 模式
+   * 只有在之前有任务执行成功的情况下才使用 resume
+   * @param taskIndex 当前任务序号
+   * @param newSession 是否创建新会话
+   */
+  private shouldUseResume(taskIndex: number, newSession?: boolean): boolean {
+    // 如果用户要求创建新会话，不使用 resume
+    if (newSession) {
+      return false;
+    }
+
+    // 恢复模式下：检查当前任务之前是否有已完成的任务
+    if (this.resumePath && this.progress) {
+      // 查找是否有更小序号的已完成任务
+      const hasPreviousCompleted = this.progress.tasks.some(
+        t => t.taskIndex < taskIndex && t.status === 'completed'
+      );
+      return hasPreviousCompleted;
+    }
+
+    // 非恢复模式下：只有 taskIndex > 1 时才使用 resume（第一个任务不使用 resume）
+    return taskIndex > 1;
+  }
+
+  /**
    * 获取收集类任务的输出目录
    * 格式: collect/序号_类型名/
    */
@@ -470,7 +495,7 @@ export class StepWise {
     const sessionId = this.getOrCreateSessionId(options?.newSession);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     // 是否使用 resume 模式：只有复用已有 session 时才使用 resume
-    const useResume = !options?.newSession && !!this.currentSessionId;
+    const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
     // 记录任务开始
     this.logger?.logTaskStart(taskIndex, taskType, sessionId);
@@ -558,7 +583,7 @@ export class StepWise {
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
     // 是否使用 resume 模式：只有复用已有 session 时才使用 resume
-    const useResume = !options?.newSession && !!this.currentSessionId;
+    const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
     // 构建完整提示词（使用绝对路径确保写入位置正确）
     const extraPrompt = buildCollectPrompt(outputFormat, outputPath, options?.cwd);
@@ -658,7 +683,7 @@ export class StepWise {
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
     // 是否使用 resume 模式：只有复用已有 session 时才使用 resume
-    const useResume = !options?.newSession && !!this.currentSessionId;
+    const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
     // 构建完整提示词（使用绝对路径确保写入位置正确）
     const extraPrompt = buildCheckPrompt(outputPath, prompt, options?.cwd);
@@ -763,7 +788,7 @@ export class StepWise {
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
     // 是否使用 resume 模式：只有复用已有 session 时才使用 resume
-    const useResume = !options?.newSession && !!this.currentSessionId;
+    const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
     // 构建完整提示词（使用绝对路径确保写入位置正确）
     const extraPrompt = buildProcessCheckPrompt(outputPath, processedPrompt, options?.cwd);
@@ -862,7 +887,7 @@ export class StepWise {
     const sessionId = this.getOrCreateSessionId(options?.newSession);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     // 是否使用 resume 模式：只有复用已有 session 时才使用 resume
-    const useResume = !options?.newSession && !!this.currentSessionId;
+    const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
     // 记录任务开始
     this.logger?.logTaskStart(taskIndex, taskType, sessionId);
@@ -934,7 +959,7 @@ export class StepWise {
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
     // 是否使用 resume 模式：只有复用已有 session 时才使用 resume
-    const useResume = !options?.newSession && !!this.currentSessionId;
+    const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
     // 构建完整提示词（使用绝对路径确保写入位置正确）
     const extraPrompt = buildCollectPrompt(outputFormat, outputPath, options?.cwd);
@@ -1036,7 +1061,7 @@ export class StepWise {
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const outputPath = this.getReportOutputPath(outputFileName);
     // 是否使用 resume 模式：只有复用已有 session 时才使用 resume
-    const useResume = !options?.newSession && !!this.currentSessionId;
+    const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
     // 构建完整提示词（使用绝对路径确保写入位置正确）
     const extraPrompt = buildReportPrompt(outputFormat, outputPath, options?.cwd);
@@ -1141,7 +1166,7 @@ export class StepWise {
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const outputPath = this.getReportOutputPath(outputFileName);
     // 是否使用 resume 模式：只有复用已有 session 时才使用 resume
-    const useResume = !options?.newSession && !!this.currentSessionId;
+    const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
     // 构建完整提示词（使用绝对路径确保写入位置正确）
     const extraPrompt = buildReportPrompt(outputFormat, outputPath, options?.cwd);
