@@ -46,7 +46,7 @@ export class ClaudeExecutor {
     prompt: string,
     options: ExecutorOptions
   ): Promise<ExecutionResult> {
-    const sessionId = options.sessionId || generateUUID();
+    let sessionId = options.sessionId || generateUUID();
     const startTime = Date.now();
 
     let lastError: string | undefined;
@@ -76,6 +76,22 @@ export class ClaudeExecutor {
           };
         }
 
+        // 检查是否是使用限额达到上限（需要等待后重试）
+        const rateLimitInfo = this.checkRateLimitError(result.stdout, result.stderr);
+        if (rateLimitInfo) {
+          console.log(`\n${rateLimitInfo.message}`);
+          await this.waitUntilReset(rateLimitInfo.resetTime);
+          continue; // 等待后重试
+        }
+
+        // 检查是否是 Session ID 冲突（需要重新生成 ID 后重试）
+        const sessionConflict = this.checkSessionConflictError(result.stdout, result.stderr, sessionId);
+        if (sessionConflict) {
+          console.log(`\nSession ID 冲突，正在重新生成...`);
+          sessionId = generateUUID();
+          continue; // 使用新 session ID 重试
+        }
+
         // 非零退出码，构建完整错误信息
         lastError = this.buildErrorMessage(result);
 
@@ -90,6 +106,15 @@ export class ClaudeExecutor {
       } catch (error) {
         // 捕获所有异常，构建完整错误信息
         lastError = this.buildCatchErrorMessage(error);
+
+        // 检查异常信息中是否包含使用限额错误
+        const errorStr = String(error);
+        const rateLimitInfo = this.checkRateLimitError(errorStr, '');
+        if (rateLimitInfo) {
+          console.log(`\n${rateLimitInfo.message}`);
+          await this.waitUntilReset(rateLimitInfo.resetTime);
+          continue; // 等待后重试
+        }
 
         if (attempts < MAX_RETRIES) {
           options.logger?.logTaskRetry(
@@ -134,6 +159,103 @@ export class ClaudeExecutor {
       duration
     };
   }
+
+  /**
+   * 检查是否是使用限额达到上限的错误
+   * @returns 如果检测到限额错误，返回包含重置时间和消息的对象；否则返回 null
+   */
+  private checkRateLimitError(stdout: string, stderr: string): { resetTime: Date; message: string } | null {
+    const combinedOutput = stdout + stderr;
+
+    // 匹配"已达到 X 小时的使用上限。您的限额将在 YYYY-MM-DD HH:mm:ss 重置"
+    const match = combinedOutput.match(ClaudeExecutor.RATE_LIMIT_PATTERN_CN);
+
+    if (match) {
+      return this.buildRateLimitInfo(match[1], match[2].trim());
+    }
+
+    // 也匹配英文版本
+    const enMatch = combinedOutput.match(ClaudeExecutor.RATE_LIMIT_PATTERN_EN);
+    if (enMatch) {
+      return this.buildRateLimitInfo(enMatch[1], enMatch[2].trim());
+    }
+
+    return null;
+  }
+
+  /**
+   * 构建 rate limit 信息对象
+   */
+  private buildRateLimitInfo(hours: string, resetTimeStr: string): { resetTime: Date; message: string } {
+    const resetTime = new Date(resetTimeStr);
+    const message = `已达到 ${hours} 小时的使用上限。您的限额将在 ${resetTimeStr} 重置。`;
+    return { resetTime, message };
+  }
+
+  /**
+   * 检查是否是 Session ID 冲突错误
+   * @param currentSessionId 当前使用的 session ID
+   * @returns 如果检测到冲突且是当前 session ID，返回 true；否则返回 false
+   */
+  private checkSessionConflictError(stdout: string, stderr: string, currentSessionId: string): boolean {
+    const combinedOutput = stdout + stderr;
+    const match = combinedOutput.match(ClaudeExecutor.SESSION_CONFLICT_PATTERN);
+
+    if (match) {
+      const conflictingId = match[1];
+      // 检查冲突的 ID 是否是当前使用的 session ID（说明是新生成的 ID 冲突了）
+      return conflictingId === currentSessionId;
+    }
+
+    return false;
+  }
+
+  /**
+   * 等待直到指定时间（异步）
+   * @param resetTime 重置时间
+   */
+  private async waitUntilReset(resetTime: Date): Promise<void> {
+    const now = new Date();
+    const waitMs = resetTime.getTime() - now.getTime();
+
+    if (waitMs <= 0) {
+      console.log('已达到重置时间，正在继续...');
+      return;
+    }
+
+    const waitSeconds = Math.ceil(waitMs / 1000);
+    const waitMinutes = Math.floor(waitSeconds / 60);
+    const remainingSeconds = waitSeconds % 60;
+
+    console.log(`需要等待 ${waitMinutes} 分 ${remainingSeconds} 秒...`);
+    console.log(`预计在 ${resetTime.toLocaleString()} 继续执行`);
+
+    // 每分钟打印一次等待进度
+    let waitedMs = 0;
+    const intervalId = setInterval(() => {
+      waitedMs += 60000;
+      const remaining = waitMs - waitedMs;
+      if (remaining > 0) {
+        const remainingMinutes = Math.floor(remaining / 60000);
+        console.log(`仍在等待... 剩余约 ${remainingMinutes} 分钟`);
+      }
+    }, 60000);
+
+    // 使用异步等待
+    await new Promise(resolve => setTimeout(resolve, waitMs));
+
+    clearInterval(intervalId);
+    console.log('已达到重置时间，正在继续...');
+  }
+
+  /** 速率限制正则表达式 - 中文 */
+  private static readonly RATE_LIMIT_PATTERN_CN = /已达到\s*(\d+)\s*小时\s*的使用上限[。\.]\s*您的限额将在\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s*重置/;
+
+  /** 速率限制正则表达式 - 英文 */
+  private static readonly RATE_LIMIT_PATTERN_EN = /you have reached your\s*(\d+)\s*hour\s+usage\s+limit.*?will\s+reset\s+at\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/i;
+
+  /** Session 冲突正则表达式 */
+  private static readonly SESSION_CONFLICT_PATTERN = /Session ID\s+([0-9a-f-]+)\s+is already in use/i;
 
   /**
    * 构建错误消息（非零退出码情况）
