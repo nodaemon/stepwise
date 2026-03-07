@@ -401,6 +401,8 @@ interface SummarizeOptions {
 **Behavior**
 
 - Uses the current session ID to review all work done
+- Only creates SKILL.md files when truly valuable experience is found
+- **Quality over quantity**: If nothing worth summarizing, simply completes without creating files
 - Generates SKILL.md files in `.claude/skills/` directory
 - Logs are written to the last task's directory of the session (for auto-summary) or a separate directory (for manual summary)
 - Does not increment task index
