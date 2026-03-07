@@ -99,9 +99,27 @@ export interface TaskStatus {
   /** 执行时间戳 */
   timestamp: number;
   /** 任务类型 */
-  taskType: 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check';
+  taskType: 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize';
   /** 输出文件名（仅收集类任务） */
   outputFileName?: string;
+}
+
+/**
+ * 总结选项
+ */
+export interface SummarizeOptions {
+  /** 工作目录，未指定则使用当前进程的cwd */
+  cwd?: string;
+  /** 自定义提示词 */
+  customPrompt?: string;
+}
+
+/**
+ * 总结结果
+ */
+export interface SummarizeResult extends ExecutionResult {
+  /** 生成的 Skill 文件路径列表 */
+  skillFiles: string[];
 }
 
 /**

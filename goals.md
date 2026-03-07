@@ -233,3 +233,9 @@ stepwise_exec_infos/
 **时间戳格式说明**：
 - 格式：`20260307_120000_123`（年月日_时分秒_毫秒）
 - 精确到毫秒，减少命名冲突
+
+## 自学习能力
+在每次new session的时候，如果前面有session，说明前面的Session已经完成了，可以先--resume前面的Session，让claude code自己总结前面的步骤中是否有：
+1. 经过多次尝试最终成功的技能，总结成claude code的SKILL文件。
+2. 当前项目一些公共的动作，后续很可能还会遇到，如果形成总结可以加速的，总结成claude code的SKILL文件。
+Skill文件输出在当前cwd目录下的.claude/skills/[skill_name]/SKILL.md中

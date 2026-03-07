@@ -8,7 +8,9 @@ import {
   OutputFormat,
   TaskStatus,
   TaskStatusType,
-  ProgressInfo
+  ProgressInfo,
+  SummarizeOptions,
+  SummarizeResult
 } from './types';
 import { generateUUID } from './utils/uuid';
 import { Logger } from './utils/logger';
@@ -24,7 +26,8 @@ import {
   buildReportPrompt,
   buildCheckPrompt,
   buildFullPrompt,
-  replaceVariables
+  replaceVariables,
+  buildSummarizePrompt
 } from './utils/promptBuilder';
 import {
   EXEC_INFO_DIR,
@@ -200,6 +203,98 @@ export class StepWise {
       this.currentSessionId = generateUUID();
     }
     return this.currentSessionId;
+  }
+
+  /**
+   * 获取或创建 session id（带自动总结）
+   * 如果 newSession=true 且存在 currentSessionId，先总结前一个 session
+   */
+  private async getOrCreateSessionIdWithSummarize(newSession?: boolean, cwd?: string): Promise<string> {
+    if (newSession && this.currentSessionId) {
+      // 在创建新 session 之前，总结前一个 session
+      await this.summarizeInternal(this.currentSessionId, cwd);
+    }
+    return this.getOrCreateSessionId(newSession);
+  }
+
+  /**
+   * 内部总结方法
+   * 不增加 taskIndex，创建单独的日志目录
+   */
+  private async summarizeInternal(sessionId: string, cwd?: string): Promise<void> {
+    const timestamp = this.formatTimestamp(new Date());
+    const logDirName = `summarize_${timestamp}`;
+
+    // 创建日志目录
+    const logDir = this.logger?.createTaskLogDirByName(logDirName);
+    if (!logDir) return;
+
+    // 获取技能文件目录
+    const skillsDir = this.getSkillsDir(cwd);
+
+    // 构建总结提示词
+    const summarizePrompt = buildSummarizePrompt(skillsDir);
+
+    this.logger?.logTaskStart(0, 'summarize', sessionId);
+
+    if (logDir) {
+      this.logger?.writeTaskLog(logDir, 'prompt.txt', summarizePrompt);
+    }
+
+    try {
+      // 使用 --resume 模式执行总结
+      await this.executor.execute(summarizePrompt, {
+        cwd: cwd,
+        sessionId: sessionId,
+        useResume: true,
+        taskLogDir: logDir,
+        logger: this.logger!,
+        taskIndex: 0,
+        taskType: 'summarize'
+      });
+
+      this.logger?.logTaskComplete(0, 'summarize', true, 0);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.logger?.logTaskComplete(0, 'summarize', false, 0, errorMsg);
+      // 总结失败不影响主流程，只记录日志
+    }
+  }
+
+  /**
+   * 获取技能文件目录
+   */
+  private getSkillsDir(cwd?: string): string {
+    const baseDir = cwd || process.cwd();
+    return path.join(baseDir, '.claude', 'skills');
+  }
+
+  /**
+   * 查找生成的 Skill 文件
+   */
+  private findGeneratedSkillFiles(cwd?: string): string[] {
+    const skillsDir = this.getSkillsDir(cwd);
+
+    if (!fs.existsSync(skillsDir)) {
+      return [];
+    }
+
+    const skillFiles: string[] = [];
+
+    const scanDir = (dir: string) => {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          scanDir(fullPath);
+        } else if (entry.name === 'SKILL.md') {
+          skillFiles.push(fullPath);
+        }
+      }
+    };
+
+    scanDir(skillsDir);
+    return skillFiles;
   }
 
   /**
@@ -567,7 +662,7 @@ export class StepWise {
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
-    const sessionId = this.getOrCreateSessionId(options?.newSession);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, options?.cwd);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
@@ -646,7 +741,7 @@ export class StepWise {
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
-    const sessionId = this.getOrCreateSessionId(options?.newSession);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, options?.cwd);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
     const useResume = this.shouldUseResume(taskIndex, options?.newSession);
@@ -742,7 +837,7 @@ export class StepWise {
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
-    const sessionId = this.getOrCreateSessionId(options?.newSession);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, options?.cwd);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
     const useResume = this.shouldUseResume(taskIndex, options?.newSession);
@@ -835,7 +930,7 @@ export class StepWise {
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
-    const sessionId = this.getOrCreateSessionId(options?.newSession);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, options?.cwd);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const outputPath = this.getReportOutputPath(outputFileName);
     const useResume = this.shouldUseResume(taskIndex, options?.newSession);
@@ -909,5 +1004,87 @@ export class StepWise {
    */
   getTaskCounter(): number {
     return this.taskCounter;
+  }
+
+  /**
+   * 用户主动调用的总结方法
+   * 用于在最后一个任务完成后，总结当前 session
+   */
+  async summarize(options?: SummarizeOptions): Promise<SummarizeResult> {
+    if (!this.currentSessionId) {
+      throw new Error('错误: 没有活动的 session，无法总结');
+    }
+
+    const startTime = Date.now();
+    const sessionId = this.currentSessionId;
+
+    // 获取任务序号（总结不增加 taskIndex）
+    const taskIndex = this.taskCounter + 1;
+    const timestamp = this.formatTimestamp(new Date());
+    const logDirName = `summarize_${timestamp}`;
+
+    // 创建日志目录
+    const logDir = this.logger?.createTaskLogDirByName(logDirName) || '';
+
+    // 获取技能文件目录
+    const skillsDir = this.getSkillsDir(options?.cwd);
+
+    // 构建总结提示词（支持自定义）
+    const summarizePrompt = options?.customPrompt
+      ? options.customPrompt
+      : buildSummarizePrompt(skillsDir);
+
+    this.logger?.logTaskStart(taskIndex, 'summarize', sessionId);
+
+    if (logDir) {
+      this.logger?.writeTaskLog(logDir, 'prompt.txt', summarizePrompt);
+    }
+
+    let result: ExecutionResult;
+    try {
+      await this.executor.execute(summarizePrompt, {
+        cwd: options?.cwd,
+        sessionId: sessionId,
+        useResume: true,
+        taskLogDir: logDir,
+        logger: this.logger!,
+        taskIndex,
+        taskType: 'summarize'
+      });
+
+      result = {
+        sessionId,
+        output: '',
+        success: true,
+        timestamp: Date.now(),
+        duration: Date.now() - startTime
+      };
+
+      this.logger?.logTaskComplete(taskIndex, 'summarize', true, result.duration);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      result = {
+        sessionId,
+        output: '',
+        success: false,
+        error: errorMsg,
+        timestamp: Date.now(),
+        duration: Date.now() - startTime
+      };
+
+      if (logDir) {
+        this.logger?.writeTaskLog(logDir, 'error.txt', errorMsg);
+      }
+
+      this.logger?.logTaskComplete(taskIndex, 'summarize', false, result.duration, errorMsg);
+    }
+
+    // 查找生成的 Skill 文件
+    const skillFiles = this.findGeneratedSkillFiles(options?.cwd);
+
+    return {
+      ...result,
+      skillFiles
+    };
   }
 }

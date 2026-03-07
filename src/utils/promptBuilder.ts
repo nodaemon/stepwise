@@ -178,3 +178,55 @@ ${requirements.join('\n')}
 export function buildFullPrompt(originalPrompt: string, extraPrompt: string): string {
   return `${originalPrompt}\n\n---\n\n${extraPrompt}`;
 }
+
+/**
+ * 构建总结任务的提示词
+ * @param skillsDir 技能文件存储目录
+ * @returns 总结提示词
+ */
+export function buildSummarizePrompt(skillsDir: string): string {
+  return `请回顾当前会话中的所有工作，总结有价值的技能和经验。
+
+## 总结重点
+
+请重点关注以下类型的内容：
+1. **错误处理和解决方案**：经过多次尝试才解决的问题、发现的错误模式
+2. **通用工作流程**：可复用的操作步骤、最佳实践
+3. **项目特定知识**：项目结构、配置、约定等
+
+## 排除内容
+
+请不要总结以下类型：
+- 过于简单或一次成功的操作
+- 通用的编程知识（除非有项目特定的变化）
+
+## 输出要求
+
+将识别出的每个技能保存为独立的 Skill 文件：
+- 存储路径：${skillsDir}/[skill_name]/SKILL.md
+- 命名规范：使用英文小写和下划线，如 \`handle_api_retry\`、\`setup_test_env\`
+
+## SKILL.md 文件格式（内容用中文）
+
+\`\`\`markdown
+# [技能名称]
+
+## 描述
+[一句话描述该技能解决的问题]
+
+## 使用场景
+- 场景1：[描述]
+- 场景2：[描述]
+
+## 执行步骤
+1. [第一步]
+2. [第二步]
+3. ...
+\`\`\`
+
+## 更新策略
+
+如果 \`${skillsDir}\` 目录下已存在类似的 Skill 文件，请更新现有文件而不是创建新的。更新时合并新的经验和步骤。
+
+请现在开始回顾会话内容并生成 Skill 文件。`;
+}
