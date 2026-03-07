@@ -10,6 +10,11 @@ export interface ExecOptions {
    * - true: 创建新的 session id
    */
   newSession?: boolean;
+  /**
+   * 数据对象，用于替换 prompt 中的变量
+   * 例如：{ name: "test", desc: "description" } 会将 prompt 中的 $name 替换为 "test"，$desc 替换为 "description"
+   */
+  data?: Record<string, any>;
 }
 
 /**
