@@ -96,6 +96,8 @@ StepWise 任务启动
 // newSession 未指定或为 false: 复用上一个任务的 session id（如果没有则创建新的）
 // newSession 为 true: 创建新的 session id
 // 若指定data, 需要将prompt中$name $desc等变量替换成data中真实的key对应的value，然后执行提示词
+// StepWise创建时打印StepWise开始的日志到控制台，说明名字和目录
+// 若checkPrompt指定，需要再claude code调用完成后，使用--resume 再执行checkPrompt中的提示词，checkPrompt也支持data变量替换
 // 返回本次执行的ExecutionResult中各个字段的信息
 StepWise.execPrompt(prompt: string, options?: ExecOptions): Promise<ExecutionResult>
 ```
@@ -106,6 +108,7 @@ StepWise.execPrompt(prompt: string, options?: ExecOptions): Promise<ExecutionRes
 // 使用outputFormat和当前任务目录下的collect.json为输出文件生成额外提示词，确保claude执行输出的结果按照固定json数组方式输出，并写入到本地磁盘文件中。
 // 额外提示词必须是中文，且明确告知文件已存在时追加合并，对于primary_key相同的数据需要去重。
 // 除了普通的任务返回信息，还需要从磁盘读取生成的json数组，返回CollectResult中的data
+// 注意checkPrompt的执行要在从磁盘读取json并返回之前，避免check时的修改，没有读到
 // ExecOptions中的出参数支持与execPrompt保持一致
 StepWise.execCollectPrompt(prompt: string, outputFormat: OutputFormat, options?: ExecOptions): Promise<CollectResult>
 ```
@@ -140,6 +143,7 @@ interface ExecOptions {
   cwd?: string;
   data?: Record<string, any>
   newSession?: boolean;  // true: 创建新 session; false/未指定: 复用上一个 session（默认）
+  checkPrompt: string;
 }
 
 interface OutputFormat {

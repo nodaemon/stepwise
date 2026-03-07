@@ -15,6 +15,12 @@ export interface ExecOptions {
    * 例如：{ name: "test", desc: "description" } 会将 prompt 中的 $name 替换为 "test"，$desc 替换为 "description"
    */
   data?: Record<string, any>;
+  /**
+   * 执行完成后的检查提示词
+   * 如果指定，主任务完成后会使用 --resume 模式执行此提示词
+   * 支持 data 变量替换
+   */
+  checkPrompt?: string;
 }
 
 /**

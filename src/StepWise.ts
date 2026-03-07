@@ -566,6 +566,20 @@ export class StepWise {
 
     if (result.success) {
       this.recordTaskComplete(taskIndex, `${taskIndex}_task`, sessionId, taskType);
+
+      // 执行 checkPrompt
+      if (options?.checkPrompt) {
+        const processedCheckPrompt = this.processPrompt(options.checkPrompt, options);
+        await this.executor.execute(processedCheckPrompt, {
+          cwd: options?.cwd,
+          sessionId: sessionId,
+          useResume: true,
+          taskLogDir,
+          logger: this.logger!,
+          taskIndex,
+          taskType: 'check'
+        });
+      }
     }
 
     return result;
@@ -653,6 +667,20 @@ export class StepWise {
       if (result.error) {
         this.logger?.writeTaskLog(taskLogDir, 'error.txt', result.error);
       }
+    }
+
+    // 在读取 JSON 之前执行 checkPrompt
+    if (result.success && options?.checkPrompt) {
+      const processedCheckPrompt = this.processPrompt(options.checkPrompt, options);
+      await this.executor.execute(processedCheckPrompt, {
+        cwd: options?.cwd,
+        sessionId: sessionId,
+        useResume: true,
+        taskLogDir,
+        logger: this.logger!,
+        taskIndex,
+        taskType: 'check'
+      });
     }
 
     let data: Record<string, any>[] = [];
@@ -747,6 +775,20 @@ export class StepWise {
       if (result.error) {
         this.logger?.writeTaskLog(taskLogDir, 'error.txt', result.error);
       }
+    }
+
+    // 在读取 check result JSON 之前执行 checkPrompt
+    if (result.success && options?.checkPrompt) {
+      const processedCheckPrompt = this.processPrompt(options.checkPrompt, options);
+      await this.executor.execute(processedCheckPrompt, {
+        cwd: options?.cwd,
+        sessionId: sessionId,
+        useResume: true,
+        taskLogDir,
+        logger: this.logger!,
+        taskIndex,
+        taskType: 'check'
+      });
     }
 
     let checkResult = false;
@@ -848,6 +890,20 @@ export class StepWise {
       if (result.error) {
         this.logger?.writeTaskLog(taskLogDir, 'error.txt', result.error);
       }
+    }
+
+    // 在读取 JSON 之前执行 checkPrompt
+    if (result.success && options?.checkPrompt) {
+      const processedCheckPrompt = this.processPrompt(options.checkPrompt, options);
+      await this.executor.execute(processedCheckPrompt, {
+        cwd: options?.cwd,
+        sessionId: sessionId,
+        useResume: true,
+        taskLogDir,
+        logger: this.logger!,
+        taskIndex,
+        taskType: 'check'
+      });
     }
 
     let data: Record<string, any>[] = [];
