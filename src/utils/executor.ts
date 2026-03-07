@@ -88,14 +88,6 @@ export class ClaudeExecutor {
           continue; // 等待后重试
         }
 
-        // 检查是否是 Session ID 冲突（需要重新生成 ID 后重试）
-        const sessionConflict = this.checkSessionConflictError(result.stdout, result.stderr, sessionId);
-        if (sessionConflict) {
-          console.log(`\nSession ID 冲突，正在重新生成...`);
-          sessionId = generateUUID();
-          continue; // 使用新 session ID 重试
-        }
-
         // 非零退出码，构建完整错误信息
         lastError = this.buildErrorMessage(result);
 
@@ -197,24 +189,6 @@ export class ClaudeExecutor {
   }
 
   /**
-   * 检查是否是 Session ID 冲突错误
-   * @param currentSessionId 当前使用的 session ID
-   * @returns 如果检测到冲突且是当前 session ID，返回 true；否则返回 false
-   */
-  private checkSessionConflictError(stdout: string, stderr: string, currentSessionId: string): boolean {
-    const combinedOutput = stdout + stderr;
-    const match = combinedOutput.match(ClaudeExecutor.SESSION_CONFLICT_PATTERN);
-
-    if (match) {
-      const conflictingId = match[1];
-      // 检查冲突的 ID 是否是当前使用的 session ID（说明是新生成的 ID 冲突了）
-      return conflictingId === currentSessionId;
-    }
-
-    return false;
-  }
-
-  /**
    * 等待直到指定时间（异步）
    * @param resetTime 重置时间
    */
@@ -257,9 +231,6 @@ export class ClaudeExecutor {
 
   /** 速率限制正则表达式 - 英文 */
   private static readonly RATE_LIMIT_PATTERN_EN = /you have reached your\s*(\d+)\s*hour\s+usage\s+limit.*?will\s+reset\s+at\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/i;
-
-  /** Session 冲突正则表达式 */
-  private static readonly SESSION_CONFLICT_PATTERN = /Session ID\s+([0-9a-f-]+)\s+is already in use/i;
 
   /**
    * 构建错误消息（非零退出码情况）
