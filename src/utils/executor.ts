@@ -163,17 +163,15 @@ export class ClaudeExecutor {
   private checkRateLimitError(stdout: string, stderr: string): { resetTime: Date; message: string } | null {
     const combinedOutput = stdout + stderr;
 
-    // 匹配"已达到 X 小时的使用上限。您的限额将在 YYYY-MM-DD HH:mm:ss 重置"
-    const match = combinedOutput.match(ClaudeExecutor.RATE_LIMIT_PATTERN_CN);
-
-    if (match) {
-      return this.buildRateLimitInfo(match[1], match[2].trim());
-    }
-
-    // 也匹配英文版本
-    const enMatch = combinedOutput.match(ClaudeExecutor.RATE_LIMIT_PATTERN_EN);
-    if (enMatch) {
-      return this.buildRateLimitInfo(enMatch[1], enMatch[2].trim());
+    // 按优先级尝试匹配各种格式的限额错误
+    for (const pattern of ClaudeExecutor.RATE_LIMIT_PATTERNS) {
+      const match = combinedOutput.match(pattern);
+      if (match) {
+        // 有些正则只捕获时间，有些捕获小时数和时间
+        const hours = match[1] && !match[1].includes('-') ? match[1] : '5';
+        const resetTimeStr = match[2] || match[1];
+        return this.buildRateLimitInfo(hours, resetTimeStr.trim());
+      }
     }
 
     return null;
@@ -226,11 +224,15 @@ export class ClaudeExecutor {
     console.log('已达到重置时间，正在继续...');
   }
 
-  /** 速率限制正则表达式 - 中文 */
-  private static readonly RATE_LIMIT_PATTERN_CN = /已达到\s*(\d+)\s*小时\s*的使用上限[。\.]\s*您的限额将在\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s*重置/;
-
-  /** 速率限制正则表达式 - 英文 */
-  private static readonly RATE_LIMIT_PATTERN_EN = /you have reached your\s*(\d+)\s*hour\s+usage\s+limit.*?will\s+reset\s+at\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/i;
+  /** 速率限制正则表达式列表 - 按优先级匹配 */
+  private static readonly RATE_LIMIT_PATTERNS = [
+    // 中文格式：已达到5小时的使用上限。您的限额将在 2026-03-07 04:09:41 重置
+    /已达到\s*(\d+)\s*小时\s*的?使用上限[。\.]?\s*您的?限额将在\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s*重置/i,
+    // 英文格式1：You have reached your 5 hour usage limit. Your limit will reset at 2026-03-07 04:09:41
+    /(?:you\s+)?have\s+reached\s+(?:your\s+)?(\d+)\s*hours?\s*(?:usage|rate)?\s*limit.*?(?:will\s+)?reset\s+(?:at\s+)?(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/is,
+    // 英文格式2：usage limit exceeded, resets at 2026-03-07 04:09:41
+    /(?:usage|rate)\s*limit\s*(?:exceeded|reached).*?resets?\s*(?:at\s+)?(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/is,
+  ];
 
   /**
    * 构建错误消息（非零退出码情况）
