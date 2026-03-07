@@ -6,30 +6,25 @@ This document provides detailed API reference for StepWise.
 
 ## Table of Contents
 
+- [Global Functions](#global-functions)
+  - [setTaskName](#settasknametaskname-string-void)
+  - [setResumePath](#setresumepathpath-string-void)
+  - [enableDebugMode](#enabledebugmodeenabled-boolean-void)
+  - [saveCollectData](#savecollectdatadata-recordstring-any-filename-string-void)
+  - [loadCollectData](#loadcollectdatafilename-string-recordstring-any)
 - [StepWise Class](#stepwise-class)
-  - [Global Settings](#global-settings)
-  - [Task Execution](#task-execution)
+  - [Constructor](#constructor)
+  - [Task Execution Methods](#task-execution-methods)
   - [Helper Methods](#helper-methods)
 - [Type Definitions](#type-definitions)
-- [Constants](#constants)
 
 ---
 
-## StepWise Class
+## Global Functions
 
-The main class providing core task orchestration functionality.
+Global functions for configuration and data management.
 
-```typescript
-import { StepWise } from 'stepwise';
-
-const agent = new StepWise();
-```
-
----
-
-### Global Settings
-
-#### setTaskName(taskName: string): void
+### setTaskName(taskName: string): void
 
 Sets the task name used to generate the task directory.
 
@@ -39,16 +34,24 @@ Sets the task name used to generate the task directory.
 |-----------|------|-------------|
 | taskName | string | Task name, recommend using English and underscores |
 
+**Behavior**
+
+- Must be called before creating any StepWise instance
+- TaskName is registered globally and cannot be duplicated with StepWise names
+- Empty taskName will cause an error and exit
+
 **Example**
 
 ```typescript
-agent.setTaskName('AnalyzeCodebase');
-// Creates directory: stepwise_exec_infos/AnalyzeCodebase_2026_03_03_10_30_00/
+import { setTaskName } from 'stepwise';
+
+setTaskName('AnalyzeCodebase');
+// Creates directory: stepwise_exec_infos/AnalyzeCodebase_20260307_103000_123/
 ```
 
 ---
 
-#### setResumePath(path: string): void
+### setResumePath(path: string): void
 
 Sets the recovery path to resume execution from a specified task directory.
 
@@ -62,18 +65,20 @@ Sets the recovery path to resume execution from a specified task directory.
 
 - After setting, completed tasks will be skipped
 - Interrupted tasks will be re-executed
-- New tasks will be appended
+- If Agent directory not found, will error and exit
 
 **Example**
 
 ```typescript
+import { setResumePath } from 'stepwise';
+
 // Resume from historical directory
-agent.setResumePath('AnalyzeCodebase_2026_03_03_10_30_00');
+setResumePath('AnalyzeCodebase_20260307_103000_123');
 ```
 
 ---
 
-#### enableDebugMode(enabled?: boolean): void
+### enableDebugMode(enabled?: boolean): void
 
 Enables or disables debug mode.
 
@@ -85,31 +90,103 @@ Enables or disables debug mode.
 
 **Debug Mode Behavior**
 
-- Collection tasks return only the first data item
+- Collection prompts add "only collect 1 item" instruction
+- Return only the first data item
 - Used for quick workflow validation
 
 **Example**
 
 ```typescript
-agent.enableDebugMode(true);  // Enable
-agent.enableDebugMode(false); // Disable
+import { enableDebugMode } from 'stepwise';
+
+enableDebugMode(true);  // Enable
+enableDebugMode(false); // Disable
+enableDebugMode();      // Enable (default)
 ```
 
 ---
 
-#### isDebugMode(): boolean
+### saveCollectData(data: Record<string, any>[], fileName?: string): void
 
-Checks if debug mode is enabled.
+Saves collected data to disk (stored in current working directory).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| data | Record<string, any>[] | - | Data array to save |
+| fileName | string | 'collect_data.json' | File name |
+
+**Example**
+
+```typescript
+import { saveCollectData } from 'stepwise';
+
+saveCollectData(result.data, 'my_data.json');
+```
+
+---
+
+### loadCollectData(fileName?: string): Record<string, any>[]
+
+Loads collected data from disk (reads from current working directory).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| fileName | string | 'collect_data.json' | File name |
 
 **Returns**
 
 | Type | Description |
 |------|-------------|
-| boolean | Debug mode status |
+| Record<string, any>[] | Data array, returns empty array if not exists |
+
+**Example**
+
+```typescript
+import { loadCollectData } from 'stepwise';
+
+const data = loadCollectData('my_data.json');
+```
 
 ---
 
-### Task Execution
+## StepWise Class
+
+The main class providing core task orchestration functionality.
+
+### Constructor
+
+```typescript
+new StepWise(name: string)
+```
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| name | string | Unique agent name |
+
+**Behavior**
+
+- TaskName must be set before creating StepWise
+- Name cannot be duplicated with TaskName or other StepWise names
+- Prints startup information on first creation
+
+**Example**
+
+```typescript
+import { StepWise, setTaskName } from 'stepwise';
+
+setTaskName('MyTask');
+const agent = new StepWise('MainAgent');
+```
+
+---
+
+### Task Execution Methods
 
 #### execPrompt(prompt: string, options?: ExecOptions): Promise\<ExecutionResult\>
 
@@ -119,22 +196,29 @@ Executes a normal task.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| prompt | string | Prompt content |
+| prompt | string | Prompt content, supports `$variableName` substitution |
 | options | ExecOptions | Execution options (optional) |
 
 **ExecOptions**
 
 ```typescript
 interface ExecOptions {
-  cwd?: string;        // Working directory, defaults to current process directory
-  newSession?: boolean; // Whether to use a new session, defaults to false (reuse previous session)
+  cwd?: string;           // Working directory, defaults to current process directory
+  newSession?: boolean;   // Whether to use a new session, defaults to false
+  data?: Record<string, any>; // Data for variable substitution
 }
 ```
 
-**Session Behavior**
+**Variable Substitution**
 
-- `newSession: false` (default): Reuses the previous task's session ID. If no previous session exists, creates a new one.
-- `newSession: true`: Creates a new session ID, starting a fresh conversation context.
+Use `$variableName` format in prompts, which will be replaced with corresponding values from `options.data`:
+
+```typescript
+const prompt = 'Analyze the complexity of this function: $name in $file';
+const options = { data: { name: 'getUser', file: 'src/user.ts' } };
+// Actual executed prompt:
+// Analyze the complexity of this function: getUser in src/user.ts
+```
 
 **ExecutionResult**
 
@@ -156,14 +240,12 @@ const result = await agent.execPrompt('Analyze project structure');
 
 if (result.success) {
   console.log('Success:', result.output);
-} else {
-  console.error('Failed:', result.error);
 }
 ```
 
 ---
 
-#### execCollectPrompt(prompt: string, outputFormat: OutputFormat, outputFileName: string, options?: ExecOptions): Promise\<CollectResult\>
+#### execCollectPrompt(prompt: string, outputFormat: OutputFormat, options?: ExecOptions): Promise\<CollectResult\>
 
 Executes a collection task, collecting data and saving as JSON file.
 
@@ -171,9 +253,8 @@ Executes a collection task, collecting data and saving as JSON file.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| prompt | string | Prompt content |
+| prompt | string | Prompt content, supports variable substitution |
 | outputFormat | OutputFormat | Output format definition |
-| outputFileName | string | Output file name |
 | options | ExecOptions | Execution options (optional) |
 
 **OutputFormat**
@@ -190,6 +271,10 @@ interface OutputKey {
   type: 'string' | 'number' | 'boolean' | 'object' | 'array';
 }
 ```
+
+**Output Location**
+
+Output file is automatically generated as `collect_{taskIndex}.json` in the Agent's collect directory.
 
 **CollectResult**
 
@@ -211,8 +296,7 @@ const result = await agent.execCollectPrompt(
       { name: 'file', description: 'File location', type: 'string' },
       { name: 'properties', description: 'Property list', type: 'array' }
     ]
-  },
-  'interfaces.json'
+  }
 );
 
 console.log(`Collected ${result.data.length} interfaces`);
@@ -220,17 +304,20 @@ console.log(`Collected ${result.data.length} interfaces`);
 
 ---
 
-#### execCheckPrompt(prompt: string, outputFileName: string, options?: ExecOptions): Promise\<CheckResult\>
+#### execCheckPrompt(prompt: string, options?: ExecOptions): Promise\<CheckResult\>
 
-Executes a check task, returning a boolean result (true/false). The AI is instructed to output the result to a JSON file, which is then read and returned.
+Executes a check task, returning a boolean result (true/false).
 
 **Parameters**
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| prompt | string | Check question/prompt |
-| outputFileName | string | Output file name |
+| prompt | string | Check question/prompt, supports variable substitution |
 | options | ExecOptions | Execution options (optional) |
+
+**Output Location**
+
+Output file is automatically saved as `check_result.json` in the Agent's check directory.
 
 **CheckResult**
 
@@ -244,158 +331,11 @@ interface CheckResult extends ExecutionResult {
 
 ```typescript
 const result = await agent.execCheckPrompt(
-  'Check if the project has proper unit tests',
-  'check_result.json'
+  'Check if the project has proper unit tests'
 );
 
 if (result.success && result.result) {
   console.log('Check passed');
-} else {
-  console.log('Check failed');
-}
-```
-
----
-
-#### execProcessDataAndCheck(prompt: string, data: Record\<string, any\>, outputFileName: string, options?: ExecOptions): Promise\<CheckResult\>
-
-Executes a processing check task, similar to execCheckPrompt but supports variable substitution in the prompt.
-
-**Parameters**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| prompt | string | Prompt template, supports variable substitution |
-| data | Record<string, any> | Data object |
-| outputFileName | string | Output file name |
-| options | ExecOptions | Execution options (optional) |
-
-**Variable Substitution**
-
-Use `$variableName` format in prompts, which will be replaced with corresponding values from data:
-
-```typescript
-// Prompt template
-const prompt = 'Check if $name function has proper error handling';
-
-// Data
-const data = { name: 'getUser' };
-
-// Actual executed prompt
-// Check if getUser function has proper error handling
-```
-
-**CheckResult**
-
-```typescript
-interface CheckResult extends ExecutionResult {
-  result: boolean; // Check result: true or false
-}
-```
-
-**Example**
-
-```typescript
-const apis = [
-  { name: 'login', path: '/api/login' },
-  { name: 'logout', path: '/api/logout' }
-];
-
-for (const api of apis) {
-  const result = await agent.execProcessDataAndCheck(
-    'Check if $name API has proper input validation',
-    api,
-    `check_${api.name}.json`
-  );
-
-  if (result.result) {
-    console.log(`${api.name} has proper validation`);
-  }
-}
-```
-
----
-
-#### execProcessData(prompt: string, data: Record\<string, any\>, options?: ExecOptions): Promise\<ExecutionResult\>
-
-Executes a processing task for a single data item.
-
-**Parameters**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| prompt | string | Prompt template, supports variable substitution |
-| data | Record<string, any> | Data object |
-| options | ExecOptions | Execution options (optional) |
-
-**Variable Substitution**
-
-Use `$variableName` format in prompts, which will be replaced with corresponding values from data:
-
-```typescript
-// Prompt template
-const prompt = 'Analyze the complexity of this function: $name in $file';
-
-// Data
-const data = { name: 'getUser', file: 'src/user.ts' };
-
-// Actual executed prompt
-// Analyze the complexity of this function: getUser in src/user.ts
-```
-
-**Example**
-
-```typescript
-const items = [
-  { name: 'login', path: '/api/login' },
-  { name: 'logout', path: '/api/logout' }
-];
-
-for (const item of items) {
-  await agent.execProcessData(
-    'Generate documentation for API: $name ($path)',
-    item
-  );
-}
-```
-
----
-
-#### execProcessDataAndCollect(prompt: string, data: Record\<string, any\>, outputFormat: OutputFormat, outputFileName: string, options?: ExecOptions): Promise\<CollectResult\>
-
-Executes a processing task and collects results.
-
-**Parameters**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| prompt | string | Prompt template |
-| data | Record<string, any> | Data object |
-| outputFormat | OutputFormat | Output format definition |
-| outputFileName | string | Output file name |
-| options | ExecOptions | Execution options (optional) |
-
-**Example**
-
-```typescript
-const apis = [
-  { name: 'login', method: 'POST', path: '/api/login' },
-  { name: 'logout', method: 'POST', path: '/api/logout' }
-];
-
-for (const api of apis) {
-  await agent.execProcessDataAndCollect(
-    'Generate test cases for API $name',
-    api,
-    {
-      primaryKey: 'apiName',
-      keys: [
-        { name: 'apiName', description: 'API name', type: 'string' },
-        { name: 'testCases', description: 'Test cases', type: 'array' }
-      ]
-    },
-    'test_cases.json'
-  );
 }
 ```
 
@@ -409,10 +349,14 @@ Executes a report task to generate summary reports.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| prompt | string | Prompt content |
+| prompt | string | Prompt content, supports variable substitution |
 | outputFormat | OutputFormat | Output format definition |
 | outputFileName | string | Output file name |
 | options | ExecOptions | Execution options (optional) |
+
+**Output Location**
+
+Output is saved to TaskName directory's `report/` subdirectory (shared by all agents).
 
 **Example**
 
@@ -432,111 +376,23 @@ await agent.execReport(
 
 ---
 
-#### execProcessDataAndReport(prompt: string, data: Record\<string, any\>, outputFormat: OutputFormat, outputFileName: string, options?: ExecOptions): Promise\<CollectResult\>
-
-Executes a processing report task, similar to execReport but supports variable substitution in the prompt.
-
-**Parameters**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| prompt | string | Prompt template, supports variable substitution |
-| data | Record<string, any> | Data object |
-| outputFormat | OutputFormat | Output format definition |
-| outputFileName | string | Output file name |
-| options | ExecOptions | Execution options (optional) |
-
-**Variable Substitution**
-
-Use `$variableName` format in prompts, which will be replaced with corresponding values from data:
-
-```typescript
-// Prompt template
-const prompt = 'Generate analysis report for $name project';
-
-// Data
-const data = { name: 'MyApp' };
-
-// Actual executed prompt
-// Generate analysis report for MyApp project
-```
-
-**Example**
-
-```typescript
-const projects = [
-  { name: 'frontend', path: '/src/frontend', type: 'React' },
-  { name: 'backend', path: '/src/backend', type: 'Express' }
-];
-
-for (const project of projects) {
-  const result = await agent.execProcessDataAndReport(
-    'Generate code quality report for $name ($type) project located at $path',
-    project,
-    {
-      keys: [
-        { name: 'score', description: 'Quality score', type: 'number' },
-        { name: 'issues', description: 'Issues found', type: 'array' },
-        { name: 'suggestions', description: 'Suggestions', type: 'array' }
-      ]
-    },
-    `report_${project.name}.json`
-  );
-
-  console.log(`${project.name} report:`, result.data);
-}
-```
-
----
-
 ### Helper Methods
 
-#### saveCollectData(data: Record\<string, any\>[], fileName?: string): void
+#### getAgentDir(): string
 
-Saves collected data to disk. The data file is stored in the current working directory (cwd), not the task directory.
-
-**Parameters**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| data | Record<string, any>[] | - | Data array |
-| fileName | string | 'collect_data.json' | File name |
-
-**Example**
-
-```typescript
-agent.saveCollectData(result.data, 'my_data.json');
-```
-
----
-
-#### loadCollectData(fileName?: string): Record\<string, any\>[]
-
-Loads collected data from disk. Reads the file from the current working directory (cwd), not the task directory.
-
-**Parameters**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| fileName | string | 'collect_data.json' | File name |
+Gets the current agent directory path.
 
 **Returns**
 
 | Type | Description |
 |------|-------------|
-| Record<string, any>[] | Data array, returns empty array if not exists |
-
-**Example**
-
-```typescript
-const data = agent.loadCollectData('my_data.json');
-```
+| string | Absolute path of agent directory |
 
 ---
 
 #### getTaskDir(): string
 
-Gets the current task directory path.
+Gets the current task directory path (TaskName directory).
 
 **Returns**
 
@@ -568,13 +424,6 @@ Gets the current session ID being used for task execution.
 |------|-------------|
 | string | Current session ID, empty string if not yet initialized |
 
-**Example**
-
-```typescript
-const sessionId = agent.getCurrentSessionId();
-console.log('Current session:', sessionId);
-```
-
 ---
 
 ## Type Definitions
@@ -585,8 +434,9 @@ Execution options.
 
 ```typescript
 interface ExecOptions {
-  cwd?: string;        // Working directory
-  newSession?: boolean; // Whether to use a new session (default: false)
+  cwd?: string;                    // Working directory
+  newSession?: boolean;            // Whether to use a new session (default: false)
+  data?: Record<string, any>;      // Data for variable substitution
 }
 ```
 
@@ -638,6 +488,16 @@ interface CollectResult extends ExecutionResult {
 }
 ```
 
+### CheckResult
+
+Check task result.
+
+```typescript
+interface CheckResult extends ExecutionResult {
+  result: boolean; // Check result: true or false
+}
+```
+
 ### TaskStatus
 
 Task status.
@@ -667,8 +527,37 @@ type TaskStatusType = 'pending' | 'in_progress' | 'completed';
 Task type.
 
 ```typescript
-type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report';
+type TaskType = 'task' | 'collect' | 'check' | 'report';
 ```
+
+---
+
+## Directory Structure
+
+```
+stepwise_exec_infos/
+└── {task-name}_{timestamp1}/              # TaskName directory
+    ├── report/                             # Report output (execReport)
+    ├── {agent-name}_{timestamp2}/          # StepWise Agent directory
+    │   ├── data/                           # Execution state
+    │   │   └── progress.json
+    │   ├── logs/                           # Execution logs
+    │   │   ├── 1_task/
+    │   │   ├── 2_collect/
+    │   │   └── execute.log
+    │   └── collect/                        # Collected data
+    │       ├── 2_collect/
+    │       └── 3_check/
+    └── ...
+```
+
+**Directory Naming Rules**:
+- TaskName directory: `{taskName}_{YYYYMMDD}_{HHmmss}_{milliseconds}`
+- StepWise Agent directory: `{agentName}_{YYYYMMDD}_{HHmmss}_{milliseconds}`
+
+**Timestamp Format**:
+- Format: `20260307_103000_123` (YYYYMMDD_HHmmss_milliseconds)
+- Precision to milliseconds to reduce naming conflicts
 
 ---
 

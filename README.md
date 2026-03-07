@@ -36,6 +36,7 @@ In real-world development, we often encounter complex automation tasks such as:
 These tasks typically require multi-step coordination and are prone to interruption due to long execution times. StepWise provides:
 
 - **Task Orchestration**: Flexibly define multi-step task workflows
+- **Multi-Agent Support**: Multiple agents can work in parallel within the same task
 - **Checkpoint Recovery**: Resume execution from interruption points
 - **Data Persistence**: Automatically save execution progress and results
 - **Debug Support**: Quickly validate workflows in debug mode
@@ -68,12 +69,13 @@ npm run build
 ### Basic Example
 
 ```typescript
-import { StepWise } from 'stepwise';
+import { StepWise, setTaskName } from 'stepwise';
 
-const agent = new StepWise();
+// Set task name (required before creating StepWise)
+setTaskName('AnalyzeAPIs');
 
-// Set task name
-agent.setTaskName('AnalyzeAPIs');
+// Create agent with a unique name
+const agent = new StepWise('MainAgent');
 
 // Execute a normal task
 await agent.execPrompt('Analyze the directory structure of the current project');
@@ -87,8 +89,7 @@ const result = await agent.execCollectPrompt(
       { name: 'method', description: 'HTTP method', type: 'string' },
       { name: 'path', description: 'API path', type: 'string' }
     ]
-  },
-  'apis.json'
+  }
 );
 
 console.log(`Collected ${result.data.length} APIs`);
@@ -99,23 +100,77 @@ console.log(`Collected ${result.data.length} APIs`);
 When a task is interrupted during execution, you can resume from the checkpoint:
 
 ```typescript
-const agent = new StepWise();
+import { StepWise, setTaskName, setResumePath } from 'stepwise';
 
 // Set the task directory to recover from
-agent.setResumePath('AnalyzeAPIs_2026_03_03_10_30_00');
+setResumePath('AnalyzeAPIs_20260307_103000_123');
+
+setTaskName('AnalyzeAPIs');
+
+const agent = new StepWise('MainAgent');
 
 // Re-execute the same code flow
 // Completed tasks will be skipped automatically
 await agent.execPrompt('Analyze the directory structure');  // Skipped
-await agent.execCollectPrompt('Collect API interfaces', format, 'apis.json');  // Skipped
-await agent.execProcessData('Process API: $name', data[0]);  // Resume from here
+await agent.execCollectPrompt('Collect API interfaces', format);  // Skipped
+await agent.execPrompt('Process API: $name', { data: { name: 'login' } });  // Resume from here
+```
+
+### Variable Substitution Example
+
+Use `$variableName` in prompts with `options.data`:
+
+```typescript
+import { StepWise, setTaskName } from 'stepwise';
+
+setTaskName('ProcessAPIs');
+const agent = new StepWise('APIProcessor');
+
+const apis = [
+  { name: 'login', path: '/api/login' },
+  { name: 'logout', path: '/api/logout' }
+];
+
+for (const api of apis) {
+  await agent.execPrompt(
+    'Generate documentation for API: $name ($path)',
+    { data: api }
+  );
+}
 ```
 
 ---
 
 ## Core Features
 
-### Task Orchestration
+### Global Settings
+
+StepWise provides global functions for configuration:
+
+```typescript
+import {
+  setTaskName,
+  setResumePath,
+  enableDebugMode,
+  saveCollectData,
+  loadCollectData
+} from 'stepwise';
+
+// Set task name (required)
+setTaskName('MyTask');
+
+// Set resume path for recovery
+setResumePath('MyTask_20260307_103000_123');
+
+// Enable debug mode (collects only 1 item)
+enableDebugMode(true);
+
+// Save/load data to/from cwd
+saveCollectData(data, 'my_data.json');
+const loaded = loadCollectData('my_data.json');
+```
+
+### Task Types
 
 Support for multiple task types with flexible combinations:
 
@@ -124,44 +179,62 @@ Support for multiple task types with flexible combinations:
 | Normal Task | `execPrompt` | Execute a single prompt task |
 | Collection Task | `execCollectPrompt` | Collect data and save as JSON |
 | Check Task | `execCheckPrompt` | Check condition and return true/false |
-| Processing Task | `execProcessData` | Process single data item |
-| Process & Collect | `execProcessDataAndCollect` | Process data and collect results |
 | Report Task | `execReport` | Generate summary report |
+
+### Multi-Agent Support
+
+Multiple agents can work in parallel within the same task:
+
+```typescript
+setTaskName('ParallelTask');
+
+const agent1 = new StepWise('Agent1');
+const agent2 = new StepWise('Agent2');
+
+// Both agents share the same TaskName directory
+// Each has its own subdirectory
+await agent1.execPrompt('Task for agent 1');
+await agent2.execPrompt('Task for agent 2');
+```
 
 ### Checkpoint Recovery
 
-Task progress is automatically recorded during execution, supporting recovery from interruption points:
+Task progress is automatically recorded during execution:
 
 ```typescript
 // Set recovery path
-agent.setResumePath('TaskName_2026_03_03_10_30_00');
+setResumePath('TaskName_20260307_103000_123');
 ```
 
 ### Debug Mode
 
-In debug mode, collection tasks return only the first data item for quick workflow validation:
+In debug mode, collection tasks:
+- Add "only collect 1 item" to the prompt
+- Return only the first data item
 
 ```typescript
-agent.enableDebugMode(true);
+enableDebugMode(true);
 ```
 
-### Data Persistence
+### Directory Structure
 
 Automatic task directory structure generation:
 
 ```
 stepwise_exec_infos/
-└── TaskName_2026_03_03_10_30_00/
-    ├── data/                    # Execution state
-    │   └── progress.json
-    ├── logs/                    # Execution logs
-    │   ├── 1_task/
-    │   ├── 2_collect/
-    │   └── execute.log
-    ├── collect/                 # Collected data
-    │   └── 2_collect/
-    │       └── output.json
-    └── report/                  # Report data
+└── TaskName_20260307_103000_123/     # TaskName directory (timestamp with milliseconds)
+    ├── report/                        # Report output (shared by all agents)
+    ├── Agent1_20260307_103001_456/    # StepWise Agent directory
+    │   ├── data/                      # Execution state
+    │   │   └── progress.json
+    │   ├── logs/                      # Execution logs
+    │   │   ├── 1_task/
+    │   │   ├── 2_collect/
+    │   │   └── execute.log
+    │   └── collect/                   # Collected data
+    │       └── 2_collect/
+    └── Agent2_20260307_103002_789/    # Another agent
+        └── ...
 ```
 
 ---
