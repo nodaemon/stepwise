@@ -33,6 +33,34 @@ const globalState: GlobalState = {
 };
 
 /**
+ * 生成任务目录时间戳
+ * 格式：{YYYYMMDD}_{HHmmss}_{毫秒}
+ */
+function generateTaskDirTimestamp(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hour = String(now.getHours()).padStart(2, '0');
+  const minute = String(now.getMinutes()).padStart(2, '0');
+  const second = String(now.getSeconds()).padStart(2, '0');
+  const ms = String(now.getMilliseconds()).padStart(3, '0');
+  return `${year}${month}${day}_${hour}${minute}${second}_${ms}`;
+}
+
+/**
+ * 打印 Task 级别启动信息
+ */
+function printTaskStartup(taskName: string, taskDirName: string): void {
+  console.log('================================================================================');
+  console.log('StepWise 任务启动');
+  console.log(`任务名称: ${taskName}`);
+  console.log(`任务目录: ${taskDirName}`);
+  console.log(`恢复命令: setResumePath("${taskDirName}")`);
+  console.log('================================================================================');
+}
+
+/**
  * 设置任务名称
  * 基于任务名称加时间生成任务目录
  */
@@ -54,6 +82,17 @@ export function setTaskName(taskName: string): void {
   // 注册 TaskName
   globalState.registeredNames.add(trimmedName);
   globalState.taskName = trimmedName;
+
+  // 生成任务目录时间戳
+  const timestamp = generateTaskDirTimestamp();
+  globalState.taskDirTimestamp = timestamp;
+
+  // 打印 Task 级别启动信息（只在首次 setTaskName 时打印）
+  if (!globalState.hasPrintedStartup) {
+    const taskDirName = `${trimmedName}_${timestamp}`;
+    printTaskStartup(trimmedName, taskDirName);
+    globalState.hasPrintedStartup = true;
+  }
 }
 
 /**

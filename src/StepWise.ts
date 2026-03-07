@@ -42,9 +42,7 @@ import {
   _isDebugMode,
   _registerName,
   _setTaskDirTimestamp,
-  _getTaskDirTimestamp,
-  _hasPrintedStartup,
-  _markPrintedStartup
+  _getTaskDirTimestamp
 } from './globalState';
 
 /**
@@ -85,8 +83,8 @@ export class StepWise {
     // 初始化目录
     this.initDirectories();
 
-    // 打印启动信息（只有第一个 StepWise 打印）
-    this.printStartupIfNeeded();
+    // 打印 StepWise 启动信息
+    console.log(`StepWise [${name}] 已就绪`);
   }
 
   /**
@@ -185,28 +183,6 @@ export class StepWise {
       }
     }
     return null;
-  }
-
-  /**
-   * 打印启动信息（只有第一个 StepWise 打印）
-   */
-  private printStartupIfNeeded(): void {
-    if (_hasPrintedStartup()) {
-      return;
-    }
-
-    const taskName = _getTaskName();
-    const timestamp = _getTaskDirTimestamp();
-    const taskDirName = `${taskName}_${timestamp}`;
-
-    console.log('================================================================================');
-    console.log('StepWise 任务启动');
-    console.log(`任务名称: ${taskName}`);
-    console.log(`任务目录: ${taskDirName}`);
-    console.log(`恢复命令: setResumePath("${taskDirName}")`);
-    console.log('================================================================================');
-
-    _markPrintedStartup();
   }
 
   /**
