@@ -59,7 +59,11 @@ export class ClaudeExecutor {
       attempts++;
 
       try {
-        const result = await this.runClaudeCommand(prompt, sessionId, options);
+        // 重试时（attempts > 1）使用 --resume 模式恢复 session
+        const retryOptions = attempts > 1
+          ? { ...options, useResume: true }
+          : options;
+        const result = await this.runClaudeCommand(prompt, sessionId, retryOptions);
 
         lastStdout = result.stdout;
         lastStderr = result.stderr;
