@@ -211,34 +211,64 @@ export class StepWise {
    */
   private async getOrCreateSessionIdWithSummarize(newSession?: boolean, cwd?: string): Promise<string> {
     if (newSession && this.currentSessionId) {
+      // 找到当前 session 的最后一个任务
+      const lastTask = this.getLastTaskOfSession(this.currentSessionId);
       // 在创建新 session 之前，总结前一个 session
-      await this.summarizeInternal(this.currentSessionId, cwd);
+      await this.summarizeInternal(this.currentSessionId, cwd, lastTask);
     }
     return this.getOrCreateSessionId(newSession);
   }
 
   /**
-   * 内部总结方法
-   * 不增加 taskIndex，创建单独的日志目录
+   * 获取指定 session 的最后一个任务
    */
-  private async summarizeInternal(sessionId: string, cwd?: string): Promise<void> {
-    const timestamp = this.formatTimestamp(new Date());
-    const logDirName = `summarize_${timestamp}`;
+  private getLastTaskOfSession(sessionId: string): { taskIndex: number; taskType: TaskType } | null {
+    if (!this.progress) return null;
 
-    // 创建日志目录
-    const logDir = this.logger?.createTaskLogDirByName(logDirName);
-    if (!logDir) return;
+    const sessionTasks = this.progress.tasks.filter(t => t.sessionId === sessionId);
+    if (sessionTasks.length === 0) return null;
 
+    // 找到 taskIndex 最大的任务
+    const lastTask = sessionTasks.reduce((max, task) =>
+      task.taskIndex > max.taskIndex ? task : max
+    );
+
+    return { taskIndex: lastTask.taskIndex, taskType: lastTask.taskType };
+  }
+
+  /**
+   * 内部总结方法
+   * 日志写入到 session 最后一个任务的目录中
+   */
+  private async summarizeInternal(
+    sessionId: string,
+    cwd?: string,
+    lastTask?: { taskIndex: number; taskType: TaskType } | null
+  ): Promise<void> {
     // 获取技能文件目录
     const skillsDir = this.getSkillsDir(cwd);
 
     // 构建总结提示词
     const summarizePrompt = buildSummarizePrompt(skillsDir);
 
-    this.logger?.logTaskStart(0, 'summarize', sessionId);
+    // 确定日志目录：使用 session 最后一个任务的目录
+    let logDir: string;
+    if (lastTask) {
+      // 使用最后一个任务的目录
+      logDir = this.createTaskLogDir(lastTask.taskIndex, lastTask.taskType);
+    } else {
+      // 没有任务记录时，使用默认目录
+      const timestamp = this.formatTimestamp(new Date());
+      const logDirName = `summarize_${timestamp}`;
+      logDir = this.logger?.createTaskLogDirByName(logDirName) || '';
+    }
+
+    if (!logDir) return;
+
+    this.logger?.logTaskStart(lastTask?.taskIndex || 0, 'summarize', sessionId);
 
     if (logDir) {
-      this.logger?.writeTaskLog(logDir, 'prompt.txt', summarizePrompt);
+      this.logger?.writeTaskLog(logDir, 'summarize_prompt.txt', summarizePrompt);
     }
 
     try {
@@ -249,14 +279,14 @@ export class StepWise {
         useResume: true,
         taskLogDir: logDir,
         logger: this.logger!,
-        taskIndex: 0,
+        taskIndex: lastTask?.taskIndex || 0,
         taskType: 'summarize'
       });
 
-      this.logger?.logTaskComplete(0, 'summarize', true, 0);
+      this.logger?.logTaskComplete(lastTask?.taskIndex || 0, 'summarize', true, 0);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      this.logger?.logTaskComplete(0, 'summarize', false, 0, errorMsg);
+      this.logger?.logTaskComplete(lastTask?.taskIndex || 0, 'summarize', false, 0, errorMsg);
       // 总结失败不影响主流程，只记录日志
     }
   }

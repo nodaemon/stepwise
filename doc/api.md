@@ -402,7 +402,7 @@ interface SummarizeOptions {
 
 - Uses the current session ID to review all work done
 - Generates SKILL.md files in `.claude/skills/` directory
-- Creates logs in a separate `summarize_{timestamp}` directory
+- Logs are written to the last task's directory of the session (for auto-summary) or a separate directory (for manual summary)
 - Does not increment task index
 
 **Auto-Summary**

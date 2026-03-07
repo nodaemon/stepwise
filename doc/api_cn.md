@@ -402,7 +402,7 @@ interface SummarizeOptions {
 
 - 使用当前会话 ID 回顾所有已完成的工作
 - 在 `.claude/skills/` 目录下生成 SKILL.md 文件
-- 在独立的 `summarize_{timestamp}` 目录下创建日志
+- 日志写入到 session 最后一个任务的目录中（自动总结）或单独目录（手动总结）
 - 不增加任务序号
 
 **自动总结**
