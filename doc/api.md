@@ -15,6 +15,7 @@ This document provides detailed API reference for StepWise.
 - [StepWise Class](#stepwise-class)
   - [Constructor](#constructor)
   - [Task Execution Methods](#task-execution-methods)
+  - [Summary Methods](#summary-methods)
   - [Helper Methods](#helper-methods)
 - [Type Definitions](#type-definitions)
 
@@ -376,6 +377,97 @@ await agent.execReport(
 
 ---
 
+### Summary Methods
+
+#### summarize(options?: SummarizeOptions): Promise\<SummarizeResult\>
+
+Summarizes the current session's experience and generates skill files.
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| options | SummarizeOptions | Summary options (optional) |
+
+**SummarizeOptions**
+
+```typescript
+interface SummarizeOptions {
+  cwd?: string;          // Working directory, defaults to current process directory
+  customPrompt?: string; // Custom prompt to override default summary prompt
+}
+```
+
+**Behavior**
+
+- Uses the current session ID to review all work done
+- Generates SKILL.md files in `.claude/skills/` directory
+- Creates logs in a separate `summarize_{timestamp}` directory
+- Does not increment task index
+
+**Auto-Summary**
+
+When `newSession: true` is passed to any execution method, the previous session is automatically summarized before creating the new session.
+
+**Output Location**
+
+Skill files are saved to: `{cwd}/.claude/skills/{skill_name}/SKILL.md`
+
+**SKILL.md File Format**
+
+```markdown
+# [Skill Name]
+
+## Description
+[One-line description of the problem this skill solves]
+
+## Use Cases
+- Case 1: [Description]
+- Case 2: [Description]
+
+## Steps
+1. [First step]
+2. [Second step]
+3. ...
+```
+
+**SummarizeResult**
+
+```typescript
+interface SummarizeResult extends ExecutionResult {
+  skillFiles: string[]; // List of generated SKILL.md file paths
+}
+```
+
+**Example**
+
+```typescript
+// Manual summary at the end
+const result = await agent.summarize();
+console.log('Generated skill files:', result.skillFiles);
+
+// With custom prompt
+const result = await agent.summarize({
+  customPrompt: 'Focus on error handling patterns only'
+});
+```
+
+**Auto-Summary Example**
+
+```typescript
+const agent = new StepWise('MainAgent');
+
+await agent.execPrompt('Task 1');                    // Session A
+await agent.execPrompt('Task 2');                    // Reuse Session A
+await agent.execPrompt('Task 3', {newSession: true}); // Summarize A → Create Session B
+await agent.execPrompt('Task 4');                    // Reuse Session B
+
+// Final summary for Session B
+await agent.summarize();
+```
+
+---
+
 ### Helper Methods
 
 #### getAgentDir(): string
@@ -437,6 +529,7 @@ interface ExecOptions {
   cwd?: string;                    // Working directory
   newSession?: boolean;            // Whether to use a new session (default: false)
   data?: Record<string, any>;      // Data for variable substitution
+  checkPrompt?: string;            // Check prompt to execute after main task completes
 }
 ```
 
@@ -527,7 +620,28 @@ type TaskStatusType = 'pending' | 'in_progress' | 'completed';
 Task type.
 
 ```typescript
-type TaskType = 'task' | 'collect' | 'check' | 'report';
+type TaskType = 'task' | 'collect' | 'check' | 'report' | 'summarize';
+```
+
+### SummarizeOptions
+
+Summary options.
+
+```typescript
+interface SummarizeOptions {
+  cwd?: string;          // Working directory
+  customPrompt?: string; // Custom prompt to override default summary prompt
+}
+```
+
+### SummarizeResult
+
+Summary result.
+
+```typescript
+interface SummarizeResult extends ExecutionResult {
+  skillFiles: string[]; // List of generated SKILL.md file paths
+}
 ```
 
 ---

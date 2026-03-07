@@ -15,6 +15,7 @@
 - [StepWise 类](#stepwise-类)
   - [构造函数](#构造函数)
   - [任务执行方法](#任务执行方法)
+  - [总结方法](#总结方法)
   - [辅助方法](#辅助方法)
 - [类型定义](#类型定义)
 
@@ -376,6 +377,97 @@ await agent.execReport(
 
 ---
 
+### 总结方法
+
+#### summarize(options?: SummarizeOptions): Promise\<SummarizeResult\>
+
+总结当前会话的经验，生成技能文件。
+
+**参数**
+
+| 参数 | 类型 | 描述 |
+|------|------|------|
+| options | SummarizeOptions | 总结选项（可选） |
+
+**SummarizeOptions**
+
+```typescript
+interface SummarizeOptions {
+  cwd?: string;          // 工作目录，默认当前进程目录
+  customPrompt?: string; // 自定义提示词，覆盖默认的总结提示词
+}
+```
+
+**行为**
+
+- 使用当前会话 ID 回顾所有已完成的工作
+- 在 `.claude/skills/` 目录下生成 SKILL.md 文件
+- 在独立的 `summarize_{timestamp}` 目录下创建日志
+- 不增加任务序号
+
+**自动总结**
+
+当任何执行方法传入 `newSession: true` 时，创建新会话前会自动总结前一个会话。
+
+**输出位置**
+
+技能文件保存到：`{cwd}/.claude/skills/{skill_name}/SKILL.md`
+
+**SKILL.md 文件格式**
+
+```markdown
+# [技能名称]
+
+## 描述
+[一句话描述该技能解决的问题]
+
+## 使用场景
+- 场景1：[描述]
+- 场景2：[描述]
+
+## 执行步骤
+1. [第一步]
+2. [第二步]
+3. ...
+```
+
+**SummarizeResult**
+
+```typescript
+interface SummarizeResult extends ExecutionResult {
+  skillFiles: string[]; // 生成的 SKILL.md 文件路径列表
+}
+```
+
+**示例**
+
+```typescript
+// 最后主动总结
+const result = await agent.summarize();
+console.log('生成的技能文件:', result.skillFiles);
+
+// 使用自定义提示词
+const result = await agent.summarize({
+  customPrompt: '只关注错误处理模式'
+});
+```
+
+**自动总结示例**
+
+```typescript
+const agent = new StepWise('MainAgent');
+
+await agent.execPrompt('任务1');                    // 会话 A
+await agent.execPrompt('任务2');                    // 复用会话 A
+await agent.execPrompt('任务3', {newSession: true}); // 总结 A → 创建会话 B
+await agent.execPrompt('任务4');                    // 复用会话 B
+
+// 最后总结会话 B
+await agent.summarize();
+```
+
+---
+
 ### 辅助方法
 
 #### getAgentDir(): string
@@ -437,6 +529,7 @@ interface ExecOptions {
   cwd?: string;                    // 工作目录
   newSession?: boolean;            // 是否使用新会话（默认: false）
   data?: Record<string, any>;      // 变量替换数据
+  checkPrompt?: string;            // 主任务完成后执行的检查提示词
 }
 ```
 
@@ -527,7 +620,28 @@ type TaskStatusType = 'pending' | 'in_progress' | 'completed';
 任务类型。
 
 ```typescript
-type TaskType = 'task' | 'collect' | 'check' | 'report';
+type TaskType = 'task' | 'collect' | 'check' | 'report' | 'summarize';
+```
+
+### SummarizeOptions
+
+总结选项。
+
+```typescript
+interface SummarizeOptions {
+  cwd?: string;          // 工作目录
+  customPrompt?: string; // 自定义提示词，覆盖默认的总结提示词
+}
+```
+
+### SummarizeResult
+
+总结结果。
+
+```typescript
+interface SummarizeResult extends ExecutionResult {
+  skillFiles: string[]; // 生成的 SKILL.md 文件路径列表
+}
 ```
 
 ---
