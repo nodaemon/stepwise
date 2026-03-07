@@ -20,9 +20,6 @@ export const REPORT_DIR = 'report';
 /** 进度文件名 */
 export const PROGRESS_FILE = 'progress.json';
 
-/** 会话目录名 */
-export const SESSIONS_DIR = 'sessions';
-
 /** 汇总日志文件名 */
 export const EXECUTE_LOG = 'execute.log';
 

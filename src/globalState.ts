@@ -168,14 +168,6 @@ export function _registerName(name: string): boolean {
 }
 
 /**
- * 检查名字是否已注册
- * @internal
- */
-export function _isNameRegistered(name: string): boolean {
-  return globalState.registeredNames.has(name);
-}
-
-/**
  * 设置任务目录时间戳
  * @internal
  */
@@ -189,22 +181,6 @@ export function _setTaskDirTimestamp(timestamp: string): void {
  */
 export function _getTaskDirTimestamp(): string {
   return globalState.taskDirTimestamp;
-}
-
-/**
- * 检查是否已打印启动信息
- * @internal
- */
-export function _hasPrintedStartup(): boolean {
-  return globalState.hasPrintedStartup;
-}
-
-/**
- * 标记已打印启动信息
- * @internal
- */
-export function _markPrintedStartup(): void {
-  globalState.hasPrintedStartup = true;
 }
 
 /**

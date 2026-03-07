@@ -477,12 +477,70 @@ export class StepWise {
   }
 
   /**
-   * 执行普通任务
+   * 验证 prompt 不为空
    */
-  async execPrompt(prompt: string, options?: ExecOptions): Promise<ExecutionResult> {
+  private validatePrompt(prompt: string): void {
     if (!prompt || prompt.trim() === '') {
       throw new Error('错误: prompt 不能为空');
     }
+  }
+
+  /**
+   * 写入任务日志
+   */
+  private writeTaskLogs(taskLogDir: string, result: ExecutionResult): void {
+    if (taskLogDir) {
+      this.logger?.writeTaskLog(taskLogDir, 'output.txt', result.output);
+      if (result.error) {
+        this.logger?.writeTaskLog(taskLogDir, 'error.txt', result.error);
+      }
+    }
+  }
+
+  /**
+   * 执行 checkPrompt
+   */
+  private async executeCheckPromptInternal(
+    checkPrompt: string,
+    options: ExecOptions | undefined,
+    sessionId: string,
+    taskLogDir: string,
+    taskIndex: number
+  ): Promise<void> {
+    const processedCheckPrompt = this.processPrompt(checkPrompt, options);
+    await this.executor.execute(processedCheckPrompt, {
+      cwd: options?.cwd,
+      sessionId,
+      useResume: true,
+      taskLogDir,
+      logger: this.logger!,
+      taskIndex,
+      taskType: 'check'
+    });
+  }
+
+  /**
+   * 应用调试模式提示
+   */
+  private applyDebugModeHint(extraPrompt: string, debugMode: boolean): string {
+    if (debugMode) {
+      return '\n\n【调试模式】' + extraPrompt + '\n\n注意： 当前处于调试模式，请只收集 **1 条** 数据即可。';
+    }
+    return extraPrompt;
+  }
+
+  /**
+   * 过滤调试模式数据
+   */
+  private filterDebugData(data: Record<string, any>[], debugMode: boolean): Record<string, any>[] {
+    return debugMode && data.length > 0 ? [data[0]] : data;
+  }
+
+  /**
+   * 执行普通任务
+   */
+  async execPrompt(prompt: string, options?: ExecOptions): Promise<ExecutionResult> {
+    this.validatePrompt(prompt);
 
     const resumePath = _getResumePath();
     const taskType: TaskType = 'task';
@@ -531,30 +589,15 @@ export class StepWise {
       taskType
     });
 
-    if (taskLogDir) {
-      this.logger?.writeTaskLog(taskLogDir, 'output.txt', result.output);
-      if (result.error) {
-        this.logger?.writeTaskLog(taskLogDir, 'error.txt', result.error);
-      }
-    }
+    this.writeTaskLogs(taskLogDir, result);
 
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
 
     if (result.success) {
       this.recordTaskComplete(taskIndex, `${taskIndex}_task`, sessionId, taskType);
 
-      // 执行 checkPrompt
       if (options?.checkPrompt) {
-        const processedCheckPrompt = this.processPrompt(options.checkPrompt, options);
-        await this.executor.execute(processedCheckPrompt, {
-          cwd: options?.cwd,
-          sessionId: sessionId,
-          useResume: true,
-          taskLogDir,
-          logger: this.logger!,
-          taskIndex,
-          taskType: 'check'
-        });
+        await this.executeCheckPromptInternal(options.checkPrompt, options, sessionId, taskLogDir, taskIndex);
       }
     }
 
@@ -569,9 +612,7 @@ export class StepWise {
     outputFormat: OutputFormat,
     options?: ExecOptions
   ): Promise<CollectResult> {
-    if (!prompt || prompt.trim() === '') {
-      throw new Error('错误: prompt 不能为空');
-    }
+    this.validatePrompt(prompt);
 
     const resumePath = _getResumePath();
     const debugMode = _isDebugMode();
@@ -596,7 +637,7 @@ export class StepWise {
         success: true,
         timestamp: Date.now(),
         duration: 0,
-        data: debugMode && data.length > 0 ? [data[0]] : data
+        data: this.filterDebugData(data, debugMode)
       };
     }
 
@@ -611,12 +652,10 @@ export class StepWise {
     const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
     // 构建完整提示词
-    let extraPrompt = buildCollectPrompt(outputFormat, outputPath, options?.cwd);
-
-    // 调试模式： 在提示词中添加只收集一个数据的说明
-    if (debugMode) {
-      extraPrompt = '\n\n【调试模式】' + extraPrompt + '\n\n注意： 当前处于调试模式，请只收集 **1 条** 数据即可。';
-    }
+    const extraPrompt = this.applyDebugModeHint(
+      buildCollectPrompt(outputFormat, outputPath, options?.cwd),
+      debugMode
+    );
 
     const fullPrompt = buildFullPrompt(processedPrompt, extraPrompt);
 
@@ -638,25 +677,11 @@ export class StepWise {
       taskType
     });
 
-    if (taskLogDir) {
-      this.logger?.writeTaskLog(taskLogDir, 'output.txt', result.output);
-      if (result.error) {
-        this.logger?.writeTaskLog(taskLogDir, 'error.txt', result.error);
-      }
-    }
+    this.writeTaskLogs(taskLogDir, result);
 
     // 在读取 JSON 之前执行 checkPrompt
     if (result.success && options?.checkPrompt) {
-      const processedCheckPrompt = this.processPrompt(options.checkPrompt, options);
-      await this.executor.execute(processedCheckPrompt, {
-        cwd: options?.cwd,
-        sessionId: sessionId,
-        useResume: true,
-        taskLogDir,
-        logger: this.logger!,
-        taskIndex,
-        taskType: 'check'
-      });
+      await this.executeCheckPromptInternal(options.checkPrompt, options, sessionId, taskLogDir, taskIndex);
     }
 
     let data: Record<string, any>[] = [];
@@ -672,7 +697,7 @@ export class StepWise {
 
     return {
       ...result,
-      data: debugMode && data.length > 0 ? [data[0]] : data
+      data: this.filterDebugData(data, debugMode)
     };
   }
 
@@ -684,9 +709,7 @@ export class StepWise {
     prompt: string,
     options?: ExecOptions
   ): Promise<CheckResult> {
-    if (!prompt || prompt.trim() === '') {
-      throw new Error('错误: prompt 不能为空');
-    }
+    this.validatePrompt(prompt);
 
     const resumePath = _getResumePath();
     const taskType: TaskType = 'check';
@@ -746,25 +769,11 @@ export class StepWise {
       taskType
     });
 
-    if (taskLogDir) {
-      this.logger?.writeTaskLog(taskLogDir, 'output.txt', result.output);
-      if (result.error) {
-        this.logger?.writeTaskLog(taskLogDir, 'error.txt', result.error);
-      }
-    }
+    this.writeTaskLogs(taskLogDir, result);
 
     // 在读取 check result JSON 之前执行 checkPrompt
     if (result.success && options?.checkPrompt) {
-      const processedCheckPrompt = this.processPrompt(options.checkPrompt, options);
-      await this.executor.execute(processedCheckPrompt, {
-        cwd: options?.cwd,
-        sessionId: sessionId,
-        useResume: true,
-        taskLogDir,
-        logger: this.logger!,
-        taskIndex,
-        taskType: 'check'
-      });
+      await this.executeCheckPromptInternal(options.checkPrompt, options, sessionId, taskLogDir, taskIndex);
     }
 
     let checkResult = false;
@@ -795,9 +804,7 @@ export class StepWise {
     outputFileName: string,
     options?: ExecOptions
   ): Promise<CollectResult> {
-    if (!prompt || prompt.trim() === '') {
-      throw new Error('错误: prompt 不能为空');
-    }
+    this.validatePrompt(prompt);
 
     const resumePath = _getResumePath();
     const debugMode = _isDebugMode();
@@ -819,7 +826,7 @@ export class StepWise {
         success: true,
         timestamp: Date.now(),
         duration: 0,
-        data: debugMode && data.length > 0 ? [data[0]] : data
+        data: this.filterDebugData(data, debugMode)
       };
     }
 
@@ -834,12 +841,10 @@ export class StepWise {
     const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
     // 构建完整提示词
-    let extraPrompt = buildReportPrompt(outputFormat, outputPath, options?.cwd);
-
-    // 调试模式： 在提示词中添加只收集一个数据的说明
-    if (debugMode) {
-      extraPrompt = '\n\n【调试模式】' + extraPrompt + '\n\n注意： 当前处于调试模式，请只收集 **1 条** 数据即可。';
-    }
+    const extraPrompt = this.applyDebugModeHint(
+      buildReportPrompt(outputFormat, outputPath, options?.cwd),
+      debugMode
+    );
 
     const fullPrompt = buildFullPrompt(processedPrompt, extraPrompt);
 
@@ -861,25 +866,11 @@ export class StepWise {
       taskType
     });
 
-    if (taskLogDir) {
-      this.logger?.writeTaskLog(taskLogDir, 'output.txt', result.output);
-      if (result.error) {
-        this.logger?.writeTaskLog(taskLogDir, 'error.txt', result.error);
-      }
-    }
+    this.writeTaskLogs(taskLogDir, result);
 
     // 在读取 JSON 之前执行 checkPrompt
     if (result.success && options?.checkPrompt) {
-      const processedCheckPrompt = this.processPrompt(options.checkPrompt, options);
-      await this.executor.execute(processedCheckPrompt, {
-        cwd: options?.cwd,
-        sessionId: sessionId,
-        useResume: true,
-        taskLogDir,
-        logger: this.logger!,
-        taskIndex,
-        taskType: 'check'
-      });
+      await this.executeCheckPromptInternal(options.checkPrompt, options, sessionId, taskLogDir, taskIndex);
     }
 
     let data: Record<string, any>[] = [];
@@ -895,7 +886,7 @@ export class StepWise {
 
     return {
       ...result,
-      data: debugMode && data.length > 0 ? [data[0]] : data
+      data: this.filterDebugData(data, debugMode)
     };
   }
 
