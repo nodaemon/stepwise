@@ -583,6 +583,15 @@ export class StepWise {
   }
 
   /**
+   * 获取任务的 sessionId（不管状态）
+   */
+  private getTaskSessionId(taskIndex: number): string | undefined {
+    if (!this.progress) return undefined;
+    const task = this.progress.tasks.find(t => t.taskIndex === taskIndex);
+    return task?.sessionId;
+  }
+
+  /**
    * 创建任务日志目录
    */
   private createTaskLogDir(taskIndex: number, taskType: TaskType): string {
@@ -693,6 +702,11 @@ export class StepWise {
 
     // 检查是否有 in_progress 的任务需要重新执行
     if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
+      // 恢复 sessionId，确保重新执行时能复用原来的 session
+      const sessionId = this.getTaskSessionId(taskIndex);
+      if (sessionId) {
+        this.currentSessionId = sessionId;
+      }
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
@@ -776,6 +790,11 @@ export class StepWise {
 
     // 检查是否有 in_progress 的任务需要重新执行
     if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
+      // 恢复 sessionId，确保重新执行时能复用原来的 session
+      const sessionId = this.getTaskSessionId(taskIndex);
+      if (sessionId) {
+        this.currentSessionId = sessionId;
+      }
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
@@ -872,6 +891,11 @@ export class StepWise {
 
     // 检查是否有 in_progress 的任务需要重新执行
     if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
+      // 恢复 sessionId，确保重新执行时能复用原来的 session
+      const sessionId = this.getTaskSessionId(taskIndex);
+      if (sessionId) {
+        this.currentSessionId = sessionId;
+      }
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
@@ -969,6 +993,11 @@ export class StepWise {
 
     // 检查是否有 in_progress 的任务需要重新执行
     if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
+      // 恢复 sessionId，确保重新执行时能复用原来的 session
+      const sessionId = this.getTaskSessionId(taskIndex);
+      if (sessionId) {
+        this.currentSessionId = sessionId;
+      }
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
