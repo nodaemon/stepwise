@@ -126,17 +126,37 @@ export class StepWise {
 
       // 根据 agentName 查找对应的 Agent 目录
       const agentDir = this.findAgentDir(taskDirFullPath, this.name);
-      if (!agentDir) {
-        console.error('[错误] 无法恢复任务');
-        console.error(`找不到Agent 目录: ${this.name}`);
-        console.error(`恢复路径: ${resumePath}`);
-        console.error('建议: 去掉 setResumePath() 调用，从头开始执行');
-        process.exit(1);
-      }
+      if (agentDir) {
+        // 找到已有目录，恢复模式
+        this.agentDir = agentDir;
+        this.logger = new Logger(this.agentDir, this.name);
+        this.loadProgress();
+      } else {
+        // 找不到目录，说明该 Agent 从未开始过，创建新目录
+        const timestamp = this.formatTimestamp(new Date());
+        const agentDirName = `${this.name}_${timestamp}`;
+        this.agentDir = path.join(this.taskDir, agentDirName);
 
-      this.agentDir = agentDir;
-      this.logger = new Logger(this.agentDir, this.name);
-      this.loadProgress();
+        // 创建 Agent 目录结构
+        ensureDir(this.agentDir);
+        ensureDir(path.join(this.agentDir, DATA_DIR));
+        ensureDir(path.join(this.agentDir, LOGS_DIR));
+        ensureDir(path.join(this.agentDir, COLLECT_DIR));
+
+        this.logger = new Logger(this.agentDir, this.name);
+
+        // 初始化空的 progress
+        this.progress = {
+          taskName: this.name,
+          taskDir: this.agentDir,
+          taskCounter: 0,
+          tasks: [],
+          lastUpdated: Date.now()
+        };
+        this.taskCounter = 0;
+
+        console.log(`[StepWise] Agent "${this.name}" 首次执行，已创建新目录`);
+      }
     } else {
       // 新任务模式
       let timestamp = _getTaskDirTimestamp();
