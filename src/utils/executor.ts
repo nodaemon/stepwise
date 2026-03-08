@@ -80,12 +80,13 @@ export class ClaudeExecutor {
           };
         }
 
-        // 检查是否是使用限额达到上限（需要等待后重试）
+        // 检查是否是使用限额达到上限（需要等待后重试)
         const rateLimitInfo = this.checkRateLimitError(result.stdout, result.stderr);
         if (rateLimitInfo) {
           console.log(`\n${rateLimitInfo.message}`);
+          // 重要：不增加 attempts，等待后继续循环重试
           await this.waitUntilReset(rateLimitInfo.resetTime);
-          continue; // 等待后重试
+          continue; // 不增加重试次数
         }
 
         // 非零退出码，构建完整错误信息
@@ -163,26 +164,41 @@ export class ClaudeExecutor {
   private checkRateLimitError(stdout: string, stderr: string): { resetTime: Date; message: string } | null {
     const combinedOutput = stdout + stderr;
 
-    // 按优先级尝试匹配各种格式的限额错误
-    for (const pattern of ClaudeExecutor.RATE_LIMIT_PATTERNS) {
-      const match = combinedOutput.match(pattern);
-      if (match) {
-        // 有些正则只捕获时间，有些捕获小时数和时间
-        const hours = match[1] && !match[1].includes('-') ? match[1] : '5';
-        const resetTimeStr = match[2] || match[1];
-        return this.buildRateLimitInfo(hours, resetTimeStr.trim());
+    // 检查是否包含 429 错误或 rate_limit_error
+    if (/429|rate_limit_error|usage limit exceeded/i.test(combinedOutput)) {
+      // 尝试匹配具体的重置时间
+      for (const pattern of ClaudeExecutor.RATE_LIMIT_PATTERNS) {
+        const match = combinedOutput.match(pattern);
+        if (match) {
+          // 有些正则只捕获时间，有些捕获小时数和时间
+          const hours = match[1] && !match[1].includes('-') ? match[1] : '5';
+          const resetTimeStr = match[2] || match[1];
+          return this.buildRateLimitInfo(hours, resetTimeStr.trim());
+        }
       }
+
+      // 没有匹配到具体时间，使用默认等待时间（10分钟）
+      return this.buildDefaultRateLimitInfo();
     }
 
     return null;
   }
 
   /**
-   * 构建 rate limit 信息对象
+   * 构建 rate limit 信息对象（有具体时间）
    */
   private buildRateLimitInfo(hours: string, resetTimeStr: string): { resetTime: Date; message: string } {
     const resetTime = new Date(resetTimeStr);
     const message = `已达到 ${hours} 小时的使用上限。您的限额将在 ${resetTimeStr} 重置。`;
+    return { resetTime, message };
+  }
+
+  /**
+   * 构建默认的 rate limit 信息对象（无具体时间，等待 10 分钟）
+   */
+  private buildDefaultRateLimitInfo(): { resetTime: Date; message: string } {
+    const resetTime = new Date(Date.now() + ClaudeExecutor.DEFAULT_WAIT_MS);
+    const message = `已达到 API 使用限额（429 错误）。未获取到具体重置时间，将等待 10 分钟后重试。`;
     return { resetTime, message };
   }
 
@@ -232,7 +248,12 @@ export class ClaudeExecutor {
     /(?:you\s+)?have\s+reached\s+(?:your\s+)?(\d+)\s*hours?\s*(?:usage|rate)?\s*limit.*?(?:will\s+)?reset\s+(?:at\s+)?(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/is,
     // 英文格式2：usage limit exceeded, resets at 2026-03-07 04:09:41
     /(?:usage|rate)\s*limit\s*(?:exceeded|reached).*?resets?\s*(?:at\s+)?(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/is,
+    // 429 错误格式（无重置时间）：API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"usage limit exceeded (2056)"}}
+    /429.*?(?:rate_limit_error|usage\s*limit\s*exceeded)/is,
   ];
+
+  /** 默认等待时间（毫秒）：10 分钟 */
+  private static readonly DEFAULT_WAIT_MS = 10 * 60 * 1000;
 
   /**
    * 构建错误消息（非零退出码情况）
