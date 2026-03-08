@@ -677,6 +677,10 @@ export class StepWise {
     // 检查是否需要恢复
     if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
+      // 重要：恢复 sessionId 到 currentSessionId，确保后续任务能复用
+      if (sessionId) {
+        this.currentSessionId = sessionId;
+      }
       this.logger?.logTaskSkipped(taskIndex, taskType);
       return {
         sessionId: sessionId || '',
@@ -753,6 +757,10 @@ export class StepWise {
     // 检查是否需要恢复
     if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
+      // 重要：恢复 sessionId 到 currentSessionId，确保后续任务能复用
+      if (sessionId) {
+        this.currentSessionId = sessionId;
+      }
       this.logger?.logTaskSkipped(taskIndex, taskType);
       const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
       const data = loadJsonFile<Record<string, any>[]>(outputPath) || [];
@@ -942,6 +950,10 @@ export class StepWise {
     // 检查是否需要恢复
     if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
+      // 重要：恢复 sessionId 到 currentSessionId，确保后续任务能复用
+      if (sessionId) {
+        this.currentSessionId = sessionId;
+      }
       this.logger?.logTaskSkipped(taskIndex, taskType);
       const outputPath = this.getReportOutputPath(outputFileName);
       const data = loadJsonFile<Record<string, any>[]>(outputPath) || [];
