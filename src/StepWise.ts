@@ -759,7 +759,7 @@ export class StepWise {
     if (result.success) {
       this.recordTaskComplete(taskIndex, `${taskIndex}_task`, sessionId, taskType);
 
-      if (options?.checkPrompt) {
+      if (options?.checkPrompt && !_isDebugMode()) {
         await this.executeCheckPromptInternal(options.checkPrompt, options, sessionId, taskLogDir, taskIndex);
       }
     }
@@ -852,7 +852,7 @@ export class StepWise {
     this.writeTaskLogs(taskLogDir, result);
 
     // 在读取 JSON 之前执行 checkPrompt
-    if (result.success && options?.checkPrompt) {
+    if (result.success && options?.checkPrompt && !_isDebugMode()) {
       await this.executeCheckPromptInternal(options.checkPrompt, options, sessionId, taskLogDir, taskIndex);
     }
 
@@ -949,7 +949,7 @@ export class StepWise {
     this.writeTaskLogs(taskLogDir, result);
 
     // 在读取 check result JSON 之前执行 checkPrompt
-    if (result.success && options?.checkPrompt) {
+    if (result.success && options?.checkPrompt && !_isDebugMode()) {
       await this.executeCheckPromptInternal(options.checkPrompt, options, sessionId, taskLogDir, taskIndex);
     }
 
@@ -1055,7 +1055,7 @@ export class StepWise {
     this.writeTaskLogs(taskLogDir, result);
 
     // 在读取 JSON 之前执行 checkPrompt
-    if (result.success && options?.checkPrompt) {
+    if (result.success && options?.checkPrompt && !_isDebugMode()) {
       await this.executeCheckPromptInternal(options.checkPrompt, options, sessionId, taskLogDir, taskIndex);
     }
 
