@@ -230,7 +230,7 @@ export class StepWise {
    * 如果 newSession=true 且存在 currentSessionId，先总结前一个 session
    */
   private async getOrCreateSessionIdWithSummarize(newSession?: boolean, cwd?: string): Promise<string> {
-    if (newSession && this.currentSessionId) {
+    if (newSession && this.currentSessionId && !_isDebugMode()) {
       // 找到当前 session 的最后一个任务
       const lastTask = this.getLastTaskOfSession(this.currentSessionId);
       // 在创建新 session 之前，总结前一个 session
