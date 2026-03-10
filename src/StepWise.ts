@@ -415,7 +415,8 @@ export class StepWise {
     sessionId: string,
     taskType: TaskType,
     status: TaskStatusType,
-    outputFileName?: string
+    outputFileName?: string,
+    checkResult?: boolean
   ): void {
     if (!this.progress) return;
 
@@ -430,7 +431,8 @@ export class StepWise {
       status,
       timestamp: Date.now(),
       taskType,
-      outputFileName
+      outputFileName,
+      checkResult
     };
 
     if (existingIndex >= 0) {
@@ -463,9 +465,10 @@ export class StepWise {
     taskName: string,
     sessionId: string,
     taskType: TaskType,
-    outputFileName?: string
+    outputFileName?: string,
+    checkResult?: boolean
   ): void {
-    this.recordTaskStatus(taskIndex, taskName, sessionId, taskType, 'completed', outputFileName);
+    this.recordTaskStatus(taskIndex, taskName, sessionId, taskType, 'completed', outputFileName, checkResult);
   }
 
   /**
@@ -600,6 +603,14 @@ export class StepWise {
         t.status === 'completed'
     );
     return task?.sessionId;
+  }
+
+  /**
+   * 获取任务状态信息
+   */
+  private getTaskStatus(taskIndex: number, taskType: TaskType): TaskStatus | undefined {
+    if (!this.progress) return undefined;
+    return this.progress.tasks.find(t => t.taskIndex === taskIndex && t.taskType === taskType);
   }
 
   /**
@@ -897,15 +908,25 @@ export class StepWise {
     if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
       this.logger?.logTaskSkipped(taskIndex, taskType);
-      const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
-      const checkData = loadJsonFile<{ result: boolean }>(outputPath);
+
+      // 优先从 progress.json 读取 checkResult
+      const taskStatus = this.getTaskStatus(taskIndex, taskType);
+      let checkResult = taskStatus?.checkResult;
+
+      // 向后兼容：如果 progress.json 中没有，尝试从文件读取
+      if (checkResult === undefined) {
+        const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
+        const checkData = loadJsonFile<{ result: boolean }>(outputPath);
+        checkResult = checkData?.result ?? false;
+      }
+
       return {
         sessionId: sessionId || '',
         output: '',
         success: true,
         timestamp: Date.now(),
         duration: 0,
-        result: checkData?.result ?? false
+        result: checkResult
       };
     }
 
@@ -962,7 +983,7 @@ export class StepWise {
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
 
     if (result.success) {
-      this.recordTaskComplete(taskIndex, `${taskIndex}_check`, sessionId, taskType, outputFileName);
+      this.recordTaskComplete(taskIndex, `${taskIndex}_check`, sessionId, taskType, outputFileName, checkResult);
     }
 
     return {

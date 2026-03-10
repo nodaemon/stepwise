@@ -102,6 +102,8 @@ export interface TaskStatus {
   taskType: 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize';
   /** 输出文件名（仅收集类任务） */
   outputFileName?: string;
+  /** check 任务的结果（仅 check 类型任务） */
+  checkResult?: boolean;
 }
 
 /**
