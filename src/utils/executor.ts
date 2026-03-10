@@ -169,9 +169,9 @@ export class ClaudeExecutor {
       // 尝试匹配具体的重置时间
       for (const pattern of ClaudeExecutor.RATE_LIMIT_PATTERNS) {
         const match = combinedOutput.match(pattern);
-        if (match) {
+        if (match && match[1]) {
           // 有些正则只捕获时间，有些捕获小时数和时间
-          const hours = match[1] && !match[1].includes('-') ? match[1] : '5';
+          const hours = !match[1].includes('-') ? match[1] : '5';
           const resetTimeStr = match[2] || match[1];
           return this.buildRateLimitInfo(hours, resetTimeStr.trim());
         }
