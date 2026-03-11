@@ -1,6 +1,28 @@
 import { OutputFormat } from '../types';
 
 /**
+ * 根据字段类型生成示例值
+ * @param type 字段类型
+ * @returns JSON 格式的示例值字符串
+ */
+function getExampleValue(type: string): string {
+  switch (type) {
+    case 'string':
+      return '"示例文本"';
+    case 'number':
+      return '123';
+    case 'boolean':
+      return 'true';
+    case 'object':
+      return '{}';
+    case 'array':
+      return '[]';
+    default:
+      return '""';
+  }
+}
+
+/**
  * 替换提示词中的变量
  * @param prompt 提示词模板
  * @param data 数据对象
@@ -32,15 +54,22 @@ export function buildCollectPrompt(
   cwd?: string
 ): string {
   const keyDescriptions = outputFormat.keys
-    .map((key) => `- ${key.name}: ${key.description} (类型: ${key.type})`)
-    .join('\n');
+    .map((key) => `  "${key.name}": <${key.description}>`)
+    .join(',\n');
+
+  const exampleItem = outputFormat.keys
+    .map((key) => {
+      const exampleValue = getExampleValue(key.type);
+      return `    "${key.name}": ${exampleValue}`;
+    })
+    .join(',\n');
 
   const requirements: string[] = [
-    '1. 输出 JSON 数组格式',
-    '2. 如果文件已存在，追加新数据到文件中',
-    '3. 确保 JSON 格式正确',
+    '1. 必须输出 JSON 对象数组格式（见下方示例）',
+    '2. 如果文件已存在，读取现有数组，将新数据追加到数组末尾，然后写入完整的数组',
+    '3. 确保 JSON 格式正确，数组必须是合法的 JSON',
     '4. 请直接将数据写入文件，不需要在回复中展示完整数据',
-    '5. 写入完成后验证json文件格式的正确性'
+    '5. 写入完成后使用 Read 工具验证文件内容是否为合法的 JSON 数组'
   ];
 
   // 当 cwd 和 process.cwd() 不一致时，添加明确说明
@@ -56,10 +85,36 @@ export function buildCollectPrompt(
   return `
 请按照以下格式输出数据，并写入到 ${outputFileName} 文件中：
 
-输出格式说明：
-${keyDescriptions}
+## 输出格式（JSON 对象数组）
 
-要求：
+正确的格式示例：
+\`\`\`json
+[
+  {
+${exampleItem}
+  }
+]
+\`\`\`
+
+每个对象的字段说明：
+{
+${keyDescriptions}
+}
+
+## 禁止的格式
+
+**特别注意：不要使用嵌套结构！**
+
+以下格式是错误的，绝对不要输出：
+- ❌ 嵌套对象：\`{"data": [...]}\`、\`{"items": [...]}\`、\`{"results": [...]}\`
+- ❌ 单个对象：\`{"name": "xxx"}\`
+- ❌ 多个 JSON 拼接：\`{}\\n{}\`
+- ❌ 带 markdown 代码块标记
+
+**正确做法**：直接输出数组 \`[{...}, {...}]\`，不要包裹在任何对象中
+
+## 要求
+
 ${requirements.join('\n')}
 `;
 }
@@ -77,15 +132,22 @@ export function buildReportPrompt(
   cwd?: string
 ): string {
   const keyDescriptions = outputFormat.keys
-    .map((key) => `- ${key.name}: ${key.description} (类型: ${key.type})`)
-    .join('\n');
+    .map((key) => `  "${key.name}": <${key.description}>`)
+    .join(',\n');
+
+  const exampleItem = outputFormat.keys
+    .map((key) => {
+      const exampleValue = getExampleValue(key.type);
+      return `    "${key.name}": ${exampleValue}`;
+    })
+    .join(',\n');
 
   const requirements: string[] = [
-    '1. 输出 JSON 数组格式',
-    '2. 如果文件已存在，追加新数据到文件中',
-    '3. 确保 JSON 格式正确',
+    '1. 必须输出 JSON 对象数组格式（见下方示例）',
+    '2. 如果文件已存在，读取现有数组，将新数据追加到数组末尾，然后写入完整的数组',
+    '3. 确保 JSON 格式正确，数组必须是合法的 JSON',
     '4. 请直接将数据写入文件，不需要在回复中展示完整数据',
-    '5. 写入完成后验证json文件格式的正确性'
+    '5. 写入完成后使用 Read 工具验证文件内容是否为合法的 JSON 数组'
   ];
 
   // 当 cwd 和 process.cwd() 不一致时，添加明确说明
@@ -101,10 +163,36 @@ export function buildReportPrompt(
   return `
 请按照以下格式输出报告数据，并写入到 ${outputFileName} 文件中：
 
-输出格式说明：
-${keyDescriptions}
+## 输出格式（JSON 对象数组）
 
-要求：
+正确的格式示例：
+\`\`\`json
+[
+  {
+${exampleItem}
+  }
+]
+\`\`\`
+
+每个对象的字段说明：
+{
+${keyDescriptions}
+}
+
+## 禁止的格式
+
+**特别注意：不要使用嵌套结构！**
+
+以下格式是错误的，绝对不要输出：
+- ❌ 嵌套对象：\`{"data": [...]}\`、\`{"items": [...]}\`、\`{"results": [...]}\`
+- ❌ 单个对象：\`{"name": "xxx"}\`
+- ❌ 多个 JSON 拼接：\`{}\\n{}\`
+- ❌ 带 markdown 代码块标记
+
+**正确做法**：直接输出数组 \`[{...}, {...}]\`，不要包裹在任何对象中
+
+## 要求
+
 ${requirements.join('\n')}
 `;
 }
