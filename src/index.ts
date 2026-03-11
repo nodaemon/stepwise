@@ -6,6 +6,7 @@ export {
   setTaskName,
   setResumePath,
   enableDebugMode,
+  setSkipSummarize,
   saveCollectData,
   loadCollectData
 } from './globalState';
@@ -22,5 +23,6 @@ export {
   _getTaskName,
   _getResumePath,
   _isDebugMode,
+  _shouldSkipSummarize,
   _registerName
 } from './globalState';

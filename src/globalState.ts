@@ -14,6 +14,8 @@ interface GlobalState {
   resumePath: string;
   /** 调试模式 */
   debugMode: boolean;
+  /** 跳过 summarize（反思性能 skill） */
+  skipSummarize: boolean;
   /** 已注册的 StepWise 名字列表 */
   registeredNames: Set<string>;
   /** 任务目录时间戳（第一个 StepWise 创建时设置） */
@@ -27,6 +29,7 @@ const globalState: GlobalState = {
   taskName: '',
   resumePath: '',
   debugMode: false,
+  skipSummarize: false,
   registeredNames: new Set<string>(),
   taskDirTimestamp: '',
   hasPrintedStartup: false
@@ -112,6 +115,14 @@ export function enableDebugMode(enabled: boolean = true): void {
 }
 
 /**
+ * 设置是否跳过 summarize（反思性能 skill）
+ * @param skip 是否跳过，默认为 true
+ */
+export function setSkipSummarize(skip: boolean = true): void {
+  globalState.skipSummarize = skip;
+}
+
+/**
  * 保存收集的数据到磁盘（存储在当前工作目录cwd）
  */
 export function saveCollectData(data: Record<string, any>[], fileName: string = 'collect_data.json'): void {
@@ -155,6 +166,14 @@ export function _isDebugMode(): boolean {
 }
 
 /**
+ * 获取是否跳过 summarize
+ * @internal
+ */
+export function _shouldSkipSummarize(): boolean {
+  return globalState.skipSummarize;
+}
+
+/**
  * 注册 StepWise 名字
  * @returns true 表示注册成功，false 表示名字已存在
  * @internal
@@ -191,6 +210,7 @@ export function _resetState(): void {
   globalState.taskName = '';
   globalState.resumePath = '';
   globalState.debugMode = false;
+  globalState.skipSummarize = false;
   globalState.registeredNames.clear();
   globalState.taskDirTimestamp = '';
   globalState.hasPrintedStartup = false;
