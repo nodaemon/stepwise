@@ -15,11 +15,13 @@ import { _setWorkerId, _getTaskName, _getResumePath, _isDebugMode } from './glob
 
 /**
  * Worker 配置
- * 用户只需定义每个 worker 的分支名
+ * 用户只需定义每个 worker 的分支名和环境变量
  */
 export interface WorkerConfig {
   /** 分支名，用于创建 git worktree 和作为 worker 标识 */
   branchName: string;
+  /** 环境变量数组，格式为 "KEY=VALUE" */
+  env?: string[];
 }
 
 /**
@@ -69,6 +71,22 @@ export interface WorkerContext<T> {
  *   // ctx.stepWise 默认在 ctx.workspacePath 下执行任务
  *   // 如需使用其他目录，可手动指定 cwd
  *   await ctx.stepWise.execPrompt("处理任务", {
+ *     data: ctx.item,
+ *   });
+ * });
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // 使用环境变量配置
+ * const workerConfigs: WorkerConfig[] = [
+ *   { branchName: "Agent1", env: ["API_KEY=xxx", "NODE_ENV=test"] },
+ *   { branchName: "Agent2", env: ["API_KEY=yyy", "NODE_ENV=production"] },
+ * ];
+ *
+ * await forEachParallel(items, workerConfigs, async (ctx) => {
+ *   // 每个 Worker 使用各自配置的环境变量执行任务
+ *   await ctx.stepWise.execPrompt("调用 API 处理任务", {
  *     data: ctx.item,
  *   });
  * });
@@ -124,8 +142,8 @@ export async function forEachParallel<T>(
 
       const item = items[currentIndex];
 
-      // 创建 StepWise，名称为 index，默认 cwd 为 workspacePath
-      const stepWise = new StepWise(String(currentIndex), workspacePath);
+      // 创建 StepWise，名称为 index，默认 cwd 为 workspacePath，默认 env 为 workerConfig.env
+      const stepWise = new StepWise(String(currentIndex), workspacePath, workerConfig.env);
 
       const context: WorkerContext<T> = {
         item,

@@ -67,8 +67,10 @@ export class StepWise {
   private progress: ProgressInfo | null = null;
   /** 默认工作目录，当 options.cwd 未指定时使用 */
   private defaultCwd?: string;
+  /** 默认环境变量数组，格式为 "KEY=VALUE" */
+  private defaultEnv?: string[];
 
-  constructor(name: string, defaultCwd?: string) {
+  constructor(name: string, defaultCwd?: string, defaultEnv?: string[]) {
     // 检查 TaskName 是否设置
     const taskName = _getTaskName();
     if (!taskName) {
@@ -86,6 +88,7 @@ export class StepWise {
 
     this.name = name;
     this.defaultCwd = defaultCwd;
+    this.defaultEnv = defaultEnv;
     this.executor = createExecutor();
 
     // 初始化目录
@@ -251,6 +254,14 @@ export class StepWise {
   }
 
   /**
+   * 获取有效的环境变量数组
+   * 优先级：options.env > defaultEnv
+   */
+  private getEffectiveEnv(env?: string[]): string[] | undefined {
+    return env ?? this.defaultEnv;
+  }
+
+  /**
    * 获取或创建 session id
    */
   private getOrCreateSessionId(newSession?: boolean): string {
@@ -264,12 +275,12 @@ export class StepWise {
    * 获取或创建 session id（带自动总结）
    * 如果 newSession=true 且存在 currentSessionId，先总结前一个 session
    */
-  private async getOrCreateSessionIdWithSummarize(newSession?: boolean, cwd?: string): Promise<string> {
+  private async getOrCreateSessionIdWithSummarize(newSession?: boolean, cwd?: string, env?: string[]): Promise<string> {
     if (newSession && this.currentSessionId && !_isDebugMode() && !_shouldSkipSummarize()) {
       // 找到当前 session 的最后一个任务
       const lastTask = this.getLastTaskOfSession(this.currentSessionId);
       // 在创建新 session 之前，总结前一个 session
-      await this.summarizeInternal(this.currentSessionId, cwd, lastTask);
+      await this.summarizeInternal(this.currentSessionId, cwd, env, lastTask);
     }
     return this.getOrCreateSessionId(newSession);
   }
@@ -298,6 +309,7 @@ export class StepWise {
   private async summarizeInternal(
     sessionId: string,
     cwd?: string,
+    env?: string[],
     lastTask?: { taskIndex: number; taskType: TaskType } | null
   ): Promise<void> {
     // 获取技能文件目录
@@ -330,6 +342,7 @@ export class StepWise {
       // 使用 --resume 模式执行总结
       await this.executor.execute(summarizePrompt, {
         cwd: cwd,
+        env: env,
         sessionId: sessionId,
         useResume: true,
         taskLogDir: logDir,
@@ -743,6 +756,7 @@ export class StepWise {
     this.validatePrompt(prompt);
 
     const effectiveCwd = this.getEffectiveCwd(options?.cwd);
+    const effectiveEnv = this.getEffectiveEnv(options?.env);
     const resumePath = _getResumePath();
     const taskType: TaskType = 'task';
     const taskIndex = this.getNextTaskIndex(taskType);
@@ -791,6 +805,7 @@ export class StepWise {
 
     const result = await this.executor.execute(processedPrompt, {
       cwd: effectiveCwd,
+      env: effectiveEnv,
       sessionId: sessionId,
       useResume,
       taskLogDir,
@@ -825,6 +840,7 @@ export class StepWise {
     this.validatePrompt(prompt);
 
     const effectiveCwd = this.getEffectiveCwd(options?.cwd);
+    const effectiveEnv = this.getEffectiveEnv(options?.env);
     const resumePath = _getResumePath();
     const debugMode = _isDebugMode();
     const taskType: TaskType = 'collect';
@@ -932,6 +948,7 @@ export class StepWise {
     this.validatePrompt(prompt);
 
     const effectiveCwd = this.getEffectiveCwd(options?.cwd);
+    const effectiveEnv = this.getEffectiveEnv(options?.env);
     const resumePath = _getResumePath();
     const taskType: TaskType = 'check';
     const taskIndex = this.getNextTaskIndex(taskType);
@@ -997,6 +1014,7 @@ export class StepWise {
 
     const result = await this.executor.execute(fullPrompt, {
       cwd: effectiveCwd,
+      env: effectiveEnv,
       sessionId: sessionId,
       useResume,
       taskLogDir,
@@ -1043,6 +1061,7 @@ export class StepWise {
     this.validatePrompt(prompt);
 
     const effectiveCwd = this.getEffectiveCwd(options?.cwd);
+    const effectiveEnv = this.getEffectiveEnv(options?.env);
     const resumePath = _getResumePath();
     const debugMode = _isDebugMode();
     const taskType: TaskType = 'report';
@@ -1104,6 +1123,7 @@ export class StepWise {
 
     const result = await this.executor.execute(fullPrompt, {
       cwd: effectiveCwd,
+      env: effectiveEnv,
       sessionId: sessionId,
       useResume,
       taskLogDir,

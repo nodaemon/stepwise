@@ -21,6 +21,10 @@ export interface ExecOptions {
    * 支持 data 变量替换
    */
   checkPrompt?: string;
+  /**
+   * 额外的环境变量数组，格式为 "KEY=VALUE"
+   */
+  env?: string[];
 }
 
 /**
@@ -114,6 +118,10 @@ export interface SummarizeOptions {
   cwd?: string;
   /** 自定义提示词 */
   customPrompt?: string;
+  /**
+   * 额外的环境变量数组，格式为 "KEY=VALUE"
+   */
+  env?: string[];
 }
 
 /**

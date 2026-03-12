@@ -23,6 +23,8 @@ export interface ExecutorOptions {
   taskType?: string;
   /** 执行超时时间（毫秒），默认 10 分钟 */
   timeout?: number;
+  /** 额外的环境变量数组，格式为 "KEY=VALUE" */
+  env?: string[];
 }
 
 /**
@@ -410,13 +412,28 @@ export class ClaudeExecutor {
         fs.writeFileSync(commandFile, fullCommand, 'utf-8');
       }
 
+      // 构建环境变量
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        // 禁用分页，确保输出完整
+        PAGER: 'cat'
+      };
+
+      // 解析并添加额外的环境变量
+      if (options.env && options.env.length > 0) {
+        for (const envStr of options.env) {
+          const equalIndex = envStr.indexOf('=');
+          if (equalIndex > 0) {
+            const key = envStr.substring(0, equalIndex);
+            const value = envStr.substring(equalIndex + 1);
+            env[key] = value;
+          }
+        }
+      }
+
       const child = childProcess.spawn('claude', args, {
         cwd,
-        env: {
-          ...process.env,
-          // 禁用分页，确保输出完整
-          PAGER: 'cat'
-        }
+        env
       });
 
       // 设置超时
