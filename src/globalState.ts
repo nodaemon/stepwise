@@ -22,6 +22,8 @@ interface GlobalState {
   taskDirTimestamp: string;
   /** 是否已打印启动信息 */
   hasPrintedStartup: boolean;
+  /** Worker 标识（用于 forEachParallel 并发处理） */
+  workerId: string;
 }
 
 /** 全局状态实例 */
@@ -32,7 +34,8 @@ const globalState: GlobalState = {
   skipSummarize: false,
   registeredNames: new Set<string>(),
   taskDirTimestamp: '',
-  hasPrintedStartup: false
+  hasPrintedStartup: false,
+  workerId: ''
 };
 
 /**
@@ -214,4 +217,21 @@ export function _resetState(): void {
   globalState.registeredNames.clear();
   globalState.taskDirTimestamp = '';
   globalState.hasPrintedStartup = false;
+  globalState.workerId = '';
+}
+
+/**
+ * 设置 Worker 标识（用于 forEachParallel）
+ * @internal
+ */
+export function _setWorkerId(workerId: string): void {
+  globalState.workerId = workerId;
+}
+
+/**
+ * 获取 Worker 标识
+ * @internal
+ */
+export function _getWorkerId(): string {
+  return globalState.workerId;
 }

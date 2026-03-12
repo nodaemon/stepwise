@@ -46,7 +46,8 @@ import {
   _shouldSkipSummarize,
   _registerName,
   _setTaskDirTimestamp,
-  _getTaskDirTimestamp
+  _getTaskDirTimestamp,
+  _getWorkerId
 } from './globalState';
 
 /**
@@ -135,7 +136,10 @@ export class StepWise {
       } else {
         // 找不到目录，说明该 Agent 从未开始过，创建新目录
         const timestamp = this.formatTimestamp(new Date());
-        const agentDirName = `${this.name}_${timestamp}`;
+        const workerId = _getWorkerId();
+        const agentDirName = workerId
+          ? `${this.name}_${workerId}_${timestamp}`
+          : `${this.name}_${timestamp}`;
         this.agentDir = path.join(this.taskDir, agentDirName);
 
         // 创建 Agent 目录结构
@@ -173,7 +177,10 @@ export class StepWise {
 
       // Agent 目录使用新的时间戳
       const agentTimestamp = this.formatTimestamp(new Date());
-      const agentDirName = `${this.name}_${agentTimestamp}`;
+      const workerId = _getWorkerId();
+      const agentDirName = workerId
+        ? `${this.name}_${workerId}_${agentTimestamp}`
+        : `${this.name}_${agentTimestamp}`;
       this.agentDir = path.join(this.taskDir, agentDirName);
 
       // 确保目录存在
@@ -198,9 +205,25 @@ export class StepWise {
 
   /**
    * 根据 agentName 查找对应的 Agent 目录
+   * 支持 workerId 模式：{agentName}_{workerId}_{timestamp}
    */
   private findAgentDir(taskDir: string, agentName: string): string | null {
+    const workerId = _getWorkerId();
     const entries = fs.readdirSync(taskDir, { withFileTypes: true });
+
+    // 如果有 workerId，优先匹配 {agentName}_{workerId}_* 格式
+    if (workerId) {
+      const prefix = `${agentName}_${workerId}_`;
+      for (const entry of entries) {
+        if (entry.isDirectory() && entry.name.startsWith(prefix)) {
+          return path.join(taskDir, entry.name);
+        }
+      }
+      // 没有 workerId 的匹配，返回 null（说明该 worker 之前没有执行过）
+      return null;
+    }
+
+    // 没有 workerId，匹配传统格式 {agentName}_*
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name.startsWith(agentName + '_')) {
         return path.join(taskDir, entry.name);

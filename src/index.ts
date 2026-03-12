@@ -11,6 +11,10 @@ export {
   loadCollectData
 } from './globalState';
 
+// 并发处理接口
+export { forEachParallel } from './forEachParallel';
+export type { WorkerConfig, WorkerContext, ForEachParallelOptions } from './forEachParallel';
+
 // 类型定义
 export * from './types';
 
@@ -24,5 +28,7 @@ export {
   _getResumePath,
   _isDebugMode,
   _shouldSkipSummarize,
-  _registerName
+  _registerName,
+  _getWorkerId,
+  _setWorkerId
 } from './globalState';
