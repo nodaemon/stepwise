@@ -1190,6 +1190,7 @@ export class StepWise {
     }
 
     const effectiveCwd = this.getEffectiveCwd(options?.cwd);
+    const effectiveEnv = this.getEffectiveEnv(options?.env);
     const startTime = Date.now();
     const sessionId = this.currentSessionId;
 
@@ -1219,6 +1220,7 @@ export class StepWise {
     try {
       await this.executor.execute(summarizePrompt, {
         cwd: effectiveCwd,
+        env: effectiveEnv,
         sessionId: sessionId,
         useResume: true,
         taskLogDir: logDir,
