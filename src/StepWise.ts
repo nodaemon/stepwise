@@ -716,6 +716,7 @@ export class StepWise {
   private async executeCheckPromptInternal(
     checkPrompt: string,
     cwd: string | undefined,
+    env: string[] | undefined,
     sessionId: string,
     taskLogDir: string,
     taskIndex: number
@@ -723,6 +724,7 @@ export class StepWise {
     const processedCheckPrompt = this.processPrompt(checkPrompt);
     await this.executor.execute(processedCheckPrompt, {
       cwd,
+      env,
       sessionId,
       useResume: true,
       taskLogDir,
@@ -791,7 +793,7 @@ export class StepWise {
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
-    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
@@ -822,7 +824,7 @@ export class StepWise {
       this.recordTaskComplete(taskIndex, `${taskIndex}_task`, sessionId, taskType);
 
       if (options?.checkPrompt && !_isDebugMode()) {
-        await this.executeCheckPromptInternal(options.checkPrompt, effectiveCwd, sessionId, taskLogDir, taskIndex);
+        await this.executeCheckPromptInternal(options.checkPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
       }
     }
 
@@ -882,7 +884,7 @@ export class StepWise {
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
-    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
     const useResume = this.shouldUseResume(taskIndex, options?.newSession);
@@ -905,6 +907,7 @@ export class StepWise {
 
     const result = await this.executor.execute(fullPrompt, {
       cwd: effectiveCwd,
+      env: effectiveEnv,
       sessionId: sessionId,
       useResume,
       taskLogDir,
@@ -917,7 +920,7 @@ export class StepWise {
 
     // 在读取 JSON 之前执行 checkPrompt
     if (result.success && options?.checkPrompt && !_isDebugMode()) {
-      await this.executeCheckPromptInternal(options.checkPrompt, effectiveCwd, sessionId, taskLogDir, taskIndex);
+      await this.executeCheckPromptInternal(options.checkPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
     }
 
     let data: Record<string, any>[] = [];
@@ -995,7 +998,7 @@ export class StepWise {
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
-    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
     const useResume = this.shouldUseResume(taskIndex, options?.newSession);
@@ -1027,7 +1030,7 @@ export class StepWise {
 
     // 在读取 check result JSON 之前执行 checkPrompt
     if (result.success && options?.checkPrompt && !_isDebugMode()) {
-      await this.executeCheckPromptInternal(options.checkPrompt, effectiveCwd, sessionId, taskLogDir, taskIndex);
+      await this.executeCheckPromptInternal(options.checkPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
     }
 
     let checkResult = false;
@@ -1100,7 +1103,7 @@ export class StepWise {
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
-    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     const outputPath = this.getReportOutputPath(outputFileName);
     const useResume = this.shouldUseResume(taskIndex, options?.newSession);
@@ -1136,7 +1139,7 @@ export class StepWise {
 
     // 在读取 JSON 之前执行 checkPrompt
     if (result.success && options?.checkPrompt && !_isDebugMode()) {
-      await this.executeCheckPromptInternal(options.checkPrompt, effectiveCwd, sessionId, taskLogDir, taskIndex);
+      await this.executeCheckPromptInternal(options.checkPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
     }
 
     let data: Record<string, any>[] = [];
