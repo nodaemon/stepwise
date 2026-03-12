@@ -392,26 +392,6 @@ export class ClaudeExecutor {
       // 记录完整命令到汇总日志
       options.logger?.writeSummaryLog(`执行命令: ${fullCommand}`);
 
-      // 保存执行信息到日志目录
-      if (taskLogDir) {
-        const execInfoFile = path.join(taskLogDir, 'execution_info.json');
-        const execInfo = {
-          command: fullCommand,
-          sessionId,
-          args,
-          cwd,
-          timeout,
-          timestamp: new Date().toISOString(),
-          useResume: options.useResume === true,
-          claudeDebugFile
-        };
-        fs.writeFileSync(execInfoFile, JSON.stringify(execInfo, null, 2), 'utf-8');
-
-        // 单独保存完整命令到文件，方便调试
-        const commandFile = path.join(taskLogDir, 'command.txt');
-        fs.writeFileSync(commandFile, fullCommand, 'utf-8');
-      }
-
       // 构建环境变量
       const env: NodeJS.ProcessEnv = {
         ...process.env,
@@ -429,6 +409,28 @@ export class ClaudeExecutor {
             env[key] = value;
           }
         }
+      }
+
+      // 保存执行信息到日志目录
+      if (taskLogDir) {
+        const execInfoFile = path.join(taskLogDir, 'execution_info.json');
+        const execInfo = {
+          command: fullCommand,
+          sessionId,
+          args,
+          cwd,
+          timeout,
+          timestamp: new Date().toISOString(),
+          useResume: options.useResume === true,
+          claudeDebugFile,
+          env: options.env || []
+        };
+        fs.writeFileSync(execInfoFile, JSON.stringify(execInfo, null, 2), 'utf-8');
+
+        // 单独保存完整命令到文件，包含 cwd 和 env 信息
+        const commandFile = path.join(taskLogDir, 'command.txt');
+        const commandContent = this.buildCommandFileContent(fullCommand, cwd, options.env);
+        fs.writeFileSync(commandFile, commandContent, 'utf-8');
       }
 
       const child = childProcess.spawn('claude', args, {
@@ -526,6 +528,39 @@ export class ClaudeExecutor {
       return arg;
     });
     return `${command} ${escapedArgs.join(' ')}`;
+  }
+
+  /**
+   * 构建命令文件内容，包含 cwd 和 env 信息
+   */
+  private buildCommandFileContent(fullCommand: string, cwd: string, env?: string[]): string {
+    const lines: string[] = [];
+
+    lines.push('# 执行命令');
+    lines.push(fullCommand);
+    lines.push('');
+
+    lines.push('# 工作目录 (cwd)');
+    lines.push(cwd);
+    lines.push('');
+
+    if (env && env.length > 0) {
+      lines.push('# 额外环境变量');
+      for (const envStr of env) {
+        lines.push(`export ${envStr}`);
+      }
+      lines.push('');
+    }
+
+    lines.push('# 可直接复制执行的完整命令（含环境变量）');
+    if (env && env.length > 0) {
+      for (const envStr of env) {
+        lines.push(`export ${envStr} && \\`);
+      }
+    }
+    lines.push(`cd "${cwd}" && ${fullCommand}`);
+
+    return lines.join('\n');
   }
 }
 
