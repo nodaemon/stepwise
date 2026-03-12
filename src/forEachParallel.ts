@@ -66,8 +66,9 @@ export interface WorkerContext<T> {
  * ];
  *
  * await forEachParallel(items, workerConfigs, async (ctx) => {
+ *   // ctx.stepWise 默认在 ctx.workspacePath 下执行任务
+ *   // 如需使用其他目录，可手动指定 cwd
  *   await ctx.stepWise.execPrompt("处理任务", {
- *     cwd: ctx.workspacePath,
  *     data: ctx.item,
  *   });
  * });
@@ -123,8 +124,8 @@ export async function forEachParallel<T>(
 
       const item = items[currentIndex];
 
-      // 创建 StepWise，名称为 index
-      const stepWise = new StepWise(String(currentIndex));
+      // 创建 StepWise，名称为 index，默认 cwd 为 workspacePath
+      const stepWise = new StepWise(String(currentIndex), workspacePath);
 
       const context: WorkerContext<T> = {
         item,
