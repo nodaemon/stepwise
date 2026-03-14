@@ -22,6 +22,12 @@ import {
   fileExists
 } from './utils/fileHelper';
 import {
+  validateJsonArray,
+  validateJsonObject,
+  buildFixPrompt,
+  ValidationResult
+} from './utils/validator';
+import {
   buildCollectPrompt,
   buildReportPrompt,
   buildCheckPrompt,
@@ -711,6 +717,92 @@ export class StepWise {
   }
 
   /**
+   * 带校验和自动重试的 JSON 文件读取
+   *
+   * 执行流程：
+   * 1. 如果校验被禁用或文件不存在，直接返回 loadJsonFile 结果
+   * 2. 读取文件内容并执行校验
+   * 3. 校验通过则返回数据
+   * 4. 校验失败则生成修复提示词，让 AI 修复 JSON 文件
+   * 5. 重复步骤 2-4，直到成功或达到最大重试次数
+   * 6. 重试耗尽后返回 null（不抛异常，保持向后兼容）
+   *
+   * @param outputPath JSON 文件路径
+   * @param execOptions 执行选项，包含 validateOptions 配置
+   * @param context 执行上下文（cwd、env、日志目录等）
+   * @param validateConfig 校验配置，包含校验函数和期望格式
+   */
+  private async readJsonWithValidation<T>(
+    outputPath: string,
+    execOptions: ExecOptions | undefined,
+    context: {
+      cwd: string | undefined;
+      env: string[] | undefined;
+      taskLogDir: string;
+      taskIndex: number;
+      taskType: TaskType;
+    },
+    validateConfig: {
+      /** 校验函数：解析内容并返回校验结果 */
+      validate: (content: string) => ValidationResult<T>;
+      /** 期望的 JSON 格式类型，用于生成修复提示词 */
+      expectedFormat: 'array' | 'object';
+    }
+  ): Promise<T | null> {
+    // 解析校验配置
+    const validationEnabled = execOptions?.validateOptions?.enabled !== false;
+    const maxRetryAttempts = execOptions?.validateOptions?.maxRetries ?? 3;
+
+    // 禁用校验或文件不存在时，使用原有逻辑
+    if (!validationEnabled || !fs.existsSync(outputPath)) {
+      return loadJsonFile<T>(outputPath);
+    }
+
+    // 校验循环：attempt 从 1 开始，表示第几次尝试
+    for (let attempt = 1; attempt <= maxRetryAttempts + 1; attempt++) {
+      // 步骤 1: 读取并校验文件内容
+      const fileContent = fs.readFileSync(outputPath, 'utf-8');
+      const validationResult = validateConfig.validate(fileContent);
+
+      // 步骤 2: 校验通过，返回数据
+      if (validationResult.valid) {
+        return validationResult.data!;
+      }
+
+      // 步骤 3: 校验失败，记录日志
+      this.logger?.logValidationFailed(context.taskIndex, attempt, validationResult.errors);
+
+      // 步骤 4: 检查是否还能重试
+      if (attempt > maxRetryAttempts) {
+        // 重试耗尽，记录错误并返回 null
+        const errorSummary = validationResult.errors.map(e => `  - ${e.message}`).join('\n');
+        console.error(`[StepWise] JSON 校验失败，已重试 ${maxRetryAttempts} 次\n错误信息:\n${errorSummary}`);
+        return null;
+      }
+
+      // 步骤 5: 生成修复提示词并执行
+      console.log(`[StepWise] 校验失败，第 ${attempt} 次重试...`);
+      const fixPrompt = buildFixPrompt(validationResult.errors, outputPath, validateConfig.expectedFormat);
+
+      await this.executor.execute(fixPrompt, {
+        cwd: context.cwd,
+        env: context.env,
+        sessionId: this.currentSessionId,
+        useResume: true,
+        taskLogDir: context.taskLogDir,
+        logger: this.logger!,
+        taskIndex: context.taskIndex,
+        taskType: context.taskType
+      });
+
+      // 循环继续，重新读取并校验修复后的文件
+    }
+
+    // 理论上不会到达这里，但 TypeScript 需要返回值
+    return null;
+  }
+
+  /**
    * 执行 checkPrompt
    */
   private async executeCheckPromptInternal(
@@ -925,7 +1017,15 @@ export class StepWise {
 
     let data: Record<string, any>[] = [];
     if (result.success && fileExists(outputPath)) {
-      data = loadJsonFile<Record<string, any>[]>(outputPath) || [];
+      data = await this.readJsonWithValidation<Record<string, any>[]>(
+        outputPath,
+        options,
+        { cwd: effectiveCwd, env: effectiveEnv, taskLogDir, taskIndex, taskType },
+        {
+          validate: (content) => validateJsonArray(content, { format: outputFormat, validateFields: true }),
+          expectedFormat: 'array'
+        }
+      ) || [];
     }
 
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
@@ -1035,7 +1135,17 @@ export class StepWise {
 
     let checkResult = false;
     if (result.success && fileExists(outputPath)) {
-      const checkData = loadJsonFile<{ result: boolean }>(outputPath);
+      const checkData = await this.readJsonWithValidation<{ result: boolean }>(
+        outputPath,
+        options,
+        { cwd: effectiveCwd, env: effectiveEnv, taskLogDir, taskIndex, taskType },
+        {
+          validate: (content) => validateJsonObject(content, {
+            requiredFields: [{ name: 'result', type: 'boolean' }]
+          }),
+          expectedFormat: 'object'
+        }
+      );
       checkResult = checkData?.result ?? false;
     }
 
@@ -1144,7 +1254,15 @@ export class StepWise {
 
     let data: Record<string, any>[] = [];
     if (result.success && fileExists(outputPath)) {
-      data = loadJsonFile<Record<string, any>[]>(outputPath) || [];
+      data = await this.readJsonWithValidation<Record<string, any>[]>(
+        outputPath,
+        options,
+        { cwd: effectiveCwd, env: effectiveEnv, taskLogDir, taskIndex, taskType },
+        {
+          validate: (content) => validateJsonArray(content, { format: outputFormat, validateFields: true }),
+          expectedFormat: 'array'
+        }
+      ) || [];
     }
 
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);

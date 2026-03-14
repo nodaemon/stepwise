@@ -1,4 +1,14 @@
 /**
+ * JSON 输出校验选项
+ */
+export interface ValidateOptions {
+  /** 是否启用校验，默认 true */
+  enabled?: boolean;
+  /** 最大重试次数，默认 3 */
+  maxRetries?: number;
+}
+
+/**
  * 执行选项
  */
 export interface ExecOptions {
@@ -25,6 +35,11 @@ export interface ExecOptions {
    * 额外的环境变量数组，格式为 "KEY=VALUE"
    */
   env?: string[];
+  /**
+   * JSON 输出校验选项
+   * 用于 execCollectPrompt、execCheckPrompt、execReport 等接口
+   */
+  validateOptions?: ValidateOptions;
 }
 
 /**

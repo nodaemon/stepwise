@@ -21,6 +21,13 @@ export * from './types';
 // 常量（仅导出类型，不导出内部常量）
 export type { TaskType } from './constants';
 
+// 校验工具类型
+export type {
+  ValidationErrorType,
+  ValidationError,
+  ValidationResult
+} from './utils/validator';
+
 // 导出测试用的内部函数
 export {
   _resetState,

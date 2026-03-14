@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { EXECUTE_LOG, LOGS_DIR, TaskType, TASK_TYPE_NAMES } from '../constants';
+import { ValidationError } from './validator';
 
 /**
  * 日志记录器
@@ -136,5 +137,17 @@ export class Logger {
   logTaskSkipped(taskIndex: number, taskType: TaskType): void {
     const typeName = TASK_TYPE_NAMES[taskType];
     this.writeSummaryLog(`任务 ${taskIndex}_${typeName} 已完成，跳过执行`);
+  }
+
+  /**
+   * 记录校验失败
+   */
+  logValidationFailed(
+    taskIndex: number,
+    attempt: number,
+    errors: ValidationError[]
+  ): void {
+    const errorMessages = errors.map(e => `  - ${e.message}`).join('\n');
+    this.writeSummaryLog(`任务 ${taskIndex} 校验失败 (第 ${attempt} 次尝试)\n${errorMessages}`);
   }
 }
