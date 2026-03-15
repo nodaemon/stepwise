@@ -139,24 +139,13 @@ export class ClaudeExecutor {
       options
     );
 
-    console.error(fullErrorReport);
-
     // 保存完整错误报告到日志文件
     if (options.taskLogDir) {
       const errorReportFile = path.join(options.taskLogDir, 'error_report.txt');
       fs.writeFileSync(errorReportFile, fullErrorReport, 'utf-8');
     }
 
-    process.exit(1);
-    // 以下代码不会执行，但 TypeScript 需要返回值
-    return {
-      sessionId,
-      output: '',
-      success: false,
-      error: lastError,
-      timestamp: startTime,
-      duration
-    };
+    throw new Error(fullErrorReport);
   }
 
   /**
@@ -369,15 +358,12 @@ export class ClaudeExecutor {
 
     // 校验 timeout 必须为正数
     if (options.timeout !== undefined && options.timeout <= 0) {
-      console.error(`错误: timeout 必须为正数，当前值: ${options.timeout}`);
-      process.exit(1);
+      throw new Error(`[executor] timeout 必须为正数，当前值: ${options.timeout}`);
     }
 
     // 校验 cwd 是否存在
     if (!fs.existsSync(cwd)) {
-      console.error(`错误: 工作目录不存在: ${cwd}`);
-      console.error('请检查传入的 cwd 参数是否正确');
-      process.exit(1);
+      throw new Error(`[executor] 工作目录不存在: ${cwd}，请检查传入的 cwd 参数是否正确`);
     }
 
     // 构建 debug 日志文件路径

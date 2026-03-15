@@ -72,17 +72,14 @@ function printTaskStartup(taskName: string, taskDirName: string): void {
  */
 export function setTaskName(taskName: string): void {
   if (!taskName || taskName.trim() === '') {
-    console.error('[错误] TaskName 不能为空');
-    process.exit(1);
+    throw new Error('[setTaskName] TaskName 不能为空');
   }
 
   const trimmedName = taskName.trim();
 
   // 检查名字是否重复（TaskName 和 StepWise Name 全局不能重复）
   if (globalState.registeredNames.has(trimmedName)) {
-    console.error(`[错误] 名字重复: "${trimmedName}"`);
-    console.error('已存在重复的名字，请使用不同的名字区分');
-    process.exit(1);
+    throw new Error(`[setTaskName] 名字重复: "${trimmedName}"，请使用不同的名字区分`);
   }
 
   // 注册 TaskName

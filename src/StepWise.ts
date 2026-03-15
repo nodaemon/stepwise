@@ -81,16 +81,12 @@ export class StepWise {
     // 检查 TaskName 是否设置
     const taskName = _getTaskName();
     if (!taskName) {
-      console.error('[错误] TaskName 未设置');
-      console.error('请先调用 setTaskName("your_task_name") 设置任务名称');
-      process.exit(1);
+      throw new Error('[StepWise] TaskName 未设置，请先调用 setTaskName("your_task_name") 设置任务名称');
     }
 
     // 检查名字是否重复
     if (!_registerName(name)) {
-      console.error(`[错误] StepWise 名字重复: "${name}"`);
-      console.error('已存在重复的 StepWise 名字，请使用不同的名字区分');
-      process.exit(1);
+      throw new Error(`[StepWise] 名字重复: "${name}"，请使用不同的名字区分`);
     }
 
     this.name = name;
@@ -132,10 +128,10 @@ export class StepWise {
       // 恢复模式
       const taskDirFullPath = path.resolve(process.cwd(), EXEC_INFO_DIR, resumePath);
       if (!fs.existsSync(taskDirFullPath)) {
-        console.error('[错误] 无法恢复任务');
-        console.error(`找不到任务目录: ${resumePath}`);
-        console.error('建议: 去掉 setResumePath() 调用，从头开始执行');
-        process.exit(1);
+        throw new Error(
+          `[StepWise] 无法恢复任务：找不到任务目录 "${resumePath}"\n` +
+          `建议: 去掉 setResumePath() 调用，从头开始执行`
+        );
       }
 
       this.taskDir = taskDirFullPath;

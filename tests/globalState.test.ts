@@ -33,28 +33,16 @@ describe('GlobalState', () => {
     });
 
     it('空名称应该报错并退出', () => {
-      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-      const mockError = jest.spyOn(console, 'error').mockImplementation(() => {});
-
-      expect(() => setTaskName('')).toThrow('exit');
-      expect(mockError).toHaveBeenCalledWith('[错误] TaskName 不能为空');
-
-      mockExit.mockRestore();
-      mockError.mockRestore();
+      expect(() => setTaskName('')).toThrow('[setTaskName] TaskName 不能为空');
     });
 
     it('重复名字应该报错并退出', () => {
       // 先注册一个名字
       _registerName('ExistingName');
 
-      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-      const mockError = jest.spyOn(console, 'error').mockImplementation(() => {});
-
-      expect(() => setTaskName('ExistingName')).toThrow('exit');
-      expect(mockError).toHaveBeenCalledWith('[错误] 名字重复: "ExistingName"');
-
-      mockExit.mockRestore();
-      mockError.mockRestore();
+      expect(() => setTaskName('ExistingName')).toThrow(
+        /\[setTaskName\] 名字重复.*ExistingName/s
+      );
     });
   });
 

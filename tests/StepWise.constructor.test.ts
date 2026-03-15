@@ -31,16 +31,8 @@ describe('StepWise Constructor', () => {
 
   describe('TaskName 未设置错误', () => {
     it('未设置 TaskName 时应该报错并退出', () => {
-      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-      const mockError = jest.spyOn(console, 'error').mockImplementation(() => {});
-
       // 不设置 TaskName 直接创建 StepWise
-      expect(() => new StepWise('TestAgent')).toThrow('exit');
-
-      expect(mockError).toHaveBeenCalledWith('[错误] TaskName 未设置');
-
-      mockExit.mockRestore();
-      mockError.mockRestore();
+      expect(() => new StepWise('TestAgent')).toThrow('[StepWise] TaskName 未设置');
     });
   });
 
@@ -49,26 +41,16 @@ describe('StepWise Constructor', () => {
       setTaskName('TestTask');
       new StepWise('DuplicateAgent');
 
-      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-      const mockError = jest.spyOn(console, 'error').mockImplementation(() => {});
-
-      expect(() => new StepWise('DuplicateAgent')).toThrow('exit');
-
-      expect(mockError).toHaveBeenCalledWith('[错误] StepWise 名字重复: "DuplicateAgent"');
-
-      mockExit.mockRestore();
-      mockError.mockRestore();
+      expect(() => new StepWise('DuplicateAgent')).toThrow(
+        /\[StepWise\] 名字重复.*DuplicateAgent/s
+      );
     });
 
     it('TaskName 和 StepWise 名字相同时应该报错', () => {
-      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-
       // setTaskName 内部会注册名字
       setTaskName('SameName');
       // 再次用相同名字创建 StepWise 应该报错
-      expect(() => new StepWise('SameName')).toThrow('exit');
-
-      mockExit.mockRestore();
+      expect(() => new StepWise('SameName')).toThrow('[StepWise] 名字重复');
     });
   });
 

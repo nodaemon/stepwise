@@ -101,20 +101,12 @@ describe('StepWise Resume', () => {
 
   describe('恢复失败错误', () => {
     it('找不到任务目录时应该报错退出', () => {
-      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-      const mockError = jest.spyOn(console, 'error').mockImplementation(() => {});
-
       setTaskName('TestTask');
       setResumePath('NonExistentTask_20260307_120000_123');
 
-      expect(() => new StepWise('Agent1')).toThrow('exit');
-
-      const errorCalls = mockError.mock.calls.map(call => call[0]);
-      const errorMessage = errorCalls.join('\n');
-      expect(errorMessage).toContain('[错误] 无法恢复任务');
-
-      mockExit.mockRestore();
-      mockError.mockRestore();
+      expect(() => new StepWise('Agent1')).toThrow(
+        /\[StepWise\] 无法恢复任务.*NonExistentTask_20260307_120000_123/s
+      );
     });
   });
 });
