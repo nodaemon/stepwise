@@ -1,4 +1,11 @@
 /**
+ * 智能体类型
+ * - 'claude': 使用 Claude Code 智能体
+ * - 'opencode': 使用 OpenCode 智能体
+ */
+export type AgentType = 'claude' | 'opencode';
+
+/**
  * JSON 输出校验选项
  */
 export interface ValidateOptions {

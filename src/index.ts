@@ -8,7 +8,8 @@ export {
   enableDebugMode,
   setSkipSummarize,
   saveCollectData,
-  loadCollectData
+  loadCollectData,
+  setAgentType
 } from './globalState';
 
 // 并发处理接口
@@ -36,6 +37,5 @@ export {
   _isDebugMode,
   _shouldSkipSummarize,
   _registerName,
-  _getWorkerId,
-  _setWorkerId
+  _getAgentType
 } from './globalState';

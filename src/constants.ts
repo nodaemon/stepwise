@@ -26,6 +26,22 @@ export const EXECUTE_LOG = 'execute.log';
 /** 最大重试次数 */
 export const MAX_RETRIES = 3;
 
+/** 默认执行超时时间：3 小时（毫秒） */
+export const DEFAULT_TIMEOUT_MS = 3 * 60 * 60 * 1000;
+
+// ============ Claude Code 相关常量 ============
+
+/** Claude Code 命令 */
+export const CLAUDE_COMMAND = 'claude';
+
+// ============ OpenCode 相关常量 ============
+
+/** OpenCode 命令 */
+export const OPENCODE_COMMAND = 'opencode';
+
+/** OpenCode 权限配置：允许所有操作，跳过权限确认 */
+export const OPENCODE_PERMISSION_ALL = '{"allow": ["*"]}';
+
 /** 任务类型 */
 export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize';
 

@@ -220,13 +220,13 @@ function getDirWarning(cwd?: string, outputFileName?: string): string | null {
 /**
  * 构建检查任务的额外提示词
  * @param outputFileName 输出文件名（应为绝对路径）
- * @param checkQuestion 检查问题描述
+ * @param checkPrompt 检查问题提示词（已处理变量替换）
  * @param cwd Claude 命令执行的工作目录
  * @returns 额外提示词
  */
 export function buildCheckPrompt(
   outputFileName: string,
-  checkQuestion: string,
+  checkPrompt: string,
   cwd?: string
 ): string {
   const requirements: string[] = [
@@ -245,7 +245,7 @@ export function buildCheckPrompt(
   return `
 请检查以下问题，并将结果写入到 ${outputFileName} 文件中：
 
-检查问题：${checkQuestion}
+检查问题：${checkPrompt}
 
 输出格式：
 {

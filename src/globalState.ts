@@ -1,10 +1,11 @@
 /**
  * 全局状态管理模块
- * 内部维护 taskName、resumePath、debugMode、已注册的名字列表
+ * 内部维护 taskName、resumePath、debugMode、agentType、workerId、已注册的名字列表
  */
 import * as path from 'path';
 import * as fs from 'fs';
 import { appendJsonArray, loadJsonFile } from './utils/fileHelper';
+import { AgentType } from './types';
 
 /** 全局状态 */
 interface GlobalState {
@@ -16,6 +17,8 @@ interface GlobalState {
   debugMode: boolean;
   /** 跳过 summarize（反思性能 skill） */
   skipSummarize: boolean;
+  /** 智能体类型：'claude' 或 'opencode'，默认 'claude' */
+  agentType: AgentType;
   /** 已注册的 StepWise 名字列表 */
   registeredNames: Set<string>;
   /** 任务目录时间戳（第一个 StepWise 创建时设置） */
@@ -32,6 +35,7 @@ const globalState: GlobalState = {
   resumePath: '',
   debugMode: false,
   skipSummarize: false,
+  agentType: 'claude', // 默认使用 Claude Code
   registeredNames: new Set<string>(),
   taskDirTimestamp: '',
   hasPrintedStartup: false,
@@ -115,6 +119,16 @@ export function enableDebugMode(enabled: boolean = true): void {
 }
 
 /**
+ * 设置智能体类型
+ * - 'claude': 使用 Claude Code 智能体（默认）
+ * - 'opencode': 使用 OpenCode 智能体
+ * 注意：应在 setTaskName() 之前调用，同一任务内所有 Agent 使用相同智能体类型
+ */
+export function setAgentType(type: AgentType): void {
+  globalState.agentType = type;
+}
+
+/**
  * 设置是否跳过 summarize（反思性能 skill）
  * @param skip 是否跳过，默认为 true
  */
@@ -166,6 +180,14 @@ export function _isDebugMode(): boolean {
 }
 
 /**
+ * 获取智能体类型
+ * @internal
+ */
+export function _getAgentType(): AgentType {
+  return globalState.agentType;
+}
+
+/**
  * 获取是否跳过 summarize
  * @internal
  */
@@ -211,24 +233,9 @@ export function _resetState(): void {
   globalState.resumePath = '';
   globalState.debugMode = false;
   globalState.skipSummarize = false;
+  globalState.agentType = 'claude';
   globalState.registeredNames.clear();
   globalState.taskDirTimestamp = '';
   globalState.hasPrintedStartup = false;
   globalState.workerId = '';
-}
-
-/**
- * 设置 Worker 标识（用于 forEachParallel）
- * @internal
- */
-export function _setWorkerId(workerId: string): void {
-  globalState.workerId = workerId;
-}
-
-/**
- * 获取 Worker 标识
- * @internal
- */
-export function _getWorkerId(): string {
-  return globalState.workerId;
 }

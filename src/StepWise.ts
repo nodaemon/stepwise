@@ -14,7 +14,8 @@ import {
 } from './types';
 import { generateUUID } from './utils/uuid';
 import { Logger } from './utils/logger';
-import { ClaudeExecutor, createExecutor } from './utils/executor';
+import { createExecutor } from './utils/executor';
+import { AgentExecutor } from './executors/types';
 import {
   ensureDir,
   saveJsonFile,
@@ -68,7 +69,8 @@ export class StepWise {
   /** 当前会话ID，用于默认复用上一个任务的session */
   private currentSessionId: string = '';
   private logger: Logger | null = null;
-  private executor: ClaudeExecutor;
+  /** 执行器实例 */
+  private executor: AgentExecutor;
   private progress: ProgressInfo | null = null;
   /** 默认工作目录，当 options.cwd 未指定时使用 */
   private defaultCwd?: string;
@@ -214,6 +216,7 @@ export class StepWise {
   /**
    * 根据 agentName 查找对应的 Agent 目录
    * 支持 workerId 模式：{agentName}_{workerId}_{timestamp}
+   * @throws 当找到多个匹配目录时抛出错误，需要用户明确处理
    */
   private findAgentDir(taskDir: string, agentName: string): string | null {
     const entries = fs.readdirSync(taskDir, { withFileTypes: true });
@@ -221,20 +224,45 @@ export class StepWise {
     // 如果有 workerId，优先匹配 {agentName}_{workerId}_* 格式
     if (this.workerId) {
       const prefix = `${agentName}_${this.workerId}_`;
+      const matches: string[] = [];
       for (const entry of entries) {
         if (entry.isDirectory() && entry.name.startsWith(prefix)) {
-          return path.join(taskDir, entry.name);
+          matches.push(entry.name);
         }
+      }
+      if (matches.length > 1) {
+        throw new Error(
+          `[StepWise] 找到多个匹配目录 "${prefix}*": ${matches.join(', ')}\n` +
+          `无法确定使用哪个目录恢复。建议：\n` +
+          `1. 删除多余的目录，只保留一个\n` +
+          `2. 或者使用不同的 agentName 创建新的 StepWise 实例`
+        );
+      }
+      if (matches.length > 0) {
+        return path.join(taskDir, matches[0]);
       }
       // 没有 workerId 的匹配，返回 null（说明该 worker 之前没有执行过）
       return null;
     }
 
     // 没有 workerId，匹配传统格式 {agentName}_*
+    const prefix = agentName + '_';
+    const matches: string[] = [];
     for (const entry of entries) {
-      if (entry.isDirectory() && entry.name.startsWith(agentName + '_')) {
-        return path.join(taskDir, entry.name);
+      if (entry.isDirectory() && entry.name.startsWith(prefix)) {
+        matches.push(entry.name);
       }
+    }
+    if (matches.length > 1) {
+      throw new Error(
+        `[StepWise] 找到多个匹配目录 "${prefix}*": ${matches.join(', ')}\n` +
+        `无法确定使用哪个目录恢复。建议：\n` +
+        `1. 删除多余的目录，只保留一个\n` +
+        `2. 或者使用不同的 agentName 创建新的 StepWise 实例`
+      );
+    }
+    if (matches.length > 0) {
+      return path.join(taskDir, matches[0]);
     }
     return null;
   }
@@ -546,6 +574,10 @@ export class StepWise {
 
   /**
    * 判断是否应该使用 resume 模式
+   * 使用 resume 模式的条件：
+   * 1. newSession 不为 true
+   * 2. 在 resume 模式下（有 resumePath）
+   * 3. 存在之前已完成的任务，或者当前任务是 in_progress 状态（中断恢复）
    */
   private shouldUseResume(taskIndex: number, newSession?: boolean): boolean {
     if (newSession) {
@@ -554,10 +586,15 @@ export class StepWise {
 
     const resumePath = _getResumePath();
     if (resumePath && this.progress) {
+      // 检查是否有之前完成的任务
       const hasPreviousCompleted = this.progress.tasks.some(
         t => t.taskIndex < taskIndex && t.status === 'completed'
       );
-      return hasPreviousCompleted;
+      // 检查当前任务是否是 in_progress 状态（上次执行中断）
+      const isCurrentTaskInProgress = this.progress.tasks.some(
+        t => t.taskIndex === taskIndex && t.status === 'in_progress'
+      );
+      return hasPreviousCompleted || isCurrentTaskInProgress;
     }
 
     return taskIndex > 1;
