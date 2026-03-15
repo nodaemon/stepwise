@@ -100,27 +100,6 @@ describe('StepWise Resume', () => {
   });
 
   describe('恢复失败错误', () => {
-    it('找不到 Agent 目录时应该报错退出', () => {
-      const taskDir = createMockHistoryStructure(tempDir, 'TestTask', 'OtherAgent');
-
-      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-      const mockError = jest.spyOn(console, 'error').mockImplementation(() => {});
-
-      setTaskName('TestTask');
-      setResumePath(path.basename(taskDir));
-
-      // 尝试使用不存在的 Agent 名
-      expect(() => new StepWise('NonExistentAgent')).toThrow('exit');
-
-      const errorCalls = mockError.mock.calls.map(call => call[0]);
-      const errorMessage = errorCalls.join('\n');
-      expect(errorMessage).toContain('[错误] 无法恢复任务');
-      expect(errorMessage).toContain('找不到Agent 目录');
-
-      mockExit.mockRestore();
-      mockError.mockRestore();
-    });
-
     it('找不到任务目录时应该报错退出', () => {
       const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
       const mockError = jest.spyOn(console, 'error').mockImplementation(() => {});

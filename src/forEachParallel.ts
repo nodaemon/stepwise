@@ -11,7 +11,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import { StepWise } from './StepWise';
-import { _setWorkerId, _getTaskName, _getResumePath, _isDebugMode } from './globalState';
+import { _getTaskName, _getResumePath, _isDebugMode } from './globalState';
 
 /**
  * Worker 配置
@@ -129,9 +129,6 @@ export async function forEachParallel<T>(
     const workspacePath = workspacePaths[workerIndex];
     const workerId = workerConfig.branchName;
 
-    // 设置 workerId（StepWise 创建时会使用）
-    _setWorkerId(workerId);
-
     while (itemIndex < items.length) {
       const currentIndex = itemIndex++;
 
@@ -143,7 +140,8 @@ export async function forEachParallel<T>(
       const item = items[currentIndex];
 
       // 创建 StepWise，名称为 index，默认 cwd 为 workspacePath，默认 env 为 workerConfig.env
-      const stepWise = new StepWise(String(currentIndex), workspacePath, workerConfig.env);
+      // workerId 作为实例属性传入，避免并发时的全局状态竞态
+      const stepWise = new StepWise(String(currentIndex), workspacePath, workerConfig.env, workerId);
 
       const context: WorkerContext<T> = {
         item,

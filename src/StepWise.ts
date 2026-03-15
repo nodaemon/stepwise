@@ -52,8 +52,7 @@ import {
   _shouldSkipSummarize,
   _registerName,
   _setTaskDirTimestamp,
-  _getTaskDirTimestamp,
-  _getWorkerId
+  _getTaskDirTimestamp
 } from './globalState';
 
 /**
@@ -75,8 +74,10 @@ export class StepWise {
   private defaultCwd?: string;
   /** 默认环境变量数组，格式为 "KEY=VALUE" */
   private defaultEnv?: string[];
+  /** Worker 标识（用于 forEachParallel 并发处理） */
+  private workerId?: string;
 
-  constructor(name: string, defaultCwd?: string, defaultEnv?: string[]) {
+  constructor(name: string, defaultCwd?: string, defaultEnv?: string[], workerId?: string) {
     // 检查 TaskName 是否设置
     const taskName = _getTaskName();
     if (!taskName) {
@@ -95,6 +96,7 @@ export class StepWise {
     this.name = name;
     this.defaultCwd = defaultCwd;
     this.defaultEnv = defaultEnv;
+    this.workerId = workerId;
     this.executor = createExecutor();
 
     // 初始化目录
@@ -148,9 +150,8 @@ export class StepWise {
       } else {
         // 找不到目录，说明该 Agent 从未开始过，创建新目录
         const timestamp = this.formatTimestamp(new Date());
-        const workerId = _getWorkerId();
-        const agentDirName = workerId
-          ? `${this.name}_${workerId}_${timestamp}`
+        const agentDirName = this.workerId
+          ? `${this.name}_${this.workerId}_${timestamp}`
           : `${this.name}_${timestamp}`;
         this.agentDir = path.join(this.taskDir, agentDirName);
 
@@ -189,9 +190,8 @@ export class StepWise {
 
       // Agent 目录使用新的时间戳
       const agentTimestamp = this.formatTimestamp(new Date());
-      const workerId = _getWorkerId();
-      const agentDirName = workerId
-        ? `${this.name}_${workerId}_${agentTimestamp}`
+      const agentDirName = this.workerId
+        ? `${this.name}_${this.workerId}_${agentTimestamp}`
         : `${this.name}_${agentTimestamp}`;
       this.agentDir = path.join(this.taskDir, agentDirName);
 
@@ -220,12 +220,11 @@ export class StepWise {
    * 支持 workerId 模式：{agentName}_{workerId}_{timestamp}
    */
   private findAgentDir(taskDir: string, agentName: string): string | null {
-    const workerId = _getWorkerId();
     const entries = fs.readdirSync(taskDir, { withFileTypes: true });
 
     // 如果有 workerId，优先匹配 {agentName}_{workerId}_* 格式
-    if (workerId) {
-      const prefix = `${agentName}_${workerId}_`;
+    if (this.workerId) {
+      const prefix = `${agentName}_${this.workerId}_`;
       for (const entry of entries) {
         if (entry.isDirectory() && entry.name.startsWith(prefix)) {
           return path.join(taskDir, entry.name);
@@ -423,6 +422,22 @@ export class StepWise {
       } else {
         this.taskCounter = 0;
       }
+      this.executionIndex = 0;
+    } else {
+      // progress.json 损坏或不存在时的处理
+      if (fs.existsSync(progressFile)) {
+        console.warn(`[StepWise] 警告: progress.json 文件损坏，已重置进度`);
+        console.warn(`文件路径: ${progressFile}`);
+      }
+      // 初始化空的 progress
+      this.progress = {
+        taskName: this.name,
+        taskDir: this.agentDir,
+        taskCounter: 0,
+        tasks: [],
+        lastUpdated: Date.now()
+      };
+      this.taskCounter = 0;
       this.executionIndex = 0;
     }
   }
@@ -705,6 +720,35 @@ export class StepWise {
   }
 
   /**
+   * 验证 OutputFormat 参数
+   */
+  private validateOutputFormat(outputFormat: OutputFormat | undefined, methodName: string): void {
+    if (!outputFormat) {
+      throw new Error(`[StepWise.${methodName}] outputFormat 参数不能为空`);
+    }
+    if (!outputFormat.keys || !Array.isArray(outputFormat.keys) || outputFormat.keys.length === 0) {
+      throw new Error(`[StepWise.${methodName}] outputFormat.keys 不能为空数组`);
+    }
+    for (const key of outputFormat.keys) {
+      if (!key.name || typeof key.name !== 'string') {
+        throw new Error(`[StepWise.${methodName}] outputFormat.keys 中的每个元素必须包含有效的 name 属性`);
+      }
+    }
+  }
+
+  /**
+   * 验证输出文件名参数
+   */
+  private validateOutputFileName(outputFileName: string | undefined, methodName: string): void {
+    if (!outputFileName || outputFileName.trim() === '') {
+      throw new Error(`[StepWise.${methodName}] outputFileName 参数不能为空`);
+    }
+    if (outputFileName.includes('..') || outputFileName.includes('/') || outputFileName.includes('\\')) {
+      throw new Error(`[StepWise.${methodName}] outputFileName 包含非法字符`);
+    }
+  }
+
+  /**
    * 写入任务日志
    */
   private writeTaskLogs(taskLogDir: string, result: ExecutionResult): void {
@@ -814,6 +858,12 @@ export class StepWise {
     taskIndex: number
   ): Promise<void> {
     const processedCheckPrompt = this.processPrompt(checkPrompt);
+
+    // 写入 checkPrompt 日志
+    if (taskLogDir) {
+      this.logger?.writeTaskLog(taskLogDir, 'check_prompt.txt', processedCheckPrompt);
+    }
+
     await this.executor.execute(processedCheckPrompt, {
       cwd,
       env,
@@ -913,11 +963,10 @@ export class StepWise {
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
 
     if (result.success) {
-      this.recordTaskComplete(taskIndex, `${taskIndex}_task`, sessionId, taskType);
-
       if (options?.checkPrompt && !_isDebugMode()) {
         await this.executeCheckPromptInternal(options.checkPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
       }
+      this.recordTaskComplete(taskIndex, `${taskIndex}_task`, sessionId, taskType);
     }
 
     return result;
@@ -932,6 +981,7 @@ export class StepWise {
     options?: ExecOptions
   ): Promise<CollectResult> {
     this.validatePrompt(prompt);
+    this.validateOutputFormat(outputFormat, 'execCollectPrompt');
 
     const effectiveCwd = this.getEffectiveCwd(options?.cwd);
     const effectiveEnv = this.getEffectiveEnv(options?.env);
@@ -1065,6 +1115,10 @@ export class StepWise {
     // 检查是否需要恢复
     if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
+      // 恢复 sessionId，确保后续任务能复用
+      if (sessionId) {
+        this.currentSessionId = sessionId;
+      }
       this.logger?.logTaskSkipped(taskIndex, taskType);
 
       // 优先从 progress.json 读取 checkResult
@@ -1172,6 +1226,8 @@ export class StepWise {
     options?: ExecOptions
   ): Promise<CollectResult> {
     this.validatePrompt(prompt);
+    this.validateOutputFormat(outputFormat, 'execReport');
+    this.validateOutputFileName(outputFileName, 'execReport');
 
     const effectiveCwd = this.getEffectiveCwd(options?.cwd);
     const effectiveEnv = this.getEffectiveEnv(options?.env);
