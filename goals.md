@@ -38,11 +38,21 @@ setResumePath(path: string): void
 // 调试模式打开后，所有收集任务执行完成以后，在返回给用户前只返回第一个数据，方便快速调试
 enableDebugMode(enabled?: boolean): void
 
+// 设置是否跳过 summarize（反思生成 skill）
+// 设置后，所有会话结束时不会自动执行 summarize
+// 适用于不需要生成技能文件的场景
+setSkipSummarize(skip?: boolean): void
+
 // 保存收集的数据到磁盘（存储在当前工作目录cwd）
 saveCollectData(data: Record<string, any>[], fileName?: string): void
 
 // 从磁盘加载收集的数据（从当前工作目录cwd读取）
 loadCollectData(fileName?: string): Record<string, any>[]
+
+// 设置智能体类型，决定使用哪个智能体执行任务
+// type: 'claude' 使用 Claude Code 智能体（默认）, 'opencode' 使用 OpenCode 智能体
+// 应在 setTaskName() 之前调用
+setAgentType(type: AgentType): void
 ```
 
 ### 任务管理类StepWise支持的接口
@@ -54,7 +64,10 @@ loadCollectData(fileName?: string): Record<string, any>[]
 // TaskName必须设置，未设置TaskName直接新建StepWise则报错，提示用户设置TaskName
 // 用户可以指定1个TaskName和多个StepWise Name，这些名字全局保存，不能有重复。出现重复后立即停止任务提示用户修改名字。
 //时间戳精确到毫秒，格式：{YYYYMMDD}_{HHmmss}_{毫秒}
-new StepWise(name: string)
+// defaultCwd: 默认工作目录，未指定则使用 process.cwd()
+// defaultEnv: 默认环境变量数组，格式为 ["KEY=VALUE"]
+// workerId: Worker 标识，用于 forEachParallel 并发处理
+new StepWise(name: string, defaultCwd?: string, defaultEnv?: string[], workerId?: string)
 ```
 
 ### 启动打印
@@ -134,16 +147,61 @@ StepWise.execCheckPrompt(prompt: string, options?: ExecOptions): Promise<CheckRe
 StepWise.execReport(prompt: string, outputFormat: OutputFormat, outputFileName: string, options?: ExecOptions): Promise<CollectResult>
 ```
 
+### Shell 任务
+
+```typescript
+// 执行 Shell 命令，用于运行系统命令或脚本
+// command: Shell 命令内容
+// options: Shell 执行选项
+//   - cwd: 工作目录，未指定则使用 process.cwd()
+//   - timeout: 超时时间（毫秒），默认 5 分钟 (300000ms)
+//   - env: 环境变量，会与 process.env 合并
+//   - retry: 失败时是否自动重试，默认 false
+//   - retryCount: 重试次数，默认 3 次
+// 支持断点恢复：已执行的命令会被跳过
+StepWise.execShell(command: string, options?: ShellOptions): Promise<ShellResult>
+```
+
+---
+
+### 并发处理
+
+```typescript
+// 并发处理数组元素，自动创建 git worktree 进行隔离
+// items: 要处理的数组
+// workerConfigs: Worker 配置数组，定义每个 worker 的分支名和环境变量
+// handler: 处理函数，接收 WorkerContext 上下文
+// 自动为每个 Worker 创建 git worktree、绑定 worker 标识、处理 Resume 逻辑
+forEachParallel<T>(
+  items: T[],
+  workerConfigs: WorkerConfig[],
+  handler: (ctx: WorkerContext<T>) => Promise<void>,
+  options?: ForEachParallelOptions
+): Promise<void>
+```
+
 ---
 
 ## 类型定义
 
 ```typescript
+// 智能体类型
+type AgentType = 'claude' | 'opencode';
+
+// 执行选项
 interface ExecOptions {
   cwd?: string;
   data?: Record<string, any>
   newSession?: boolean;  // true: 创建新 session; false/未指定: 复用上一个 session（默认）
-  checkPrompt: string;
+  checkPrompt?: string;
+  env?: string[];        // 额外的环境变量数组，格式为 "KEY=VALUE"
+  validateOptions?: ValidateOptions; // JSON 输出校验选项
+}
+
+// JSON 输出校验选项
+interface ValidateOptions {
+  enabled?: boolean;   // 是否启用校验，默认 true
+  maxRetries?: number; // 最大重试次数，默认 3
 }
 
 interface OutputFormat {
@@ -168,6 +226,63 @@ interface ExecutionResult {
 
 interface CollectResult extends ExecutionResult {
   data: Record<string, any>[];
+}
+
+// Shell 执行选项
+interface ShellOptions {
+  cwd?: string;        // 工作目录
+  timeout?: number;    // 超时时间（毫秒），默认 300000
+  env?: Record<string, string>; // 环境变量
+  retry?: boolean;     // 失败时是否重试，默认 false
+  retryCount?: number; // 重试次数，默认 3
+}
+
+// Shell 执行结果
+interface ShellResult {
+  stdout: string;    // 标准输出
+  stderr: string;    // 标准错误输出
+  exitCode: number;  // 退出码，0 表示成功
+  success: boolean;  // 是否成功
+  duration: number;  // 执行耗时（毫秒）
+  taskIndex: number; // 任务序号
+}
+
+// 任务类型
+type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell';
+
+// 任务状态
+interface TaskStatus {
+  taskIndex: number;
+  taskName: string;
+  sessionId: string;
+  status: TaskStatusType;
+  timestamp: number;
+  taskType: TaskType;
+  outputFileName?: string; // 输出文件名（仅收集类任务）
+  checkResult?: boolean;   // check 任务的结果（仅 check 类型任务）
+  command?: string;        // Shell 命令内容（仅 shell 类型任务）
+}
+
+// 总结选项
+interface SummarizeOptions {
+  cwd?: string;
+  customPrompt?: string;
+  env?: string[];        // 额外的环境变量数组，格式为 "KEY=VALUE"
+}
+
+// Worker 配置
+interface WorkerConfig {
+  branchName: string;  // 分支名，用于创建 git worktree 和作为 worker 标识
+  env?: string[];      // 环境变量数组，格式为 "KEY=VALUE"
+}
+
+// Worker 上下文
+interface WorkerContext<T> {
+  item: T;              // 当前处理的元素
+  index: number;        // 元素在数组中的索引
+  workerConfig: WorkerConfig; // 当前 worker 配置
+  workspacePath: string; // 工作空间路径（git worktree 目录）
+  stepWise: StepWise;   // 已创建好的 StepWise 实例
 }
 ```
 
@@ -211,14 +326,18 @@ stepwise_exec_infos/
     ├── {StepWiseAgent-name2}_{timestamp2}/     # StepWise Agent 目录
     │   ├── data/                               # 执行信息，用于恢复数据
     │   ├── logs/                               # 执行日志
-    │   │   ├── 1_collect/                      # 收集任务日志
-    │   │   ├── 2_process/                      # 处理任务日志
+    │   │   ├── 1_task/                         # 普通任务日志
+    │   │   ├── 2_collect/                      # 收集任务日志
+    │   │   ├── 3_check/                        # 检查任务日志
+    │   │   ├── 4_shell/                        # Shell 任务日志
     │   │   └── ...
-    │   └── collect/                            # 收集类任务输出
-    │       ├── 1_collect/
-    │       │   └── output.json
-    │       ├── 3_process_and_collect/
-    │       │   └── result.json
+    │   ├── collect/                            # 收集类任务输出
+    │   │   ├── 2_collect/
+    │   │   │   └── output.json
+    │   │   └── ...
+    │   └── check/                              # 检查任务输出
+    │       ├── 3_check/
+    │       │   └── check_result.json
     │       └── ...
     └── {StepWiseAgent-name3}_{timestamp3}/     # 另一个 StepWise Agent
         ├── data/
