@@ -10,13 +10,19 @@ This document provides detailed API reference for StepWise.
   - [setTaskName](#settasknametaskname-string-void)
   - [setResumePath](#setresumepathpath-string-void)
   - [enableDebugMode](#enabledebugmodeenabled-boolean-void)
+  - [setSkipSummarize](#setskipsummarizeskip-boolean-void)
   - [saveCollectData](#savecollectdatadata-recordstring-any-filename-string-void)
   - [loadCollectData](#loadcollectdatafilename-string-recordstring-any)
+  - [setAgentType](#setagenttypetype-agenttype-void)
 - [StepWise Class](#stepwise-class)
   - [Constructor](#constructor)
   - [Task Execution Methods](#task-execution-methods)
   - [Summary Methods](#summary-methods)
   - [Helper Methods](#helper-methods)
+- [Parallel Processing](#parallel-processing)
+  - [forEachParallel](#foreachparallelt-items-t-workerconfigs-workerconfig-handler-promisevoid-options-foreachparalleloptions-promisevoid)
+  - [WorkerConfig](#workerconfig)
+  - [WorkerContext](#workercontextt)
 - [Type Definitions](#type-definitions)
 
 ---
@@ -107,6 +113,34 @@ enableDebugMode();      // Enable (default)
 
 ---
 
+### setSkipSummarize(skip?: boolean): void
+
+Sets whether to skip summarize (reflection and skill generation).
+
+**Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| skip | boolean | true | Whether to skip summarize |
+
+**Behavior**
+
+- After setting, no automatic summarize will be executed when sessions end
+- Suitable for scenarios where skill files are not needed
+- Can be called at any time during task execution
+
+**Example**
+
+```typescript
+import { setSkipSummarize } from 'stepwise';
+
+setSkipSummarize(true);  // Skip summarize
+setSkipSummarize(false); // Don't skip (default behavior)
+setSkipSummarize();      // Skip (default)
+```
+
+---
+
 ### saveCollectData(data: Record<string, any>[], fileName?: string): void
 
 Saves collected data to disk (stored in current working directory).
@@ -154,6 +188,38 @@ const data = loadCollectData('my_data.json');
 
 ---
 
+### setAgentType(type: AgentType): void
+
+Sets the agent type, determining which agent will execute tasks.
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| type | AgentType | Agent type: `'claude'` or `'opencode'` |
+
+**Behavior**
+
+- Should be called before `setTaskName()`
+- All agents within a task use the same agent type
+- Defaults to `'claude'` (Claude Code agent)
+
+**Example**
+
+```typescript
+import { setTaskName, setAgentType } from 'stepwise';
+
+// Use OpenCode agent
+setAgentType('opencode');
+setTaskName('MyTask');
+
+// Or use the default Claude Code agent
+setAgentType('claude'); // Optional, claude is the default
+setTaskName('MyTask');
+```
+
+---
+
 ## StepWise Class
 
 The main class providing core task orchestration functionality.
@@ -161,7 +227,7 @@ The main class providing core task orchestration functionality.
 ### Constructor
 
 ```typescript
-new StepWise(name: string)
+new StepWise(name: string, defaultCwd?: string, defaultEnv?: string[], workerId?: string)
 ```
 
 **Parameters**
@@ -169,6 +235,9 @@ new StepWise(name: string)
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | name | string | Unique agent name |
+| defaultCwd | string | Default working directory (optional), uses process.cwd() if not specified |
+| defaultEnv | string[] | Default environment variable array (optional), format: `["KEY=VALUE"]` |
+| workerId | string | Worker identifier (optional), used for forEachParallel parallel processing |
 
 **Behavior**
 
@@ -182,7 +251,27 @@ new StepWise(name: string)
 import { StepWise, setTaskName } from 'stepwise';
 
 setTaskName('MyTask');
+
+// Basic usage
 const agent = new StepWise('MainAgent');
+
+// Specify default working directory
+const agent2 = new StepWise('SubAgent', '/path/to/project');
+
+// Specify default working directory and environment variables
+const agent3 = new StepWise(
+  'DataAgent',
+  '/path/to/project',
+  ['NODE_ENV=production', 'DEBUG=true']
+);
+
+// Full parameters (typically used internally by forEachParallel)
+const agent4 = new StepWise(
+  'WorkerAgent',
+  '/path/to/workspace',
+  ['API_KEY=xxx'],
+  'worker_1'
+);
 ```
 
 ---
@@ -204,9 +293,12 @@ Executes a normal task.
 
 ```typescript
 interface ExecOptions {
-  cwd?: string;           // Working directory, defaults to current process directory
-  newSession?: boolean;   // Whether to use a new session, defaults to false
+  cwd?: string;              // Working directory, defaults to current process directory
+  newSession?: boolean;      // Whether to use a new session, defaults to false
   data?: Record<string, any>; // Data for variable substitution
+  checkPrompt?: string;      // Check prompt to execute after main task completes
+  env?: string[];            // Additional environment variables, format: "KEY=VALUE"
+  validateOptions?: ValidateOptions; // JSON output validation options
 }
 ```
 
@@ -377,6 +469,72 @@ await agent.execReport(
 
 ---
 
+#### execShell(command: string, options?: ShellOptions): Promise\<ShellResult\>
+
+Executes a Shell command for running system commands or scripts.
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| command | string | Shell command content |
+| options | ShellOptions | Shell execution options (optional) |
+
+**ShellOptions**
+
+```typescript
+interface ShellOptions {
+  cwd?: string;        // Working directory, uses process.cwd() if not specified
+  timeout?: number;    // Timeout in milliseconds, default 5 minutes (300000ms)
+  env?: Record<string, string>; // Environment variables, merged with process.env
+  retry?: boolean;     // Whether to automatically retry on failure, default false
+  retryCount?: number; // Number of retries, default 3
+}
+```
+
+**ShellResult**
+
+```typescript
+interface ShellResult {
+  stdout: string;    // Standard output
+  stderr: string;    // Standard error output
+  exitCode: number;  // Exit code, 0 means success
+  success: boolean;  // Whether successful (exitCode === 0)
+  duration: number;  // Execution duration (milliseconds)
+  taskIndex: number; // Task index
+}
+```
+
+**Behavior**
+
+- Command execution process is logged
+- Supports resume: already executed commands will be skipped
+- Command will be forcefully terminated after timeout
+
+**Example**
+
+```typescript
+// Basic usage
+const result = await agent.execShell('npm run build');
+console.log('Success:', result.success);
+console.log('Output:', result.stdout);
+
+// With options
+const result = await agent.execShell('npm test', {
+  timeout: 60000,     // Timeout 60 seconds
+  cwd: './project',   // Specify working directory
+  retry: true,        // Retry on failure
+  retryCount: 3       // Retry 3 times
+});
+
+// Using environment variables
+const result = await agent.execShell('npm run deploy', {
+  env: { NODE_ENV: 'production' }
+});
+```
+
+---
+
 ### Summary Methods
 
 #### summarize(options?: SummarizeOptions): Promise\<SummarizeResult\>
@@ -395,6 +553,7 @@ Summarizes the current session's experience and generates skill files.
 interface SummarizeOptions {
   cwd?: string;          // Working directory, defaults to current process directory
   customPrompt?: string; // Custom prompt to override default summary prompt
+  env?: string[];        // Additional environment variables, format: "KEY=VALUE"
 }
 ```
 
@@ -520,7 +679,119 @@ Gets the current session ID being used for task execution.
 
 ---
 
+## Parallel Processing
+
+Interfaces for parallel processing of multiple tasks.
+
+### forEachParallel\<T\>(items: T[], workerConfigs: WorkerConfig[], handler: (ctx: WorkerContext\<T\>) => Promise\<void\>, options?: ForEachParallelOptions): Promise\<void\>
+
+Processes array elements in parallel, automatically creating git worktrees for isolation.
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| items | T[] | Array to process |
+| workerConfigs | WorkerConfig[] | Worker configuration array |
+| handler | (ctx: WorkerContext\<T\>) => Promise\<void\> | Handler function |
+| options | ForEachParallelOptions | Options (reserved for extension) |
+
+**Behavior**
+
+- Automatically creates git worktree for each Worker
+- Automatically binds worker identifier
+- Automatically handles Resume logic
+- Automatically merges branches after task completion
+
+**Example**
+
+```typescript
+import { setTaskName, forEachParallel, WorkerConfig } from 'stepwise';
+
+setTaskName("my_task");
+
+const workerConfigs: WorkerConfig[] = [
+  { branchName: "Agent1" },
+  { branchName: "Agent2" },
+];
+
+await forEachParallel(items, workerConfigs, async (ctx) => {
+  // ctx.stepWise executes tasks in ctx.workspacePath by default
+  // To use a different directory, manually specify cwd
+  await ctx.stepWise.execPrompt("Process task", {
+    data: ctx.item,
+  });
+});
+```
+
+**Using Environment Variable Configuration**
+
+```typescript
+const workerConfigs: WorkerConfig[] = [
+  { branchName: "Agent1", env: ["API_KEY=xxx", "NODE_ENV=test"] },
+  { branchName: "Agent2", env: ["API_KEY=yyy", "NODE_ENV=production"] },
+];
+
+await forEachParallel(items, workerConfigs, async (ctx) => {
+  // Each Worker executes tasks with their configured environment variables
+  await ctx.stepWise.execPrompt("Call API to process task", {
+    data: ctx.item,
+  });
+});
+```
+
+---
+
+### WorkerConfig
+
+Worker configuration, defining branch name and environment variables for each worker.
+
+```typescript
+interface WorkerConfig {
+  /** Branch name, used to create git worktree and as worker identifier */
+  branchName: string;
+  /** Environment variable array, format: "KEY=VALUE" */
+  env?: string[];
+}
+```
+
+---
+
+### WorkerContext\<T\>
+
+Worker context, all information provided by the framework to the handler function.
+
+```typescript
+interface WorkerContext<T> {
+  /** Current element being processed */
+  item: T;
+  /** Index of element in array */
+  index: number;
+  /** Current worker configuration */
+  workerConfig: WorkerConfig;
+  /** Workspace path (git worktree directory) */
+  workspacePath: string;
+  /** Created StepWise instance, name is index, automatically bound to workerId */
+  stepWise: StepWise;
+}
+```
+
+---
+
 ## Type Definitions
+
+### AgentType
+
+Agent type.
+
+```typescript
+type AgentType = 'claude' | 'opencode';
+```
+
+- `'claude'`: Use Claude Code agent (default)
+- `'opencode'`: Use OpenCode agent
+
+---
 
 ### ExecOptions
 
@@ -528,12 +799,29 @@ Execution options.
 
 ```typescript
 interface ExecOptions {
-  cwd?: string;                    // Working directory
-  newSession?: boolean;            // Whether to use a new session (default: false)
-  data?: Record<string, any>;      // Data for variable substitution
-  checkPrompt?: string;            // Check prompt to execute after main task completes
+  cwd?: string;              // Working directory
+  newSession?: boolean;      // Whether to use a new session (default: false)
+  data?: Record<string, any>; // Data for variable substitution
+  checkPrompt?: string;      // Check prompt to execute after main task completes
+  env?: string[];            // Additional environment variables, format: "KEY=VALUE"
+  validateOptions?: ValidateOptions; // JSON output validation options
 }
 ```
+
+---
+
+### ValidateOptions
+
+JSON output validation options.
+
+```typescript
+interface ValidateOptions {
+  enabled?: boolean;   // Whether to enable validation, default true
+  maxRetries?: number; // Maximum retry count, default 3
+}
+```
+
+---
 
 ### OutputFormat
 
@@ -546,6 +834,8 @@ interface OutputFormat {
 }
 ```
 
+---
+
 ### OutputKey
 
 Output key definition.
@@ -557,6 +847,8 @@ interface OutputKey {
   type: 'string' | 'number' | 'boolean' | 'object' | 'array';
 }
 ```
+
+---
 
 ### ExecutionResult
 
@@ -573,6 +865,8 @@ interface ExecutionResult {
 }
 ```
 
+---
+
 ### CollectResult
 
 Collection task result.
@@ -582,6 +876,8 @@ interface CollectResult extends ExecutionResult {
   data: Record<string, any>[]; // Collected data
 }
 ```
+
+---
 
 ### CheckResult
 
@@ -593,21 +889,60 @@ interface CheckResult extends ExecutionResult {
 }
 ```
 
+---
+
+### ShellOptions
+
+Shell execution options.
+
+```typescript
+interface ShellOptions {
+  cwd?: string;        // Working directory
+  timeout?: number;    // Timeout (milliseconds), default 300000
+  env?: Record<string, string>; // Environment variables
+  retry?: boolean;     // Whether to retry on failure, default false
+  retryCount?: number; // Number of retries, default 3
+}
+```
+
+---
+
+### ShellResult
+
+Shell execution result.
+
+```typescript
+interface ShellResult {
+  stdout: string;    // Standard output
+  stderr: string;    // Standard error output
+  exitCode: number;  // Exit code, 0 means success
+  success: boolean;  // Whether successful
+  duration: number;  // Execution duration (milliseconds)
+  taskIndex: number; // Task index
+}
+```
+
+---
+
 ### TaskStatus
 
 Task status.
 
 ```typescript
 interface TaskStatus {
-  taskIndex: number;    // Task index
-  taskName: string;     // Task name
-  sessionId: string;    // Session ID
-  status: TaskStatusType; // Status
-  timestamp: number;    // Timestamp
-  taskType: TaskType;   // Task type
-  outputFileName?: string; // Output file name
+  taskIndex: number;       // Task index
+  taskName: string;        // Task name
+  sessionId: string;       // Session ID
+  status: TaskStatusType;  // Status
+  timestamp: number;       // Timestamp
+  taskType: TaskType;      // Task type
+  outputFileName?: string; // Output file name (collection tasks only)
+  checkResult?: boolean;   // Check task result (check tasks only)
+  command?: string;        // Shell command content (shell tasks only)
 }
 ```
+
+---
 
 ### TaskStatusType
 
@@ -617,13 +952,17 @@ Task status type.
 type TaskStatusType = 'pending' | 'in_progress' | 'completed';
 ```
 
+---
+
 ### TaskType
 
 Task type.
 
 ```typescript
-type TaskType = 'task' | 'collect' | 'check' | 'report' | 'summarize';
+type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell';
 ```
+
+---
 
 ### SummarizeOptions
 
@@ -632,9 +971,12 @@ Summary options.
 ```typescript
 interface SummarizeOptions {
   cwd?: string;          // Working directory
-  customPrompt?: string; // Custom prompt to override default summary prompt
+  customPrompt?: string; // Custom prompt
+  env?: string[];        // Additional environment variables, format: "KEY=VALUE"
 }
 ```
+
+---
 
 ### SummarizeResult
 
@@ -643,6 +985,49 @@ Summary result.
 ```typescript
 interface SummarizeResult extends ExecutionResult {
   skillFiles: string[]; // List of generated SKILL.md file paths
+}
+```
+
+---
+
+### ValidationErrorType
+
+Validation error type.
+
+```typescript
+type ValidationErrorType =
+  | 'parse_error'    // JSON parsing failed
+  | 'not_array'      // Not an array
+  | 'not_object'     // Not an object
+  | 'missing_field'  // Missing field
+  | 'type_mismatch'; // Type mismatch
+```
+
+---
+
+### ValidationError
+
+Validation error details.
+
+```typescript
+interface ValidationError {
+  type: ValidationErrorType; // Error type
+  message: string;           // Error message
+  details?: string;          // Detailed information
+}
+```
+
+---
+
+### ValidationResult
+
+Validation result.
+
+```typescript
+interface ValidationResult<T = unknown> {
+  valid: boolean;            // Whether valid
+  errors: ValidationError[]; // Error list
+  data?: T;                  // Parsed data (when validation succeeds)
 }
 ```
 

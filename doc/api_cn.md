@@ -10,13 +10,19 @@
   - [setTaskName](#settasknametaskname-string-void)
   - [setResumePath](#setresumepathpath-string-void)
   - [enableDebugMode](#enabledebugmodeenabled-boolean-void)
+  - [setSkipSummarize](#setskipsummarizeskip-boolean-void)
   - [saveCollectData](#savecollectdatadata-recordstring-any-filename-string-void)
   - [loadCollectData](#loadcollectdatafilename-string-recordstring-any)
+  - [setAgentType](#setagenttypetype-agenttype-void)
 - [StepWise 类](#stepwise-类)
   - [构造函数](#构造函数)
   - [任务执行方法](#任务执行方法)
   - [总结方法](#总结方法)
   - [辅助方法](#辅助方法)
+- [并发处理](#并发处理)
+  - [forEachParallel](#foreachparallelt-items-t-workerconfigs-workerconfig-handler-promisevoid-options-foreachparalleloptions-promisevoid)
+  - [WorkerConfig](#workerconfig)
+  - [WorkerContext](#workercontextt)
 - [类型定义](#类型定义)
 
 ---
@@ -107,6 +113,34 @@ enableDebugMode();      // 启用（默认）
 
 ---
 
+### setSkipSummarize(skip?: boolean): void
+
+设置是否跳过 summarize（反思生成 skill）。
+
+**参数**
+
+| 参数 | 类型 | 默认值 | 描述 |
+|------|------|--------|------|
+| skip | boolean | true | 是否跳过 summarize |
+
+**行为**
+
+- 设置后，所有会话结束时不会自动执行 summarize
+- 适用于不需要生成技能文件的场景
+- 可在任务执行过程中随时调用
+
+**示例**
+
+```typescript
+import { setSkipSummarize } from 'stepwise';
+
+setSkipSummarize(true);  // 跳过 summarize
+setSkipSummarize(false); // 不跳过（默认行为）
+setSkipSummarize();      // 跳过（默认）
+```
+
+---
+
 ### saveCollectData(data: Record<string, any>[], fileName?: string): void
 
 保存收集的数据到磁盘（存储在当前工作目录 cwd）。
@@ -154,6 +188,38 @@ const data = loadCollectData('my_data.json');
 
 ---
 
+### setAgentType(type: AgentType): void
+
+设置智能体类型，决定使用哪个智能体执行任务。
+
+**参数**
+
+| 参数 | 类型 | 描述 |
+|------|------|------|
+| type | AgentType | 智能体类型：`'claude'` 或 `'opencode'` |
+
+**行为**
+
+- 应在 `setTaskName()` 之前调用
+- 同一任务内所有 Agent 使用相同智能体类型
+- 默认使用 `'claude'`（Claude Code 智能体）
+
+**示例**
+
+```typescript
+import { setTaskName, setAgentType } from 'stepwise';
+
+// 使用 OpenCode 智能体
+setAgentType('opencode');
+setTaskName('MyTask');
+
+// 或使用默认的 Claude Code 智能体
+setAgentType('claude'); // 可省略，默认就是 claude
+setTaskName('MyTask');
+```
+
+---
+
 ## StepWise 类
 
 提供核心任务编排功能的主类。
@@ -161,7 +227,7 @@ const data = loadCollectData('my_data.json');
 ### 构造函数
 
 ```typescript
-new StepWise(name: string)
+new StepWise(name: string, defaultCwd?: string, defaultEnv?: string[], workerId?: string)
 ```
 
 **参数**
@@ -169,6 +235,9 @@ new StepWise(name: string)
 | 参数 | 类型 | 描述 |
 |------|------|------|
 | name | string | 唯一的 Agent 名称 |
+| defaultCwd | string | 默认工作目录（可选），未指定则使用 process.cwd() |
+| defaultEnv | string[] | 默认环境变量数组（可选），格式为 `["KEY=VALUE"]` |
+| workerId | string | Worker 标识（可选），用于 forEachParallel 并发处理 |
 
 **行为**
 
@@ -182,7 +251,27 @@ new StepWise(name: string)
 import { StepWise, setTaskName } from 'stepwise';
 
 setTaskName('MyTask');
+
+// 基础用法
 const agent = new StepWise('MainAgent');
+
+// 指定默认工作目录
+const agent2 = new StepWise('SubAgent', '/path/to/project');
+
+// 指定默认工作目录和环境变量
+const agent3 = new StepWise(
+  'DataAgent',
+  '/path/to/project',
+  ['NODE_ENV=production', 'DEBUG=true']
+);
+
+// 完整参数（通常由 forEachParallel 内部使用）
+const agent4 = new StepWise(
+  'WorkerAgent',
+  '/path/to/workspace',
+  ['API_KEY=xxx'],
+  'worker_1'
+);
 ```
 
 ---
@@ -204,9 +293,12 @@ const agent = new StepWise('MainAgent');
 
 ```typescript
 interface ExecOptions {
-  cwd?: string;           // 工作目录，默认当前进程目录
-  newSession?: boolean;   // 是否使用新会话，默认 false（复用上一个会话）
+  cwd?: string;              // 工作目录，默认当前进程目录
+  newSession?: boolean;      // 是否使用新会话，默认 false（复用上一个会话）
   data?: Record<string, any>; // 变量替换数据
+  checkPrompt?: string;      // 主任务完成后执行的检查提示词
+  env?: string[];            // 额外的环境变量数组，格式为 "KEY=VALUE"
+  validateOptions?: ValidateOptions; // JSON 输出校验选项
 }
 ```
 
@@ -377,6 +469,72 @@ await agent.execReport(
 
 ---
 
+#### execShell(command: string, options?: ShellOptions): Promise\<ShellResult\>
+
+执行 Shell 命令，用于运行系统命令或脚本。
+
+**参数**
+
+| 参数 | 类型 | 描述 |
+|------|------|------|
+| command | string | Shell 命令内容 |
+| options | ShellOptions | Shell 执行选项（可选） |
+
+**ShellOptions**
+
+```typescript
+interface ShellOptions {
+  cwd?: string;        // 工作目录，未指定则使用 process.cwd()
+  timeout?: number;    // 超时时间（毫秒），默认 5 分钟 (300000ms)
+  env?: Record<string, string>; // 环境变量，会与 process.env 合并
+  retry?: boolean;     // 失败时是否自动重试，默认 false
+  retryCount?: number; // 重试次数，默认 3 次
+}
+```
+
+**ShellResult**
+
+```typescript
+interface ShellResult {
+  stdout: string;    // 标准输出
+  stderr: string;    // 标准错误输出
+  exitCode: number;  // 退出码，0 表示成功
+  success: boolean;  // 是否成功 (exitCode === 0)
+  duration: number;  // 执行耗时（毫秒）
+  taskIndex: number; // 任务序号
+}
+```
+
+**行为**
+
+- 命令执行过程会记录日志
+- 支持断点恢复：已执行的命令会被跳过
+- 超时后命令会被强制终止
+
+**示例**
+
+```typescript
+// 基础用法
+const result = await agent.execShell('npm run build');
+console.log('成功:', result.success);
+console.log('输出:', result.stdout);
+
+// 带选项
+const result = await agent.execShell('npm test', {
+  timeout: 60000,     // 超时 60 秒
+  cwd: './project',   // 指定工作目录
+  retry: true,        // 失败时重试
+  retryCount: 3       // 重试 3 次
+});
+
+// 使用环境变量
+const result = await agent.execShell('npm run deploy', {
+  env: { NODE_ENV: 'production' }
+});
+```
+
+---
+
 ### 总结方法
 
 #### summarize(options?: SummarizeOptions): Promise\<SummarizeResult\>
@@ -395,6 +553,7 @@ await agent.execReport(
 interface SummarizeOptions {
   cwd?: string;          // 工作目录，默认当前进程目录
   customPrompt?: string; // 自定义提示词，覆盖默认的总结提示词
+  env?: string[];        // 额外的环境变量数组，格式为 "KEY=VALUE"
 }
 ```
 
@@ -520,7 +679,119 @@ await agent.summarize();
 
 ---
 
+## 并发处理
+
+用于并行处理多个任务的接口。
+
+### forEachParallel\<T\>(items: T[], workerConfigs: WorkerConfig[], handler: (ctx: WorkerContext\<T\>) => Promise\<void\>, options?: ForEachParallelOptions): Promise\<void\>
+
+并发处理数组元素，自动创建 git worktree 进行隔离。
+
+**参数**
+
+| 参数 | 类型 | 描述 |
+|------|------|------|
+| items | T[] | 要处理的数组 |
+| workerConfigs | WorkerConfig[] | Worker 配置数组 |
+| handler | (ctx: WorkerContext\<T\>) => Promise\<void\> | 处理函数 |
+| options | ForEachParallelOptions | 选项（预留扩展） |
+
+**行为**
+
+- 自动为每个 Worker 创建 git worktree
+- 自动绑定 worker 标识
+- 自动处理 Resume 逻辑
+- 任务完成后自动合并分支
+
+**示例**
+
+```typescript
+import { setTaskName, forEachParallel, WorkerConfig } from 'stepwise';
+
+setTaskName("my_task");
+
+const workerConfigs: WorkerConfig[] = [
+  { branchName: "Agent1" },
+  { branchName: "Agent2" },
+];
+
+await forEachParallel(items, workerConfigs, async (ctx) => {
+  // ctx.stepWise 默认在 ctx.workspacePath 下执行任务
+  // 如需使用其他目录，可手动指定 cwd
+  await ctx.stepWise.execPrompt("处理任务", {
+    data: ctx.item,
+  });
+});
+```
+
+**使用环境变量配置**
+
+```typescript
+const workerConfigs: WorkerConfig[] = [
+  { branchName: "Agent1", env: ["API_KEY=xxx", "NODE_ENV=test"] },
+  { branchName: "Agent2", env: ["API_KEY=yyy", "NODE_ENV=production"] },
+];
+
+await forEachParallel(items, workerConfigs, async (ctx) => {
+  // 每个 Worker 使用各自配置的环境变量执行任务
+  await ctx.stepWise.execPrompt("调用 API 处理任务", {
+    data: ctx.item,
+  });
+});
+```
+
+---
+
+### WorkerConfig
+
+Worker 配置，定义每个 worker 的分支名和环境变量。
+
+```typescript
+interface WorkerConfig {
+  /** 分支名，用于创建 git worktree 和作为 worker 标识 */
+  branchName: string;
+  /** 环境变量数组，格式为 "KEY=VALUE" */
+  env?: string[];
+}
+```
+
+---
+
+### WorkerContext\<T\>
+
+Worker 上下文，框架提供给处理函数的所有信息。
+
+```typescript
+interface WorkerContext<T> {
+  /** 当前处理的元素 */
+  item: T;
+  /** 元素在数组中的索引 */
+  index: number;
+  /** 当前 worker 配置 */
+  workerConfig: WorkerConfig;
+  /** 工作空间路径（git worktree 目录） */
+  workspacePath: string;
+  /** 已创建好的 StepWise 实例，名称为 index，自动绑定 workerId */
+  stepWise: StepWise;
+}
+```
+
+---
+
 ## 类型定义
+
+### AgentType
+
+智能体类型。
+
+```typescript
+type AgentType = 'claude' | 'opencode';
+```
+
+- `'claude'`: 使用 Claude Code 智能体（默认）
+- `'opencode'`: 使用 OpenCode 智能体
+
+---
 
 ### ExecOptions
 
@@ -528,12 +799,29 @@ await agent.summarize();
 
 ```typescript
 interface ExecOptions {
-  cwd?: string;                    // 工作目录
-  newSession?: boolean;            // 是否使用新会话（默认: false）
-  data?: Record<string, any>;      // 变量替换数据
-  checkPrompt?: string;            // 主任务完成后执行的检查提示词
+  cwd?: string;              // 工作目录
+  newSession?: boolean;      // 是否使用新会话（默认: false）
+  data?: Record<string, any>; // 变量替换数据
+  checkPrompt?: string;      // 主任务完成后执行的检查提示词
+  env?: string[];            // 额外的环境变量数组，格式为 "KEY=VALUE"
+  validateOptions?: ValidateOptions; // JSON 输出校验选项
 }
 ```
+
+---
+
+### ValidateOptions
+
+JSON 输出校验选项。
+
+```typescript
+interface ValidateOptions {
+  enabled?: boolean;   // 是否启用校验，默认 true
+  maxRetries?: number; // 最大重试次数，默认 3
+}
+```
+
+---
 
 ### OutputFormat
 
@@ -546,6 +834,8 @@ interface OutputFormat {
 }
 ```
 
+---
+
 ### OutputKey
 
 输出字段定义。
@@ -557,6 +847,8 @@ interface OutputKey {
   type: 'string' | 'number' | 'boolean' | 'object' | 'array';
 }
 ```
+
+---
 
 ### ExecutionResult
 
@@ -573,6 +865,8 @@ interface ExecutionResult {
 }
 ```
 
+---
+
 ### CollectResult
 
 收集任务结果。
@@ -582,6 +876,8 @@ interface CollectResult extends ExecutionResult {
   data: Record<string, any>[]; // 收集的数据
 }
 ```
+
+---
 
 ### CheckResult
 
@@ -593,21 +889,60 @@ interface CheckResult extends ExecutionResult {
 }
 ```
 
+---
+
+### ShellOptions
+
+Shell 执行选项。
+
+```typescript
+interface ShellOptions {
+  cwd?: string;        // 工作目录
+  timeout?: number;    // 超时时间（毫秒），默认 300000
+  env?: Record<string, string>; // 环境变量
+  retry?: boolean;     // 失败时是否重试，默认 false
+  retryCount?: number; // 重试次数，默认 3
+}
+```
+
+---
+
+### ShellResult
+
+Shell 执行结果。
+
+```typescript
+interface ShellResult {
+  stdout: string;    // 标准输出
+  stderr: string;    // 标准错误输出
+  exitCode: number;  // 退出码，0 表示成功
+  success: boolean;  // 是否成功
+  duration: number;  // 执行耗时（毫秒）
+  taskIndex: number; // 任务序号
+}
+```
+
+---
+
 ### TaskStatus
 
 任务状态。
 
 ```typescript
 interface TaskStatus {
-  taskIndex: number;    // 任务序号
-  taskName: string;     // 任务名称
-  sessionId: string;    // 会话 ID
-  status: TaskStatusType; // 状态
-  timestamp: number;    // 时间戳
-  taskType: TaskType;   // 任务类型
-  outputFileName?: string; // 输出文件名
+  taskIndex: number;       // 任务序号
+  taskName: string;        // 任务名称
+  sessionId: string;       // 会话 ID
+  status: TaskStatusType;  // 状态
+  timestamp: number;       // 时间戳
+  taskType: TaskType;      // 任务类型
+  outputFileName?: string; // 输出文件名（仅收集类任务）
+  checkResult?: boolean;   // check 任务的结果（仅 check 类型任务）
+  command?: string;        // Shell 命令内容（仅 shell 类型任务）
 }
 ```
+
+---
 
 ### TaskStatusType
 
@@ -617,13 +952,17 @@ interface TaskStatus {
 type TaskStatusType = 'pending' | 'in_progress' | 'completed';
 ```
 
+---
+
 ### TaskType
 
 任务类型。
 
 ```typescript
-type TaskType = 'task' | 'collect' | 'check' | 'report' | 'summarize';
+type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell';
 ```
+
+---
 
 ### SummarizeOptions
 
@@ -632,9 +971,12 @@ type TaskType = 'task' | 'collect' | 'check' | 'report' | 'summarize';
 ```typescript
 interface SummarizeOptions {
   cwd?: string;          // 工作目录
-  customPrompt?: string; // 自定义提示词，覆盖默认的总结提示词
+  customPrompt?: string; // 自定义提示词
+  env?: string[];        // 额外的环境变量数组，格式为 "KEY=VALUE"
 }
 ```
+
+---
 
 ### SummarizeResult
 
@@ -643,6 +985,49 @@ interface SummarizeOptions {
 ```typescript
 interface SummarizeResult extends ExecutionResult {
   skillFiles: string[]; // 生成的 SKILL.md 文件路径列表
+}
+```
+
+---
+
+### ValidationErrorType
+
+校验错误类型。
+
+```typescript
+type ValidationErrorType =
+  | 'parse_error'    // JSON 解析失败
+  | 'not_array'      // 不是数组
+  | 'not_object'     // 不是对象
+  | 'missing_field'  // 缺少字段
+  | 'type_mismatch'; // 类型不匹配
+```
+
+---
+
+### ValidationError
+
+校验错误详情。
+
+```typescript
+interface ValidationError {
+  type: ValidationErrorType; // 错误类型
+  message: string;           // 错误消息
+  details?: string;          // 详细信息
+}
+```
+
+---
+
+### ValidationResult
+
+校验结果。
+
+```typescript
+interface ValidationResult<T = unknown> {
+  valid: boolean;            // 是否有效
+  errors: ValidationError[]; // 错误列表
+  data?: T;                  // 解析后的数据（校验成功时）
 }
 ```
 
