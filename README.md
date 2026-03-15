@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="#installation">Installation</a> •
+  <a href="#why-stepwise">Why StepWise</a> •
   <a href="#quick-start">Quick Start</a> •
   <a href="#core-features">Core Features</a> •
   <a href="doc/api.md">API Reference</a> •
@@ -13,139 +13,169 @@
   <a href="README_CN.md">中文文档</a>
 </p>
 
-<p align="center">
-  <img src="https://img.shields.io/npm/v/stepwise" alt="npm version">
-  <img src="https://img.shields.io/npm/l/stepwise" alt="license">
-  <img src="https://img.shields.io/node/v/stepwise" alt="node version">
-</p>
-
 ---
 
-## Introduction
+## Why StepWise?
 
-StepWise is an agent orchestration tool built on Node.js and TypeScript. It enables you to break down complex coding tasks into multiple steps, customize prompts for each step, and delegate execution to Claude Code's AI programming agent.
+When working with AI Agents on complex development tasks, we often face three major pain points:
 
-### Why StepWise?
+| Pain Point | StepWise Solution |
+|------------|-------------------|
+| Long tasks drift, multi-tasks get missed | Multi-Agent parallel processing with automatic progress tracking |
+| Private data handling is difficult | Agent self-learning, automatic Skill generation |
+| Debugging is hard, progress lost on interruption | Checkpoint recovery, debug mode for quick validation |
 
-In real-world development, we often encounter complex automation tasks such as:
-
-- Batch analyzing API interfaces in a codebase
-- Processing collected data item by item
-- Generating summary reports
-
-These tasks typically require multi-step coordination and are prone to interruption due to long execution times. StepWise provides:
-
-- **Task Orchestration**: Flexibly define multi-step task workflows
-- **Multi-Agent Support**: Multiple agents can work in parallel within the same task
-- **Checkpoint Recovery**: Resume execution from interruption points
-- **Data Persistence**: Automatically save execution progress and results
-- **Debug Support**: Quickly validate workflows in debug mode
-
----
-
-## Installation
-
-### Prerequisites
-
-- Node.js >= 16.0.0
-- Claude Code CLI installed and configured
-
-### Install Dependencies
-
-```bash
-npm install stepwise
-```
-
-### Build Project
-
-```bash
-npm run build
-```
+StepWise is a task orchestration tool built on Node.js and TypeScript. It enables you to break down complex coding tasks into multiple steps, customize prompts for each step, and delegate execution to Claude Code's AI programming agent.
 
 ---
 
 ## Quick Start
 
-### Basic Example
+### Example 1: Multi-Agent Parallel Processing
+
+Handle multiple items concurrently with multiple Agents - no more drifting or missed tasks:
+
+```typescript
+import { setTaskName, forEachParallel, WorkerConfig } from 'stepwise';
+
+setTaskName('ProcessItems');
+
+const items = ['item1', 'item2', 'item3', 'item4'];
+
+const workerConfigs: WorkerConfig[] = [
+  { branchName: 'Agent1' },
+  { branchName: 'Agent2' },
+];
+
+await forEachParallel(items, workerConfigs, async (ctx) => {
+  // Each worker has its own git worktree, enabling true parallel execution
+  await ctx.stepWise.execPrompt('Process item: $item', { data: { item: ctx.item } });
+});
+
+// All branches are automatically merged after completion
+```
+
+### Example 2: Skill Auto-Generation
+
+Agent analyzes domain knowledge and automatically generates Skills for private data handling:
 
 ```typescript
 import { StepWise, setTaskName } from 'stepwise';
 
-// Set task name (required before creating StepWise)
-setTaskName('AnalyzeAPIs');
+setTaskName('GenerateSkills');
+const agent = new StepWise('SkillGenerator');
 
-// Create agent with a unique name
-const agent = new StepWise('MainAgent');
-
-// Execute a normal task
-await agent.execPrompt('Analyze the directory structure of the current project');
-
-// Execute a collection task
+// Step 1: Analyze what skills are needed
 const result = await agent.execCollectPrompt(
-  'Collect all API interface definitions in the project',
+  'Analyze the codebase and identify what skills should be created',
   {
     keys: [
-      { name: 'name', description: 'API name', type: 'string' },
-      { name: 'method', description: 'HTTP method', type: 'string' },
-      { name: 'path', description: 'API path', type: 'string' }
+      { name: 'skillName', description: 'Skill name', type: 'string' },
+      { name: 'description', description: 'Skill description', type: 'string' },
+      { name: 'filePath', description: 'File path to create', type: 'string' }
     ]
   }
 );
 
-console.log(`Collected ${result.data.length} APIs`);
+// Step 2: Create skill files based on analysis
+for (const skill of result.data) {
+  await agent.execPrompt(
+    'Create skill file at $filePath with description: $description',
+    { data: skill }
+  );
+}
 ```
 
-### Task Recovery Example
+### Example 3: Checkpoint Recovery
 
-When a task is interrupted during execution, you can resume from the checkpoint:
+Resume from interruption point - no progress lost:
 
 ```typescript
 import { StepWise, setTaskName, setResumePath } from 'stepwise';
 
 // Set the task directory to recover from
-setResumePath('AnalyzeAPIs_20260307_103000_123');
+setResumePath('MyTask_20260315_143000_123');
 
-setTaskName('AnalyzeAPIs');
-
+setTaskName('MyTask');
 const agent = new StepWise('MainAgent');
 
 // Re-execute the same code flow
-// Completed tasks will be skipped automatically
-await agent.execPrompt('Analyze the directory structure');  // Skipped
-await agent.execCollectPrompt('Collect API interfaces', format);  // Skipped
-await agent.execPrompt('Process API: $name', { data: { name: 'login' } });  // Resume from here
-```
-
-### Variable Substitution Example
-
-Use `$variableName` in prompts with `options.data`:
-
-```typescript
-import { StepWise, setTaskName } from 'stepwise';
-
-setTaskName('ProcessAPIs');
-const agent = new StepWise('APIProcessor');
-
-const apis = [
-  { name: 'login', path: '/api/login' },
-  { name: 'logout', path: '/api/logout' }
-];
-
-for (const api of apis) {
-  await agent.execPrompt(
-    'Generate documentation for API: $name ($path)',
-    { data: api }
-  );
-}
+// Completed tasks are automatically skipped
+await agent.execPrompt('Step 1: Analyze project');           // Skipped
+await agent.execCollectPrompt('Step 2: Collect data', fmt);  // Skipped
+await agent.execPrompt('Step 3: Process item $name', { data: { name: 'item1' } }); // Resume from here
 ```
 
 ---
 
 ## Core Features
 
-### Global Settings
+### Task Types
 
-StepWise provides global functions for configuration:
+| Method | Usage | Description |
+|--------|-------|-------------|
+| `execPrompt` | Normal task | Execute a single prompt task |
+| `execCollectPrompt` | Collection task | Collect structured data and save as JSON |
+| `execCheckPrompt` | Check task | Check condition and return true/false |
+| `execReport` | Report task | Generate summary report |
+| `execShell` | Shell command | Execute Shell commands (build, test, etc.) |
+
+### Multi-Agent Parallel Processing
+
+Use `forEachParallel` for concurrent processing with automatic worktree management:
+
+```typescript
+import { setTaskName, forEachParallel, WorkerConfig } from 'stepwise';
+
+setTaskName('ParallelTask');
+
+const workerConfigs: WorkerConfig[] = [
+  { branchName: 'Worker1', env: ['API_KEY=xxx'] },
+  { branchName: 'Worker2', env: ['API_KEY=yyy'] },
+];
+
+await forEachParallel(items, workerConfigs, async (ctx) => {
+  // ctx.stepWise is pre-configured with:
+  // - workspacePath: git worktree directory
+  // - workerConfig: branch name and env vars
+  await ctx.stepWise.execPrompt('Process $name', { data: ctx.item });
+});
+```
+
+### Checkpoint Recovery
+
+Task progress is automatically recorded. Resume from interruption:
+
+```typescript
+setResumePath('TaskName_20260315_143000_123');
+```
+
+### Debug Mode
+
+Quickly validate workflows with limited data collection:
+
+```typescript
+enableDebugMode(true);  // Collect only 1 item
+```
+
+### Shell Command Execution
+
+Execute Shell commands with retry and timeout support:
+
+```typescript
+// Basic usage
+const result = await agent.execShell('npm run build');
+console.log('Success:', result.success);
+
+// With options
+const result = await agent.execShell('npm test', {
+  timeout: 60000,   // 60 second timeout
+  cwd: './project', // Working directory
+  retry: true       // Retry on failure
+});
+```
+
+### Global Settings
 
 ```typescript
 import {
@@ -160,71 +190,25 @@ import {
 setTaskName('MyTask');
 
 // Set resume path for recovery
-setResumePath('MyTask_20260307_103000_123');
+setResumePath('MyTask_20260315_143000_123');
 
-// Enable debug mode (collects only 1 item)
+// Enable debug mode
 enableDebugMode(true);
 
-// Save/load data to/from cwd
+// Save/load data
 saveCollectData(data, 'my_data.json');
 const loaded = loadCollectData('my_data.json');
 ```
 
-### Task Types
-
-Support for multiple task types with flexible combinations:
-
-| Task Type | Method | Usage |
-|-----------|--------|-------|
-| Normal Task | `execPrompt` | Execute a single prompt task |
-| Collection Task | `execCollectPrompt` | Collect data and save as JSON |
-| Check Task | `execCheckPrompt` | Check condition and return true/false |
-| Report Task | `execReport` | Generate summary report |
-
-### Multi-Agent Support
-
-Multiple agents can work in parallel within the same task:
-
-```typescript
-setTaskName('ParallelTask');
-
-const agent1 = new StepWise('Agent1');
-const agent2 = new StepWise('Agent2');
-
-// Both agents share the same TaskName directory
-// Each has its own subdirectory
-await agent1.execPrompt('Task for agent 1');
-await agent2.execPrompt('Task for agent 2');
-```
-
-### Checkpoint Recovery
-
-Task progress is automatically recorded during execution:
-
-```typescript
-// Set recovery path
-setResumePath('TaskName_20260307_103000_123');
-```
-
-### Debug Mode
-
-In debug mode, collection tasks:
-- Add "only collect 1 item" to the prompt
-- Return only the first data item
-
-```typescript
-enableDebugMode(true);
-```
-
 ### Directory Structure
 
-Automatic task directory structure generation:
+Automatic task directory generation:
 
 ```
 stepwise_exec_infos/
-└── TaskName_20260307_103000_123/     # TaskName directory (timestamp with milliseconds)
+└── TaskName_20260315_143000_123/     # TaskName directory (timestamp with ms)
     ├── report/                        # Report output (shared by all agents)
-    ├── Agent1_20260307_103001_456/    # StepWise Agent directory
+    ├── Agent1_20260315_143001_456/    # StepWise Agent directory
     │   ├── data/                      # Execution state
     │   │   └── progress.json
     │   ├── logs/                      # Execution logs
@@ -233,7 +217,7 @@ stepwise_exec_infos/
     │   │   └── execute.log
     │   └── collect/                   # Collected data
     │       └── 2_collect/
-    └── Agent2_20260307_103002_789/    # Another agent
+    └── Agent2_20260315_143002_789/    # Another agent
         └── ...
 ```
 
@@ -241,17 +225,22 @@ stepwise_exec_infos/
 
 ## How It Works
 
-StepWise is built on Claude Code's headless mode:
+StepWise is built on Claude Code's headless mode with session reuse:
 
 ```bash
-# Execute task in new session
+# New session for task
 claude --dangerously-skip-permissions --session-id <uuid> -p "your prompt"
 
-# Resume session and continue execution
+# Resume session to continue
 claude --dangerously-skip-permissions --resume <session-id> -p "your prompt"
 ```
 
-Each task step generates a unique Session ID, and execution state is persisted to local files. During recovery, completed steps are skipped by matching historical task indices.
+Key mechanisms:
+
+1. **Session Reuse**: Each task step reuses the previous session, maintaining context
+2. **Progress Persistence**: Execution state is persisted to local JSON files
+3. **Index Matching**: During recovery, completed steps are matched and skipped by index
+4. **Worktree Isolation**: `forEachParallel` creates git worktrees for true parallel execution
 
 ---
 
