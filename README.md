@@ -49,21 +49,30 @@ await agent.execPrompt('Step 3: Refactor core logic');
 // Completed steps are automatically skipped, supports checkpoint recovery
 ```
 
-### Example 2: Data Validation with checkPrompt
+### Example 2: Stable Data Collection with execCollectPrompt
 
-Collect structured data with additional validation using `checkPrompt` option:
+Collect structured data reliably with built-in validation and retry mechanisms:
 
 ```typescript
-// Data collection with checkPrompt for extra validation
 const result = await agent.execCollectPrompt('Collect all API endpoints', {
   keys: [
     { name: 'name', description: 'API name', type: 'string' },
     { name: 'method', description: 'HTTP method', type: 'string' },
     { name: 'path', description: 'API path', type: 'string' }
-  ],
-  checkPrompt: 'Verify all endpoints have valid paths starting with /'
+  ]
 });
-// checkPrompt runs after data collection for additional verification
+
+// Internal mechanisms ensure stable collection:
+// 1. JSON format validation
+// 2. Field completeness check
+// 3. Type matching verification
+// 4. Auto-retry with fix prompts on validation failure
+
+// Optionally, add custom validation with checkPrompt
+const result = await agent.execCollectPrompt('Collect user data', {
+  keys: [...],
+  checkPrompt: 'Verify all email addresses are valid'  // Runs after collection
+});
 ```
 
 ### Example 3: Branch Routing with execCheckPrompt

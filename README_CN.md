@@ -49,21 +49,30 @@ await agent.execPrompt('步骤 3: 重构核心逻辑');
 // 已完成的步骤自动跳过，支持断点恢复
 ```
 
-### 示例 2：使用 checkPrompt 进行数据校验
+### 示例 2：使用 execCollectPrompt 稳定收集数据
 
-使用 `checkPrompt` 选项在数据收集后进行额外校验：
+内置校验和重试机制，确保数据收集稳定可靠：
 
 ```typescript
-// 数据收集 + checkPrompt 额外校验
 const result = await agent.execCollectPrompt('收集所有 API 接口', {
   keys: [
     { name: 'name', description: 'API 名称', type: 'string' },
     { name: 'method', description: 'HTTP 方法', type: 'string' },
     { name: 'path', description: 'API 路径', type: 'string' }
-  ],
-  checkPrompt: '验证所有接口路径都以 / 开头'
+  ]
 });
-// checkPrompt 在数据收集后运行，进行额外验证
+
+// 内置机制确保稳定收集：
+// 1. JSON 格式校验
+// 2. 字段完整性检查
+// 3. 类型匹配验证
+// 4. 校验失败自动生成修复提示词重试
+
+// 可选：使用 checkPrompt 添加自定义校验
+const result = await agent.execCollectPrompt('收集用户数据', {
+  keys: [...],
+  checkPrompt: '验证所有邮箱地址格式正确'  // 收集后额外校验
+});
 ```
 
 ### 示例 3：使用 execCheckPrompt 进行分支路由
