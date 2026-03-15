@@ -25,11 +25,26 @@ When working with AI coding assistants on complex development tasks, we often fa
 | Private data handling is difficult | Support Skill-generating Agents, auto-summarize Skills after multiple successful attempts |
 | Debugging is hard, progress lost on interruption | Checkpoint recovery, debug mode for quick validation |
 
-StepWise enables AI coding assistants (Claude Code, OpenCode, etc.) to complete complex tasks reliably through step-by-step orchestration, data validation, conditional routing, and checkpoint recovery.
+StepWise enables AI coding assistants (Claude Code, OpenCode, etc.) to complete complex tasks reliably through task step control, data validation, conditional routing, and checkpoint recovery.
 
 ---
 
 ## Quick Start
+
+### Example 0: Choose AI Coding Assistant
+
+Supports Claude Code and OpenCode, defaults to Claude Code:
+
+```typescript
+import { setAgentType, setTaskName, StepWise } from 'stepwise';
+
+// Set AI coding assistant type (optional, default: 'claude')
+setAgentType('claude');   // Use Claude Code (default)
+// setAgentType('opencode');  // Use OpenCode
+
+setTaskName('MyTask');
+const agent = new StepWise('MainAgent');
+```
 
 ### Example 1: Task Step Control
 
@@ -161,16 +176,36 @@ await agent.execPrompt('Step 3: Process item $name', { data: { name: 'item1' } }
 
 ## Core Features
 
-### Task Types
+### API Overview
+
+#### StepWise Class Methods
 
 | Method | Usage | Description |
 |--------|-------|-------------|
 | `execPrompt` | Normal task | Execute a single prompt task |
-| `execCollectPrompt` | Collection task | Collect structured data with auto validation |
+| `execCollectPrompt` | Collection task | Collect structured data with built-in validation and retry |
 | `execCheckPrompt` | Routing node | Check condition and return true/false for branch routing |
 | `execReport` | Report task | Generate summary report |
 | `execShell` | Shell command | Execute Shell commands (build, test, etc.) |
 | `summarize` | Skill generation | Summarize session and generate Skill |
+
+#### Global Settings Functions
+
+| Method | Usage | Description |
+|--------|-------|-------------|
+| `setTaskName` | Set task name | Required, identifies task directory |
+| `setAgentType` | Set AI coding assistant | Optional, default `'claude'`, options: `'opencode'` |
+| `setResumePath` | Set resume path | Resume task from interruption point |
+| `enableDebugMode` | Enable debug mode | Quick validation, collect only 1 item |
+| `setSkipSummarize` | Skip auto-summarize | Disable auto-summarize when creating new session |
+| `saveCollectData` | Save collected data | Save data to JSON file |
+| `loadCollectData` | Load collected data | Load data from JSON file |
+
+#### Parallel Processing
+
+| Method | Usage | Description |
+|--------|-------|-------------|
+| `forEachParallel` | Parallel processing | Auto-manage git worktree for true parallel execution |
 
 For detailed API documentation, see [API Reference](doc/api.md).
 

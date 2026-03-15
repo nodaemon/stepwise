@@ -25,11 +25,26 @@
 | 私有数据处理困难 | 支持 Skill 生成 Agent，多次尝试成功后自动总结 Skill |
 | 调试困难、中断丢失 | 断点恢复、调试模式快速验证 |
 
-StepWise 通过步骤化编排、数据校验、条件路由和断点恢复等机制，让 AI 编程助手（Claude Code、OpenCode 等）能够稳定可靠地完成复杂任务。
+StepWise 通过任务步骤控制、数据校验、条件路由和断点恢复等机制，让 AI 编程助手（Claude Code、OpenCode 等）能够稳定可靠地完成复杂任务。
 
 ---
 
 ## 快速开始
+
+### 示例 0：选择 AI 编程助手
+
+支持 Claude Code 和 OpenCode，默认使用 Claude Code：
+
+```typescript
+import { setAgentType, setTaskName, StepWise } from 'stepwise';
+
+// 设置 AI 编程助手类型（可选，默认 'claude'）
+setAgentType('claude');   // 使用 Claude Code（默认）
+// setAgentType('opencode');  // 使用 OpenCode
+
+setTaskName('MyTask');
+const agent = new StepWise('MainAgent');
+```
 
 ### 示例 1：任务步骤控制
 
@@ -161,16 +176,36 @@ await agent.execPrompt('步骤 3: 处理项目 $name', { data: { name: 'item1' }
 
 ## 核心特性
 
-### 任务类型
+### API 概览
+
+#### StepWise 类方法
 
 | 方法 | 用途 | 说明 |
 |------|------|------|
 | `execPrompt` | 普通任务 | 执行单个提示词任务 |
-| `execCollectPrompt` | 收集任务 | 收集结构化数据，自动校验 |
-| `execCheckPrompt` | 路由节点 | 检查条件并返回 true/false，用于分支路由 |
+| `execCollectPrompt` | 收集任务 | 收集结构化数据，内置校验和重试 |
+| `execCheckPrompt` | 路由节点 | 检查条件返回 true/false，用于分支路由 |
 | `execReport` | 报告任务 | 生成汇总报告 |
 | `execShell` | Shell 命令 | 执行 Shell 命令（构建、测试等） |
 | `summarize` | Skill 生成 | 总结会话生成 Skill |
+
+#### 全局设置函数
+
+| 方法 | 用途 | 说明 |
+|------|------|------|
+| `setTaskName` | 设置任务名称 | 必须，用于标识任务目录 |
+| `setAgentType` | 设置 AI 编程助手 | 可选，默认 `'claude'`，可选 `'opencode'` |
+| `setResumePath` | 设置恢复路径 | 从中断点恢复任务 |
+| `enableDebugMode` | 启用调试模式 | 快速验证流程，只收集 1 条数据 |
+| `setSkipSummarize` | 跳过自动总结 | 禁用创建新 session 时的自动总结 |
+| `saveCollectData` | 保存收集数据 | 保存数据到 JSON 文件 |
+| `loadCollectData` | 加载收集数据 | 从 JSON 文件加载数据 |
+
+#### 并行处理
+
+| 方法 | 用途 | 说明 |
+|------|------|------|
+| `forEachParallel` | 并行处理 | 自动管理 git worktree，实现真正的并行执行 |
 
 详细 API 文档请参阅 [API 文档](doc/api_cn.md)。
 
