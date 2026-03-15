@@ -7,25 +7,35 @@ This document provides complete usage examples for StepWise.
 ## Table of Contents
 
 - [Basic Examples](#basic-examples)
-- [Data Collection and Processing](#data-collection-and-processing)
+  - [Execute a Task](#execute-a-task)
+  - [Session Reuse](#session-reuse)
+  - [Variable Substitution](#variable-substitution)
+- [Data Collection](#data-collection)
+  - [Collect Task](#collect-task)
+  - [Check Task](#check-task)
+  - [Report Task](#report-task)
+- [Shell Commands](#shell-commands)
+- [Parallel Processing](#parallel-processing)
 - [Task Recovery](#task-recovery)
 - [Debug Mode](#debug-mode)
-- [Complete Project Examples](#complete-project-examples)
+- [Configuration Options](#configuration-options)
+- [Best Practices](#best-practices)
 
 ---
 
 ## Basic Examples
 
-### Execute a Single Task
+### Execute a Task
 
 ```typescript
-import { StepWise } from 'stepwise';
+import { setTaskName, StepWise } from 'stepwise';
 
 async function main() {
-  const agent = new StepWise();
+  // Set task name (global function)
+  setTaskName('SimpleTask');
 
-  // Set task name
-  agent.setTaskName('SimpleTask');
+  // Create StepWise instance (name is required)
+  const agent = new StepWise('myAgent');
 
   // Execute prompt
   const result = await agent.execPrompt(
@@ -43,14 +53,14 @@ async function main() {
 main();
 ```
 
-### Task with Session Recovery
+### Session Reuse
 
 ```typescript
-import { StepWise } from 'stepwise';
+import { setTaskName, StepWise } from 'stepwise';
 
 async function main() {
-  const agent = new StepWise();
-  agent.setTaskName('SessionExample');
+  setTaskName('SessionExample');
+  const agent = new StepWise('myAgent');
 
   // First execution, creates a new session automatically
   const result1 = await agent.execPrompt('List all files in the src directory');
@@ -73,18 +83,39 @@ async function main() {
 main();
 ```
 
----
-
-## Data Collection and Processing
-
-### Collect API Interfaces
+### Variable Substitution
 
 ```typescript
-import { StepWise, OutputFormat } from 'stepwise';
+import { setTaskName, StepWise } from 'stepwise';
+
+async function main() {
+  setTaskName('VariableExample');
+  const agent = new StepWise('myAgent');
+
+  const data = { name: 'UserService', path: '/src/services/user.ts' };
+
+  // Use $variableName syntax for variable substitution
+  await agent.execPrompt(
+    'Analyze the $name module located at $path, list its main features',
+    { data }
+  );
+}
+
+main();
+```
+
+---
+
+## Data Collection
+
+### Collect Task
+
+```typescript
+import { setTaskName, StepWise, OutputFormat } from 'stepwise';
 
 async function collectAPIs() {
-  const agent = new StepWise();
-  agent.setTaskName('CollectAPIs');
+  setTaskName('CollectAPIs');
+  const agent = new StepWise('collector');
 
   const outputFormat: OutputFormat = {
     primaryKey: 'name',
@@ -92,24 +123,26 @@ async function collectAPIs() {
       { name: 'name', description: 'API name', type: 'string' },
       { name: 'method', description: 'HTTP method (GET/POST/PUT/DELETE)', type: 'string' },
       { name: 'path', description: 'API path', type: 'string' },
-      { name: 'description', description: 'Function description', type: 'string' },
-      { name: 'params', description: 'Request parameters', type: 'array' }
+      { name: 'description', description: 'Function description', type: 'string' }
     ]
   };
 
+  // Collect data, output file is auto-generated
   const result = await agent.execCollectPrompt(
-    `Please traverse all source code files in the project and collect all API interface definitions.
-    Include Express routes, Fastify routes, or routes from other HTTP frameworks.`,
-    outputFormat,
-    'apis.json'
+    `Traverse all source code files in the project and collect all API interface definitions`,
+    outputFormat
   );
 
   console.log(`Collected ${result.data.length} API interfaces`);
 
-  // Print first 5
-  result.data.slice(0, 5).forEach(api => {
-    console.log(`- ${api.method} ${api.path}: ${api.name}`);
-  });
+  // Optional: add check prompt to validate collection results
+  const resultWithCheck = await agent.execCollectPrompt(
+    `Collect all database model definitions in the project`,
+    outputFormat,
+    {
+      checkPrompt: 'Check if collection results are complete, add missing models'
+    }
+  );
 
   return result.data;
 }
@@ -120,188 +153,161 @@ collectAPIs();
 ### Check Task
 
 ```typescript
-import { StepWise } from 'stepwise';
+import { setTaskName, StepWise } from 'stepwise';
 
-async function checkProjectQuality() {
-  const agent = new StepWise();
-  agent.setTaskName('CheckProject');
+async function checkProject() {
+  setTaskName('CheckProject');
+  const agent = new StepWise('checker');
 
   // Check if project has proper unit tests
   const testCheck = await agent.execCheckPrompt(
-    'Check if the project has proper unit tests (at least 5 test files)',
-    'check_tests.json'
+    'Check if the project has proper unit tests (at least 5 test files)'
   );
 
   console.log(`Has unit tests: ${testCheck.result}`);
 
-  // Check if project has proper documentation
-  const docCheck = await agent.execCheckPrompt(
-    'Check if the project has proper README documentation',
-    'check_docs.json'
+  // Check with variable substitution
+  const moduleCheck = await agent.execCheckPrompt(
+    'Check if the $name module has complete documentation',
+    { data: { name: 'UserService' } }
   );
 
-  console.log(`Has documentation: ${docCheck.result}`);
-
-  // Use check results for conditional execution
-  if (!testCheck.result) {
-    console.log('Warning: Project lacks unit tests!');
-  }
+  console.log(`Has documentation: ${moduleCheck.result}`);
 }
 
-checkProjectQuality();
+checkProject();
 ```
 
-### Process Check Task
+### Report Task
 
 ```typescript
-import { StepWise } from 'stepwise';
+import { setTaskName, StepWise } from 'stepwise';
 
-async function validateAPIs(apis: any[]) {
-  const agent = new StepWise();
-  agent.setTaskName('ValidateAPIs');
+async function generateReport() {
+  setTaskName('GenerateReport');
+  const agent = new StepWise('reporter');
 
-  for (const api of apis) {
-    // Check each API for proper documentation
-    const docCheck = await agent.execProcessDataAndCheck(
-      'Check if $name API has proper documentation (at least 100 characters)',
-      api,
-      `check_doc_${api.name}.json`
-    );
+  // Generate report, output filename is required
+  const result = await agent.execReport(
+    'Based on project analysis results, generate quality report',
+    {
+      primaryKey: 'projectName',
+      keys: [
+        { name: 'projectName', description: 'Project name', type: 'string' },
+        { name: 'qualityScore', description: 'Quality score (0-100)', type: 'number' },
+        { name: 'issues', description: 'List of issues', type: 'array' },
+        { name: 'recommendations', description: 'Recommendations', type: 'array' }
+      ]
+    },
+    'quality_report.json'
+  );
 
-    // Check each API for input validation
-    const validationCheck = await agent.execProcessDataAndCheck(
-      'Check if $name API has proper input validation',
-      api,
-      `check_validation_${api.name}.json`
-    );
-
-    console.log(`${api.name}:`);
-    console.log(`  - Has documentation: ${docCheck.result}`);
-    console.log(`  - Has validation: ${validationCheck.result}`);
-  }
+  console.log('Report generated:', result.data);
 }
 
-// Assuming apis is previously collected data
-// validateAPIs(apis);
+generateReport();
 ```
 
-### Process Report Task
+---
+
+## Shell Commands
+
+StepWise provides the `execShell` method to execute shell commands:
 
 ```typescript
-import { StepWise } from 'stepwise';
+import { setTaskName, StepWise } from 'stepwise';
 
-async function generateProjectReports(projects: any[]) {
-  const agent = new StepWise();
-  agent.setTaskName('ProjectReports');
+async function runBuild() {
+  setTaskName('BuildTask');
+  const agent = new StepWise('builder');
 
-  for (const project of projects) {
-    // Generate analysis report for each project
-    const result = await agent.execProcessDataAndReport(
-      'Analyze $name project located at $path and generate quality report',
-      project,
-      {
-        keys: [
-          { name: 'projectName', description: 'Project name', type: 'string' },
-          { name: 'qualityScore', description: 'Quality score (0-100)', type: 'number' },
-          { name: 'issues', description: 'List of issues', type: 'array' },
-          { name: 'recommendations', description: 'Recommendations', type: 'array' }
-        ]
-      },
-      `report_${project.name}.json`
-    );
+  // Execute build command
+  const result = await agent.execShell('npm run build');
 
-    console.log(`Generated report for ${project.name}:`, result.data);
+  if (result.success) {
+    console.log('Build succeeded');
+    console.log('Output:', result.output);
+  } else {
+    console.error('Build failed:', result.error);
   }
+
+  // Execute with options
+  const testResult = await agent.execShell('npm test', {
+    timeout: 60000,      // Timeout in milliseconds
+    cwd: './project'     // Working directory
+  });
+
+  console.log('Test result:', testResult.output);
 }
 
-// Assuming projects is previously collected data
-// const projects = [
-//   { name: 'frontend', path: '/src/frontend' },
-//   { name: 'backend', path: '/src/backend' }
-// ];
-// generateProjectReports(projects);
+runBuild();
 ```
 
-### Batch Process Data
+---
+
+## Parallel Processing
+
+Use `forEachParallel` for concurrent task processing:
 
 ```typescript
-import { StepWise } from 'stepwise';
+import { setTaskName, StepWise, forEachParallel, WorkerConfig } from 'stepwise';
 
-async function processAPIs(apis: any[]) {
-  const agent = new StepWise();
-  agent.setTaskName('ProcessAPIs');
+async function processItems() {
+  setTaskName('ParallelTask');
 
-  for (const api of apis) {
-    const result = await agent.execProcessData(
-      `Generate detailed interface documentation for the following API:
+  // Define items to process
+  const items = [
+    { name: 'UserAPI', path: '/api/user' },
+    { name: 'OrderAPI', path: '/api/order' },
+    { name: 'ProductAPI', path: '/api/product' }
+  ];
 
-      API Name: $name
-      HTTP Method: $method
-      Path: $path
-      Description: $description
+  // Define worker configurations
+  const workerConfigs: WorkerConfig[] = [
+    { branchName: 'Agent1' },
+    { branchName: 'Agent2' },
+    { branchName: 'Agent3' }
+  ];
 
-      Please generate Markdown format documentation including:
-      1. Interface description
-      2. Request parameter description
-      3. Response format description
-      4. Example request and response`,
-      api
+  // Process in parallel
+  await forEachParallel(items, workerConfigs, async (ctx) => {
+    // ctx.stepWise - pre-created instance with workerId bound
+    // ctx.item - current item being processed
+    // ctx.workerConfig - current worker configuration
+    // ctx.workspacePath - workspace path
+
+    await ctx.stepWise.execPrompt(
+      'Generate test cases for $name at $path',
+      { data: ctx.item }
     );
-
-    if (result.success) {
-      console.log(`Generated documentation for ${api.name}`);
-    }
-  }
+  });
 }
 
-// Assuming apis is previously collected data
-// processAPIs(apis);
+processItems();
 ```
 
-### Process and Collect Results
+**Parallel processing with environment variables:**
 
 ```typescript
-import { StepWise, OutputFormat } from 'stepwise';
+import { setTaskName, forEachParallel, WorkerConfig } from 'stepwise';
 
-async function generateTests(apis: any[]) {
-  const agent = new StepWise();
-  agent.setTaskName('GenerateTests');
+async function processWithEnv() {
+  setTaskName('EnvParallelTask');
 
-  const outputFormat: OutputFormat = {
-    primaryKey: 'apiName',
-    keys: [
-      { name: 'apiName', description: 'API name', type: 'string' },
-      { name: 'testFile', description: 'Test file path', type: 'string' },
-      { name: 'testCases', description: 'Test case list', type: 'array' }
-    ]
-  };
+  const items = [/* ... */];
 
-  for (const api of apis) {
-    await agent.execProcessDataAndCollect(
-      `Generate unit test cases for the following API:
+  // Each worker uses different environment variables
+  const workerConfigs: WorkerConfig[] = [
+    { branchName: 'Worker1', env: ['API_PORT=3001', 'DB_NAME=test1'] },
+    { branchName: 'Worker2', env: ['API_PORT=3002', 'DB_NAME=test2'] }
+  ];
 
-      API Name: $name
-      HTTP Method: $method
-      Path: $path
-
-      Use Jest testing framework and generate at least 3 test cases:
-      1. Normal case test
-      2. Edge case test
-      3. Error case test`,
-      api,
-      outputFormat,
-      'test_cases.json'
-    );
-
-    console.log(`Generated test cases for ${api.name}`);
-  }
-
-  // Load all test cases
-  const allTests = agent.loadCollectData('test_cases.json');
-  console.log(`Generated test cases for ${allTests.length} APIs`);
+  await forEachParallel(items, workerConfigs, async (ctx) => {
+    await ctx.stepWise.execPrompt('Process task', { data: ctx.item });
+  });
 }
 
-// generateTests(apis);
+processWithEnv();
 ```
 
 ---
@@ -310,19 +316,18 @@ async function generateTests(apis: any[]) {
 
 ### Resume from Checkpoint
 
-Assume you have a long-running task that was interrupted halfway:
-
 ```typescript
-import { StepWise } from 'stepwise';
+import { setTaskName, setResumePath, StepWise } from 'stepwise';
 
 async function analyzeProject() {
-  const agent = new StepWise();
-
   // Recovery mode: set the task directory to recover from
-  // agent.setResumePath('AnalyzeProject_2026_03_03_14_30_00');
+  setResumePath('AnalyzeProject_20260315_143000_123');
 
-  // New task mode: set task name
-  agent.setTaskName('AnalyzeProject');
+  // New task mode: only set task name
+  // setTaskName('AnalyzeProject');
+  setTaskName('AnalyzeProject');
+
+  const agent = new StepWise('analyzer');
 
   // Step 1: Analyze project structure
   await agent.execPrompt('Analyze project directory structure and identify main modules');
@@ -334,18 +339,16 @@ async function analyzeProject() {
       primaryKey: 'name',
       keys: [
         { name: 'name', description: 'Component name', type: 'string' },
-        { name: 'file', description: 'File location', type: 'string' },
-        { name: 'props', description: 'Props type definition', type: 'object' }
+        { name: 'file', description: 'File location', type: 'string' }
       ]
-    },
-    'components.json'
+    }
   );
 
   // Step 3: Process each component
   for (const comp of components.data) {
-    await agent.execProcessData(
-      'Generate usage documentation and example code for component $name',
-      comp
+    await agent.execPrompt(
+      'Generate usage documentation for component $name',
+      { data: comp }
     );
   }
 
@@ -353,10 +356,10 @@ async function analyzeProject() {
   await agent.execReport(
     'Based on analysis results, generate project component analysis report',
     {
+      primaryKey: 'summary',
       keys: [
         { name: 'summary', description: 'Overall summary', type: 'string' },
-        { name: 'statistics', description: 'Statistics', type: 'object' },
-        { name: 'recommendations', description: 'Optimization suggestions', type: 'array' }
+        { name: 'statistics', description: 'Statistics', type: 'object' }
       ]
     },
     'report.json'
@@ -366,82 +369,38 @@ async function analyzeProject() {
 analyzeProject();
 ```
 
-**Resume Execution**
-
-If the task was interrupted during step 3:
-
-```typescript
-async function resumeProject() {
-  const agent = new StepWise();
-
-  // Set recovery path (interrupted task directory)
-  agent.setResumePath('AnalyzeProject_2026_03_03_14_30_00');
-
-  // Re-execute the same code
-  // Completed tasks will be automatically skipped
-  await agent.execPrompt('Analyze project directory structure and identify main modules');  // Skipped
-
-  const components = await agent.execCollectPrompt(
-    'Collect all React components in the project',
-    { /* ... */ },
-    'components.json'
-  );  // Skipped, data loaded from disk
-
-  // Continue processing from interrupted component
-  for (const comp of components.data) {
-    await agent.execProcessData(
-      'Generate usage documentation and example code for component $name',
-      comp
-    );  // Partially skipped, continues from interruption point
-  }
-
-  await agent.execReport(
-    'Based on analysis results, generate project component analysis report',
-    { /* ... */ },
-    'report.json'
-  );  // New task, executes normally
-}
-
-resumeProject();
-```
-
 ---
 
 ## Debug Mode
 
-### Quick Workflow Validation
-
-In debug mode, collection tasks return only the first data item, suitable for validating workflow correctness:
+In debug mode, collection tasks return only the first data item, suitable for validating workflow:
 
 ```typescript
-import { StepWise } from 'stepwise';
+import { setTaskName, enableDebugMode, StepWise } from 'stepwise';
 
 async function debugFlow() {
-  const agent = new StepWise();
+  // Enable debug mode (global function)
+  enableDebugMode(true);
+  setTaskName('DebugExample');
 
-  // Enable debug mode
-  agent.enableDebugMode(true);
-  agent.setTaskName('DebugExample');
+  const agent = new StepWise('debugger');
 
   // Collection task returns only first item
   const result = await agent.execCollectPrompt(
     'Collect all function definitions',
     {
+      primaryKey: 'name',
       keys: [
         { name: 'name', description: 'Function name', type: 'string' },
         { name: 'file', description: 'File path', type: 'string' }
       ]
-    },
-    'functions.json'
+    }
   );
 
-  // Debug mode: only returns first item
   console.log('Debug mode data count:', result.data.length);  // 1
 
-  // Disable debug mode to get full data
-  agent.enableDebugMode(false);
-  const fullData = agent.loadCollectData('functions.json');
-  console.log('Full data count:', fullData.length);
+  // Disable debug mode
+  enableDebugMode(false);
 }
 
 debugFlow();
@@ -449,202 +408,60 @@ debugFlow();
 
 ---
 
-## Complete Project Examples
+## Configuration Options
 
-### Code Review Tool
+### Skip Summarize
 
 ```typescript
-import { StepWise, OutputFormat } from 'stepwise';
+import { setTaskName, setSkipSummarize, StepWise } from 'stepwise';
 
-/**
- * Automated Code Review Tool
- * 1. Collect all source files
- * 2. Analyze code quality
- * 3. Generate review report
- */
-class CodeReviewer {
-  private agent: StepWise;
-
-  constructor() {
-    this.agent = new StepWise();
-  }
-
-  async review(projectPath: string, resumePath?: string) {
-    // Set recovery path or new task
-    if (resumePath) {
-      this.agent.setResumePath(resumePath);
-    } else {
-      this.agent.setTaskName('CodeReview');
-    }
-
-    // Step 1: Analyze project structure
-    console.log('Step 1: Analyzing project structure...');
-    await this.agent.execPrompt(
-      `Analyze the project structure of ${projectPath} and identify:
-      - Project type (frontend/backend/fullstack)
-      - Main frameworks and libraries used
-      - Directory organization`
-    );
-
-    // Step 2: Collect files to review
-    console.log('Step 2: Collecting source files...');
-    const filesResult = await this.agent.execCollectPrompt(
-      `Collect all source files that need review in ${projectPath},
-      excluding node_modules, dist, build directories.
-      Focus on .ts, .tsx, .js, .jsx files.`,
-      {
-        primaryKey: 'path',
-        keys: [
-          { name: 'path', description: 'File path', type: 'string' },
-          { name: 'type', description: 'File type', type: 'string' },
-          { name: 'lines', description: 'Lines of code', type: 'number' }
-        ]
-      },
-      'source_files.json'
-    );
-
-    console.log(`Found ${filesResult.data.length} source files`);
-
-    // Step 3: Review each file
-    console.log('Step 3: Reviewing code...');
-    const reviewFormat: OutputFormat = {
-      primaryKey: 'filePath',
-      keys: [
-        { name: 'filePath', description: 'File path', type: 'string' },
-        { name: 'score', description: 'Code quality score (1-10)', type: 'number' },
-        { name: 'issues', description: 'Issues found', type: 'array' },
-        { name: 'suggestions', description: 'Improvement suggestions', type: 'array' }
-      ]
-    };
-
-    // In debug mode, only process first file
-    const filesToProcess = this.agent.isDebugMode()
-      ? filesResult.data.slice(0, 1)
-      : filesResult.data;
-
-    for (const file of filesToProcess) {
-      console.log(`  Reviewing: ${file.path}`);
-      await this.agent.execProcessDataAndCollect(
-        `Review the code quality of file $path, checking:
-        - Code style and conventions
-        - Potential bugs and security issues
-        - Performance issues
-        - Maintainability
-
-        File type: $type
-        Lines of code: $lines`,
-        file,
-        reviewFormat,
-        'review_results.json'
-      );
-    }
-
-    // Step 4: Generate report
-    console.log('Step 4: Generating report...');
-    await this.agent.execReport(
-      'Based on code review results, generate project code quality report',
-      {
-        keys: [
-          { name: 'overallScore', description: 'Overall score', type: 'number' },
-          { name: 'summary', description: 'Overall evaluation', type: 'string' },
-          { name: 'criticalIssues', description: 'Critical issues list', type: 'array' },
-          { name: 'recommendations', description: 'Improvement suggestions', type: 'array' }
-        ]
-      },
-      'review_report.json'
-    );
-
-    console.log('Review complete!');
-    console.log('Results directory:', this.agent.getTaskDir());
-
-    return this.agent.getTaskDir();
-  }
-}
-
-// Usage example
 async function main() {
-  const reviewer = new CodeReviewer();
+  setTaskName('SkipSummarizeTask');
+  // Skip summarize phase for faster execution
+  setSkipSummarize(true);
 
-  // New task
-  await reviewer.review('/path/to/project');
-
-  // Or resume from checkpoint
-  // await reviewer.review('/path/to/project', 'CodeReview_2026_03_03_14_30_00');
+  const agent = new StepWise('myAgent');
+  await agent.execPrompt('Execute task');
 }
 
 main();
 ```
 
-### API Documentation Generator
+### Set Agent Type
 
 ```typescript
-import { StepWise } from 'stepwise';
+import { setTaskName, setAgentType, StepWise } from 'stepwise';
 
-/**
- * Auto-generate API Documentation
- */
-async function generateAPIDocs(projectPath: string) {
-  const agent = new StepWise();
-  agent.setTaskName('GenerateAPIDocs');
+async function main() {
+  setTaskName('AgentTypeTask');
+  // Set agent type
+  setAgentType('claude');
 
-  // 1. Collect API definitions
-  const apis = await agent.execCollectPrompt(
-    `Traverse ${projectPath} and collect all API interface definitions.
-    Support Express, Fastify, Koa and other frameworks.`,
-    {
-      primaryKey: 'id',
-      keys: [
-        { name: 'id', description: 'Unique identifier', type: 'string' },
-        { name: 'name', description: 'Interface name', type: 'string' },
-        { name: 'method', description: 'HTTP method', type: 'string' },
-        { name: 'path', description: 'Path', type: 'string' },
-        { name: 'handler', description: 'Handler function', type: 'string' },
-        { name: 'params', description: 'Parameter definition', type: 'object' },
-        { name: 'response', description: 'Response format', type: 'object' }
-      ]
-    },
-    'api_definitions.json'
-  );
-
-  console.log(`Found ${apis.data.length} APIs`);
-
-  // 2. Generate documentation for each API
-  for (const api of apis.data) {
-    await agent.execProcessData(
-      `Generate detailed interface documentation for API $name (Markdown format)
-
-      Method: $method
-      Path: $path
-      Parameters: $params
-      Response: $response
-
-      Documentation should include:
-      - Interface description
-      - Request parameter description
-      - Response format description
-      - Example request and response
-      - Error code description`,
-      api
-    );
-  }
-
-  // 3. Generate summary documentation
-  await agent.execReport(
-    'Generate API documentation index and summary',
-    {
-      keys: [
-        { name: 'title', description: 'Document title', type: 'string' },
-        { name: 'toc', description: 'Table of contents', type: 'array' },
-        { name: 'overview', description: 'API overview', type: 'string' }
-      ]
-    },
-    'api_docs_index.json'
-  );
-
-  return agent.getTaskDir();
+  const agent = new StepWise('myAgent');
+  await agent.execPrompt('Execute task');
 }
 
-// generateAPIDocs('/path/to/project');
+main();
+```
+
+### Save and Load Collection Data
+
+```typescript
+import { setTaskName, saveCollectData, loadCollectData, StepWise } from 'stepwise';
+
+async function manageData() {
+  setTaskName('DataManagement');
+
+  // Save collection data (global function)
+  const data = [{ name: 'item1' }, { name: 'item2' }];
+  saveCollectData(data, 'my_data.json');
+
+  // Load collection data (global function)
+  const loaded = loadCollectData('my_data.json');
+  console.log('Loaded data:', loaded);
+}
+
+manageData();
 ```
 
 ---
@@ -657,8 +474,8 @@ async function generateAPIDocs(projectPath: string) {
 // Recommended: Split by logical steps
 await agent.execPrompt('Analyze project structure');           // Step 1
 const data = await agent.execCollectPrompt(...);  // Step 2
-for (const item of data) {
-  await agent.execProcessData(...);               // Step 3+
+for (const item of data.data) {
+  await agent.execPrompt('Process $name', { data: item });  // Step 3+
 }
 
 // Not recommended: One large task for everything
@@ -679,25 +496,30 @@ const format = {
 
 ```typescript
 // Enable debug mode during development for quick workflow validation
-agent.enableDebugMode(true);
+enableDebugMode(true);
 
 // Disable in production
-agent.enableDebugMode(false);
+enableDebugMode(false);
 ```
 
-### 4. Save Critical Data
+### 4. Monitor Task Progress
 
 ```typescript
-// Periodically save intermediate results
-agent.saveCollectData(processedData, 'checkpoint.json');
+setTaskName('MyTask');
+const agent = new StepWise('myAgent');
 
-// Load when needed
-const checkpoint = agent.loadCollectData('checkpoint.json');
-```
-
-### 5. Monitor Task Progress
-
-```typescript
 console.log('Task directory:', agent.getTaskDir());
 console.log('Executed tasks:', agent.getTaskCounter());
+```
+
+### 5. Use checkPrompt to Validate Results
+
+```typescript
+const result = await agent.execCollectPrompt(
+  'Collect API definitions',
+  format,
+  {
+    checkPrompt: 'Check if collection results are complete, add missing APIs'
+  }
+);
 ```
