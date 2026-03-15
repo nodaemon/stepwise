@@ -242,8 +242,8 @@ claude --dangerously-skip-permissions --session-id <uuid> -p "your prompt"
 claude --dangerously-skip-permissions --resume <session-id> -p "your prompt"
 
 # OpenCode example
-opencode --session-id <uuid> -p "your prompt"
-opencode --resume <session-id> -p "your prompt"
+opencode run --session <uuid> "your prompt"
+# OpenCode auto-detects new vs resume session
 ```
 
 Key mechanisms:
