@@ -81,7 +81,9 @@ export abstract class BaseExecutor implements AgentExecutor {
     let lastExitCode: number | null = null;
     let attempts = 0;
 
-    // 重试循环
+    // 重试循环逻辑：
+    // 1. 普通错误：attempts++，最多重试 MAX_RETRIES 次
+    // 2. 速率限制(429)：等待重置时间后继续，不计入重试次数
     while (attempts < MAX_RETRIES) {
       attempts++;
 
@@ -125,7 +127,7 @@ export abstract class BaseExecutor implements AgentExecutor {
         if (attempts > 1) {
           options.logger?.logTaskRetry(
             options.taskIndex || 0,
-            (options.taskType as any) || 'task',
+            options.taskType || 'task',
             attempts,
             lastError
           );
@@ -147,7 +149,7 @@ export abstract class BaseExecutor implements AgentExecutor {
         if (attempts > 1) {
           options.logger?.logTaskRetry(
             options.taskIndex || 0,
-            (options.taskType as any) || 'task',
+            options.taskType || 'task',
             attempts,
             lastError
           );
@@ -227,6 +229,14 @@ export abstract class BaseExecutor implements AgentExecutor {
       // SIGKILL 定时器引用，用于在 close 事件中清除
       let sigkillTimerId: NodeJS.Timeout | null = null;
 
+      // 提取定时器清理逻辑，避免重复代码
+      const clearAllTimers = () => {
+        clearTimeout(timeoutId);
+        if (sigkillTimerId) {
+          clearTimeout(sigkillTimerId);
+        }
+      };
+
       // 设置超时
       const timeoutId = setTimeout(() => {
         const timeoutError = new Error(
@@ -258,18 +268,12 @@ export abstract class BaseExecutor implements AgentExecutor {
       });
 
       child.on('error', (error) => {
-        clearTimeout(timeoutId);
-        if (sigkillTimerId) {
-          clearTimeout(sigkillTimerId);
-        }
+        clearAllTimers();
         reject(error);
       });
 
       child.on('close', (code) => {
-        clearTimeout(timeoutId);
-        if (sigkillTimerId) {
-          clearTimeout(sigkillTimerId);
-        }
+        clearAllTimers();
         resolve({
           stdout,
           stderr,

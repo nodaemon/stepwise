@@ -4,12 +4,22 @@
  */
 
 import { _getAgentType } from '../globalState';
+import { AgentType } from '../types';
 import { AgentExecutor, AgentExecutorOptions } from '../executors/types';
 import { ClaudeExecutor } from '../executors/claude';
 import { OpenCodeExecutor } from '../executors/opencode';
 
 // 向后兼容：重新导出类型（从 executors/types.ts）
 export type { AgentExecutorOptions as ExecutorOptions } from '../executors/types';
+
+/**
+ * 执行器工厂映射
+ * 使用对象映射替代字符串比较，便于扩展新的执行器类型
+ */
+const executorFactories: Record<AgentType, () => AgentExecutor> = {
+  claude: () => new ClaudeExecutor(),
+  opencode: () => new OpenCodeExecutor(),
+};
 
 /**
  * 创建执行器实例
@@ -27,13 +37,7 @@ export type { AgentExecutorOptions as ExecutorOptions } from '../executors/types
  */
 export function createExecutor(): AgentExecutor {
   const agentType = _getAgentType();
-
-  if (agentType === 'opencode') {
-    return new OpenCodeExecutor();
-  }
-
-  // 默认使用 Claude 执行器
-  return new ClaudeExecutor();
+  return executorFactories[agentType]();
 }
 
 // 向后兼容：导出 ClaudeExecutor 类（已废弃，建议使用 createExecutor）

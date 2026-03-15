@@ -3,7 +3,7 @@
  * 定义统一的执行器接口，确保 Claude 和 OpenCode 实现相同的方法
  */
 
-import { ExecutionResult } from '../types';
+import { ExecutionResult, TaskType } from '../types';
 import { Logger } from '../utils/logger';
 
 /**
@@ -37,8 +37,8 @@ export interface AgentExecutorOptions {
   /** 任务序号 */
   taskIndex?: number;
 
-  /** 任务类型：task, collect, check, report, summarize 等 */
-  taskType?: string;
+  /** 任务类型 */
+  taskType?: TaskType;
 
   /** 执行超时时间（毫秒），默认 3 小时 */
   timeout?: number;

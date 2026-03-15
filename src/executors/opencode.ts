@@ -56,7 +56,9 @@ export class OpenCodeExecutor extends BaseExecutor {
    *
    * @param prompt 提示词内容
    * @param sessionId 会话 ID
-   * @param isResume 是否使用恢复模式（OpenCode 统一用 --session 处理）
+   * @param isResume 是否使用恢复模式
+   *   - Claude: 需要根据此参数区分 --resume 和 --session-id
+   *   - OpenCode: 统一使用 --session，CLI 工具自动检测，此参数不直接影响命令构建
    * @param debugFile debug 日志文件路径（暂未使用）
    * @returns 命令行参数数组
    */

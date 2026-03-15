@@ -10,11 +10,14 @@ import {
   TaskStatusType,
   ProgressInfo,
   SummarizeOptions,
-  SummarizeResult
+  SummarizeResult,
+  ShellOptions,
+  ShellResult
 } from './types';
 import { generateUUID } from './utils/uuid';
 import { Logger } from './utils/logger';
 import { createExecutor } from './utils/executor';
+import { ShellExecutor } from './utils/shellExecutor';
 import { AgentExecutor } from './executors/types';
 import {
   ensureDir,
@@ -71,6 +74,8 @@ export class StepWise {
   private logger: Logger | null = null;
   /** 执行器实例 */
   private executor: AgentExecutor;
+  /** Shell 命令执行器 */
+  private shellExecutor: ShellExecutor;
   private progress: ProgressInfo | null = null;
   /** 默认工作目录，当 options.cwd 未指定时使用 */
   private defaultCwd?: string;
@@ -96,6 +101,7 @@ export class StepWise {
     this.defaultEnv = defaultEnv;
     this.workerId = workerId;
     this.executor = createExecutor();
+    this.shellExecutor = new ShellExecutor();
 
     // 初始化目录
     this.initDirectories();
@@ -1470,5 +1476,156 @@ export class StepWise {
       ...result,
       skillFiles
     };
+  }
+
+  // ============ Shell 命令执行方法 ============
+
+  /**
+   * 执行 Shell 命令
+   *
+   * 功能说明：
+   * - 执行 shell 命令并捕获输出
+   * - 支持超时控制和重试机制
+   * - 支持断点恢复（已执行的命令会跳过）
+   * - 与 AI 任务统一管理进度（progress.json）
+   *
+   * @param command - 要执行的 shell 命令
+   * @param options - 执行选项
+   * @returns 执行结果
+   *
+   * @example
+   * // 基本使用
+   * const result = await agent.execShell('npm run build');
+   * console.log('成功:', result.success);
+   *
+   * @example
+   * // 带选项
+   * const result = await agent.execShell('npm test', {
+   *   timeout: 60000,  // 超时 60 秒
+   *   cwd: './project',  // 指定工作目录
+   *   retry: true        // 失败时重试
+   * });
+   */
+  async execShell(command: string, options?: ShellOptions): Promise<ShellResult> {
+    // 验证命令不能为空
+    if (!command || command.trim() === '') {
+      throw new Error('[StepWise.execShell] Shell 命令不能为空');
+    }
+
+    const resumePath = _getResumePath();
+    const taskType: TaskType = 'shell';
+    const taskIndex = this.getNextTaskIndex(taskType);
+
+    // 检查是否需要恢复（断点恢复）
+    if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
+      // 检查命令是否一致
+      const savedCommand = this.getTaskStatus(taskIndex, taskType)?.command;
+      if (savedCommand && savedCommand !== command) {
+        // 命令不一致，打印警告但仍跳过执行（便于优化 shell 命令时不断点恢复）
+        console.warn(`[StepWise] 警告: 任务 ${taskIndex}_shell 命令已修改`);
+        console.warn(`  原命令: ${savedCommand}`);
+        console.warn(`  新命令: ${command}`);
+      }
+
+      // 无论命令是否一致，都跳过执行
+      this.logger?.logTaskSkipped(taskIndex, taskType);
+
+      return {
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+        success: true,
+        duration: 0,
+        taskIndex
+      };
+    }
+
+    // 获取工作目录
+    const effectiveCwd = this.getEffectiveCwd(options?.cwd);
+
+    // 创建任务日志目录
+    const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
+
+    // 设置 ShellExecutor 的日志目录
+    if (taskLogDir) {
+      this.shellExecutor.setLogDir(taskLogDir);
+    }
+
+    // 记录任务开始
+    this.logger?.logTaskStart(taskIndex, taskType, '');
+    this.recordTaskStart(taskIndex, `${taskIndex}_shell`, '', taskType);
+
+    // 执行 Shell 命令
+    const result = await this.shellExecutor.execute(command, {
+      cwd: effectiveCwd,
+      timeout: options?.timeout,
+      env: options?.env,
+      retry: options?.retry,
+      retryCount: options?.retryCount
+    });
+
+    // 更新结果中的 taskIndex
+    result.taskIndex = taskIndex;
+
+    // 保存输出到日志目录
+    if (taskLogDir) {
+      // 保存标准输出
+      if (result.stdout) {
+        this.logger?.writeTaskLog(taskLogDir, 'output.txt', result.stdout);
+      }
+      // 保存标准错误
+      if (result.stderr) {
+        this.logger?.writeTaskLog(taskLogDir, 'error.txt', result.stderr);
+      }
+    }
+
+    // 记录任务完成
+    this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration);
+
+    // 更新进度（记录 shell 命令以便断点恢复）
+    this.recordShellTaskComplete(taskIndex, `${taskIndex}_shell`, taskType, command, result.exitCode);
+
+    return result;
+  }
+
+  /**
+   * 记录 Shell 任务完成状态
+   *
+   * @param taskIndex - 任务序号
+   * @param taskName - 任务名称
+   * @param taskType - 任务类型
+   * @param command - 执行的 shell 命令
+   * @param exitCode - 退出码
+   */
+  private recordShellTaskComplete(
+    taskIndex: number,
+    taskName: string,
+    taskType: TaskType,
+    command: string,
+    exitCode: number
+  ): void {
+    if (!this.progress) return;
+
+    const existingIndex = this.progress.tasks.findIndex(
+      (t) => t.taskIndex === taskIndex && t.taskType === taskType
+    );
+
+    const taskStatus: TaskStatus = {
+      taskIndex,
+      taskName,
+      sessionId: '',  // Shell 任务没有 sessionId
+      status: 'completed',
+      timestamp: Date.now(),
+      taskType,
+      command  // 记录执行的命令
+    };
+
+    if (existingIndex >= 0) {
+      this.progress.tasks[existingIndex] = taskStatus;
+    } else {
+      this.progress.tasks.push(taskStatus);
+    }
+
+    this.saveProgress();
   }
 }
