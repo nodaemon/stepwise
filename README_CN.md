@@ -290,9 +290,3 @@ opencode run --session <uuid> "你的提示词"
 - [API 文档](doc/api_cn.md) - 详细的 API 参考
 - [示例](demos_cn.md) - 完整的使用示例
 - [English](README.md) - English Documentation
-
----
-
-## 许可证
-
-[MIT](LICENSE)

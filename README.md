@@ -290,9 +290,3 @@ Key mechanisms:
 - [API Reference](doc/api.md) - Detailed API documentation
 - [Examples](demos.md) - Complete usage examples
 - [中文文档](README_CN.md) - Chinese documentation
-
----
-
-## License
-
-[MIT](LICENSE)
