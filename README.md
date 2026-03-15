@@ -21,8 +21,8 @@ When working with AI Agents on complex development tasks, we often face three ma
 
 | Pain Point | StepWise Solution |
 |------------|-------------------|
-| Long tasks drift, multi-tasks get missed | Multi-Agent parallel processing with automatic progress tracking |
-| Private data handling is difficult | Agent self-learning, automatic Skill generation |
+| Long tasks drift, multi-tasks get missed | Break tasks into stable small steps, data validation ensures correct output, condition checks verify execution results |
+| Private data handling is difficult | Support Skill-generating Agents, auto-summarize Skills after multiple successful attempts |
 | Debugging is hard, progress lost on interruption | Checkpoint recovery, debug mode for quick validation |
 
 StepWise is a task orchestration tool built on Node.js and TypeScript. It enables you to break down complex coding tasks into multiple steps, customize prompts for each step, and delegate execution to Claude Code's AI programming agent.
@@ -31,76 +31,77 @@ StepWise is a task orchestration tool built on Node.js and TypeScript. It enable
 
 ## Quick Start
 
-### Example 1: Multi-Agent Parallel Processing
+### Example 1: Task Step Control
 
-Handle multiple items concurrently with multiple Agents - no more drifting or missed tasks:
+Break complex tasks into stable small steps, each step completes reliably:
 
 ```typescript
-import { setTaskName, forEachParallel, WorkerConfig } from 'stepwise';
+import { setTaskName, StepWise } from 'stepwise';
 
-setTaskName('ProcessItems');
+setTaskName('RefactorModule');
+const agent = new StepWise('MainAgent');
 
-const items = ['item1', 'item2', 'item3', 'item4'];
+// Break complex tasks into multiple small steps, each stable
+await agent.execPrompt('Step 1: Analyze module dependencies');
+await agent.execPrompt('Step 2: Extract common interface definitions');
+await agent.execPrompt('Step 3: Refactor core logic');
 
-const workerConfigs: WorkerConfig[] = [
-  { branchName: 'Agent1' },
-  { branchName: 'Agent2' },
-];
-
-await forEachParallel(items, workerConfigs, async (ctx) => {
-  // Each worker has its own git worktree, enabling true parallel execution
-  await ctx.stepWise.execPrompt('Process item: $item', { data: { item: ctx.item } });
-});
-
-// All branches are automatically merged after completion
+// Completed steps are automatically skipped, supports checkpoint recovery
 ```
 
-### Example 2: Skill Auto-Generation
+### Example 2: Data Validation & Condition Check
 
-Agent analyzes domain knowledge and automatically generates Skills for private data handling:
+Collect structured data with automatic validation:
 
 ```typescript
-import { StepWise, setTaskName } from 'stepwise';
+// Data collection + auto validation
+const result = await agent.execCollectPrompt('Collect all API endpoints', {
+  keys: [
+    { name: 'name', description: 'API name', type: 'string' },
+    { name: 'method', description: 'HTTP method', type: 'string' },
+    { name: 'path', description: 'API path', type: 'string' }
+  ]
+});
+// Auto retry on validation failure
 
-setTaskName('GenerateSkills');
-const agent = new StepWise('SkillGenerator');
-
-// Step 1: Analyze what skills are needed
-const result = await agent.execCollectPrompt(
-  'Analyze the codebase and identify what skills should be created',
-  {
-    keys: [
-      { name: 'skillName', description: 'Skill name', type: 'string' },
-      { name: 'description', description: 'Skill description', type: 'string' },
-      { name: 'filePath', description: 'File path to create', type: 'string' }
-    ]
-  }
-);
-
-// Step 2: Create skill files based on analysis
-for (const skill of result.data) {
-  await agent.execPrompt(
-    'Create skill file at $filePath with description: $description',
-    { data: skill }
-  );
+// Condition check
+const checkResult = await agent.execCheckPrompt('Check for unused imports');
+if (checkResult.result) {
+  await agent.execPrompt('Clean up unused imports');
 }
 ```
 
-### Example 3: Checkpoint Recovery
+### Example 3: Skill Auto-Generation
+
+After multiple successful attempts, auto-summarize Skills:
+
+```typescript
+// Execute a series of tasks
+await agent.execPrompt('Configure database connection');
+await agent.execPrompt('Create data model');
+await agent.execPrompt('Implement CRUD interfaces');
+
+// Summarize and generate Skill (triggered on new session)
+await agent.execPrompt('Next task', { newSession: true });
+// Auto-summarize previous session, generate SKILL.md
+
+// Or manually trigger summarization
+const summaryResult = await agent.summarize();
+console.log('Generated Skill files:', summaryResult.skillFiles);
+```
+
+### Example 4: Checkpoint Recovery
 
 Resume from interruption point - no progress lost:
 
 ```typescript
 import { StepWise, setTaskName, setResumePath } from 'stepwise';
 
-// Set the task directory to recover from
 setResumePath('MyTask_20260315_143000_123');
-
 setTaskName('MyTask');
 const agent = new StepWise('MainAgent');
 
-// Re-execute the same code flow
-// Completed tasks are automatically skipped
+// Completed steps are automatically skipped
 await agent.execPrompt('Step 1: Analyze project');           // Skipped
 await agent.execCollectPrompt('Step 2: Collect data', fmt);  // Skipped
 await agent.execPrompt('Step 3: Process item $name', { data: { name: 'item1' } }); // Resume from here
@@ -115,10 +116,88 @@ await agent.execPrompt('Step 3: Process item $name', { data: { name: 'item1' } }
 | Method | Usage | Description |
 |--------|-------|-------------|
 | `execPrompt` | Normal task | Execute a single prompt task |
-| `execCollectPrompt` | Collection task | Collect structured data and save as JSON |
+| `execCollectPrompt` | Collection task | Collect structured data with auto validation |
 | `execCheckPrompt` | Check task | Check condition and return true/false |
 | `execReport` | Report task | Generate summary report |
 | `execShell` | Shell command | Execute Shell commands (build, test, etc.) |
+| `summarize` | Skill generation | Summarize session and generate Skill |
+
+### Task Step Control
+
+Each step has a unique sequence number, auto-incremented:
+
+```typescript
+import { setTaskName, StepWise } from 'stepwise';
+
+setTaskName('MyTask');
+const agent = new StepWise('MainAgent');
+
+// Step numbers are auto-assigned: 1, 2, 3...
+await agent.execPrompt('First task');   // Task #1
+await agent.execPrompt('Second task');  // Task #2
+```
+
+### Data Validation
+
+Automatic validation with retry on failure:
+
+```typescript
+const result = await agent.execCollectPrompt('Collect user data', {
+  keys: [
+    { name: 'id', description: 'User ID', type: 'string' },
+    { name: 'name', description: 'User name', type: 'string' },
+    { name: 'email', description: 'Email address', type: 'string' }
+  ],
+  maxRetries: 3  // Auto retry up to 3 times on validation failure
+});
+```
+
+### Condition Check
+
+Check conditions and branch execution:
+
+```typescript
+// Check if tests pass
+const testResult = await agent.execCheckPrompt('Run tests and check if all pass');
+if (!testResult.result) {
+  await agent.execPrompt('Fix failing tests');
+}
+
+// Check code quality
+const lintResult = await agent.execCheckPrompt('Check for linting errors');
+if (lintResult.result) {
+  await agent.execPrompt('Fix linting issues');
+}
+```
+
+### Skill Auto-Generation
+
+Summarize valuable experience after multiple successful attempts:
+
+```typescript
+// Trigger on new session - auto-summarize previous session
+await agent.execPrompt('Next task', { newSession: true });
+
+// Or manually trigger
+const result = await agent.summarize();
+// Skills saved to .claude/skills/[skill_name]/SKILL.md
+```
+
+### Checkpoint Recovery
+
+Task progress is automatically recorded. Resume from interruption:
+
+```typescript
+setResumePath('TaskName_20260315_143000_123');
+```
+
+### Debug Mode
+
+Quickly validate workflows with limited data collection:
+
+```typescript
+enableDebugMode(true);  // Collect only 1 item
+```
 
 ### Multi-Agent Parallel Processing
 
@@ -142,22 +221,6 @@ await forEachParallel(items, workerConfigs, async (ctx) => {
 });
 ```
 
-### Checkpoint Recovery
-
-Task progress is automatically recorded. Resume from interruption:
-
-```typescript
-setResumePath('TaskName_20260315_143000_123');
-```
-
-### Debug Mode
-
-Quickly validate workflows with limited data collection:
-
-```typescript
-enableDebugMode(true);  // Collect only 1 item
-```
-
 ### Shell Command Execution
 
 Execute Shell commands with retry and timeout support:
@@ -175,6 +238,20 @@ const result = await agent.execShell('npm test', {
 });
 ```
 
+### CLI Support
+
+Switch between different CLI agents:
+
+```typescript
+import { setAgentType } from 'stepwise';
+
+// Use Claude Code (default)
+setAgentType('claude');
+
+// Use OpenCode
+setAgentType('opencode');
+```
+
 ### Global Settings
 
 ```typescript
@@ -182,6 +259,7 @@ import {
   setTaskName,
   setResumePath,
   enableDebugMode,
+  setAgentType,
   saveCollectData,
   loadCollectData
 } from 'stepwise';
@@ -194,6 +272,9 @@ setResumePath('MyTask_20260315_143000_123');
 
 // Enable debug mode
 enableDebugMode(true);
+
+// Switch CLI agent
+setAgentType('claude');  // or 'opencode'
 
 // Save/load data
 saveCollectData(data, 'my_data.json');
@@ -224,6 +305,29 @@ stepwise_exec_infos/
 ---
 
 ## How It Works
+
+### Step Control Mechanism
+
+StepWise implements step control through task sequence numbers and progress persistence:
+
+1. **Task Sequence Number**: Each step has a unique number, auto-incremented
+2. **Progress Persistence**: Execution state saved to `progress.json`
+3. **Session Reuse**: Uses `--resume` mode to maintain context continuity
+
+### Data Validation Mechanism
+
+- JSON format validation
+- Field completeness validation
+- Type matching validation
+- Auto-generate fix prompts on validation failure
+
+### Skill Generation Mechanism
+
+- **Trigger timing**: Creating new session or manual call
+- **Generation conditions**: Tasks with multiple successful attempts, valuable experience
+- **Storage location**: Project-level `.claude/skills/` directory
+
+### Session Reuse
 
 StepWise is built on Claude Code's headless mode with session reuse:
 
