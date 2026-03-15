@@ -1,7 +1,7 @@
 # StepWise
 
 <p align="center">
-  <strong>Step-by-step task orchestration for Claude Code - build reliable AI workflows with checkpoint recovery</strong>
+  <strong>Step-by-step task orchestration for AI CLI agents - build reliable AI workflows with checkpoint recovery</strong>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@ When working with AI Agents on complex development tasks, we often face three ma
 | Private data handling is difficult | Support Skill-generating Agents, auto-summarize Skills after multiple successful attempts |
 | Debugging is hard, progress lost on interruption | Checkpoint recovery, debug mode for quick validation |
 
-StepWise is a task orchestration tool built on Node.js and TypeScript. It enables you to break down complex coding tasks into multiple steps, customize prompts for each step, and delegate execution to Claude Code's AI programming agent.
+StepWise is a task orchestration tool built on Node.js and TypeScript. It enables you to break down complex coding tasks into multiple steps, customize prompts for each step, and delegate execution to AI CLI agents (Claude Code, OpenCode, etc.).
 
 ---
 
@@ -49,29 +49,44 @@ await agent.execPrompt('Step 3: Refactor core logic');
 // Completed steps are automatically skipped, supports checkpoint recovery
 ```
 
-### Example 2: Data Validation & Condition Check
+### Example 2: Data Validation with checkPrompt
 
-Collect structured data with automatic validation:
+Collect structured data with additional validation using `checkPrompt` option:
 
 ```typescript
-// Data collection + auto validation
+// Data collection with checkPrompt for extra validation
 const result = await agent.execCollectPrompt('Collect all API endpoints', {
   keys: [
     { name: 'name', description: 'API name', type: 'string' },
     { name: 'method', description: 'HTTP method', type: 'string' },
     { name: 'path', description: 'API path', type: 'string' }
-  ]
+  ],
+  checkPrompt: 'Verify all endpoints have valid paths starting with /'
 });
-// Auto retry on validation failure
+// checkPrompt runs after data collection for additional verification
+```
 
-// Condition check
-const checkResult = await agent.execCheckPrompt('Check for unused imports');
-if (checkResult.result) {
-  await agent.execPrompt('Clean up unused imports');
+### Example 3: Branch Routing with execCheckPrompt
+
+Use `execCheckPrompt` as a routing node to branch to different agents based on conditions:
+
+```typescript
+// execCheckPrompt returns true/false for routing decisions
+const checkResult = await agent.execCheckPrompt('Check if tests pass');
+
+// Route to different agents based on result
+if (!checkResult.result) {
+  // Branch to FixAgent for fixing failing tests
+  const fixAgent = new StepWise('FixAgent');
+  await fixAgent.execPrompt('Fix failing tests');
+} else {
+  // Branch to DeployAgent for deployment
+  const deployAgent = new StepWise('DeployAgent');
+  await deployAgent.execPrompt('Deploy to staging');
 }
 ```
 
-### Example 3: Skill Auto-Generation
+### Example 4: Skill Auto-Generation
 
 After multiple successful attempts, auto-summarize Skills:
 
@@ -90,7 +105,7 @@ const summaryResult = await agent.summarize();
 console.log('Generated Skill files:', summaryResult.skillFiles);
 ```
 
-### Example 4: Checkpoint Recovery
+### Example 5: Checkpoint Recovery
 
 Resume from interruption point - no progress lost:
 
@@ -117,7 +132,7 @@ await agent.execPrompt('Step 3: Process item $name', { data: { name: 'item1' } }
 |--------|-------|-------------|
 | `execPrompt` | Normal task | Execute a single prompt task |
 | `execCollectPrompt` | Collection task | Collect structured data with auto validation |
-| `execCheckPrompt` | Check task | Check condition and return true/false |
+| `execCheckPrompt` | Routing node | Check condition and return true/false for branch routing |
 | `execReport` | Report task | Generate summary report |
 | `execShell` | Shell command | Execute Shell commands (build, test, etc.) |
 | `summarize` | Skill generation | Summarize session and generate Skill |
@@ -139,6 +154,8 @@ await agent.execPrompt('Second task');  // Task #2
 
 ### Data Validation
 
+#### Built-in Validation with execCollectPrompt
+
 Automatic validation with retry on failure:
 
 ```typescript
@@ -152,21 +169,38 @@ const result = await agent.execCollectPrompt('Collect user data', {
 });
 ```
 
-### Condition Check
+#### Additional Validation with checkPrompt
 
-Check conditions and branch execution:
+Use `checkPrompt` option for custom validation after task completion:
 
 ```typescript
-// Check if tests pass
-const testResult = await agent.execCheckPrompt('Run tests and check if all pass');
-if (!testResult.result) {
-  await agent.execPrompt('Fix failing tests');
-}
+// checkPrompt runs after main task with --resume mode
+await agent.execPrompt('Create user module', {
+  checkPrompt: 'Verify the module follows project conventions'
+});
 
+// Works with execCollectPrompt too
+const result = await agent.execCollectPrompt('Collect config data', {
+  keys: [...],
+  checkPrompt: 'Verify all config values are valid'
+});
+```
+
+### Branch Routing with execCheckPrompt
+
+`execCheckPrompt` is a routing node that returns boolean for branch decisions:
+
+```typescript
 // Check code quality
-const lintResult = await agent.execCheckPrompt('Check for linting errors');
-if (lintResult.result) {
-  await agent.execPrompt('Fix linting issues');
+const qualityCheck = await agent.execCheckPrompt('Check code quality score above 80');
+if (qualityCheck.result) {
+  // High quality - proceed with deployment
+  const deployAgent = new StepWise('DeployAgent');
+  await deployAgent.execPrompt('Deploy to production');
+} else {
+  // Low quality - route to improvement agent
+  const improveAgent = new StepWise('ImproveAgent');
+  await improveAgent.execPrompt('Improve code quality');
 }
 ```
 
@@ -238,7 +272,7 @@ const result = await agent.execShell('npm test', {
 });
 ```
 
-### CLI Support
+### CLI Agent Support
 
 Switch between different CLI agents:
 
@@ -320,6 +354,13 @@ StepWise implements step control through task sequence numbers and progress pers
 - Field completeness validation
 - Type matching validation
 - Auto-generate fix prompts on validation failure
+- `checkPrompt` option for custom validation
+
+### Branch Routing Mechanism
+
+- `execCheckPrompt` outputs `{ result: true/false }` to `check_result.json`
+- Use result to route to different agents
+- Enables conditional workflow branching
 
 ### Skill Generation Mechanism
 
@@ -327,16 +368,18 @@ StepWise implements step control through task sequence numbers and progress pers
 - **Generation conditions**: Tasks with multiple successful attempts, valuable experience
 - **Storage location**: Project-level `.claude/skills/` directory
 
-### Session Reuse
+### CLI Agent Integration
 
-StepWise is built on Claude Code's headless mode with session reuse:
+StepWise works with AI CLI agents through their headless mode with session reuse:
 
 ```bash
-# New session for task
+# Claude Code example
 claude --dangerously-skip-permissions --session-id <uuid> -p "your prompt"
-
-# Resume session to continue
 claude --dangerously-skip-permissions --resume <session-id> -p "your prompt"
+
+# OpenCode example
+opencode --session-id <uuid> -p "your prompt"
+opencode --resume <session-id> -p "your prompt"
 ```
 
 Key mechanisms:

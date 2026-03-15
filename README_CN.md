@@ -1,7 +1,7 @@
 # StepWise
 
 <p align="center">
-  <strong>逐步执行的任务编排工具 - 为 Claude Code 构建可靠的 AI 工作流，支持断点恢复</strong>
+  <strong>逐步执行的任务编排工具 - 为 AI CLI 智能体构建可靠的 AI 工作流，支持断点恢复</strong>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
 | 私有数据处理困难 | 支持 Skill 生成 Agent，多次尝试成功后自动总结 Skill |
 | 调试困难、中断丢失 | 断点恢复、调试模式快速验证 |
 
-StepWise 是一个基于 Node.js 和 TypeScript 构建的任务编排工具。它允许你将复杂的代码任务拆分为多个步骤，为每个步骤定制提示词，然后交由 Claude Code 的 AI 编程智能体执行。
+StepWise 是一个基于 Node.js 和 TypeScript 构建的任务编排工具。它允许你将复杂的代码任务拆分为多个步骤，为每个步骤定制提示词，然后交由 AI CLI 智能体（Claude Code、OpenCode 等）执行。
 
 ---
 
@@ -49,29 +49,44 @@ await agent.execPrompt('步骤 3: 重构核心逻辑');
 // 已完成的步骤自动跳过，支持断点恢复
 ```
 
-### 示例 2：数据校验与条件检查
+### 示例 2：使用 checkPrompt 进行数据校验
 
-收集结构化数据，自动校验：
+使用 `checkPrompt` 选项在数据收集后进行额外校验：
 
 ```typescript
-// 数据收集 + 自动校验
+// 数据收集 + checkPrompt 额外校验
 const result = await agent.execCollectPrompt('收集所有 API 接口', {
   keys: [
     { name: 'name', description: 'API 名称', type: 'string' },
     { name: 'method', description: 'HTTP 方法', type: 'string' },
     { name: 'path', description: 'API 路径', type: 'string' }
-  ]
+  ],
+  checkPrompt: '验证所有接口路径都以 / 开头'
 });
-// 校验失败自动重试修复
+// checkPrompt 在数据收集后运行，进行额外验证
+```
 
-// 条件检查
-const checkResult = await agent.execCheckPrompt('检查是否有未使用的导入');
-if (checkResult.result) {
-  await agent.execPrompt('清理未使用的导入');
+### 示例 3：使用 execCheckPrompt 进行分支路由
+
+`execCheckPrompt` 作为路由节点，根据条件判断结果分发到不同的 Agent 分支：
+
+```typescript
+// execCheckPrompt 返回 true/false 用于路由决策
+const checkResult = await agent.execCheckPrompt('检查测试是否通过');
+
+// 根据结果路由到不同的 Agent
+if (!checkResult.result) {
+  // 分支到 FixAgent 修复失败的测试
+  const fixAgent = new StepWise('FixAgent');
+  await fixAgent.execPrompt('修复失败的测试');
+} else {
+  // 分支到 DeployAgent 进行部署
+  const deployAgent = new StepWise('DeployAgent');
+  await deployAgent.execPrompt('部署到预发环境');
 }
 ```
 
-### 示例 3：Skill 自动生成
+### 示例 4：Skill 自动生成
 
 多次尝试成功后，自动总结生成 Skill：
 
@@ -90,7 +105,7 @@ const summaryResult = await agent.summarize();
 console.log('生成的 Skill 文件:', summaryResult.skillFiles);
 ```
 
-### 示例 4：断点恢复
+### 示例 5：断点恢复
 
 从中断点恢复任务，进度不丢失：
 
@@ -117,7 +132,7 @@ await agent.execPrompt('步骤 3: 处理项目 $name', { data: { name: 'item1' }
 |------|------|------|
 | `execPrompt` | 普通任务 | 执行单个提示词任务 |
 | `execCollectPrompt` | 收集任务 | 收集结构化数据，自动校验 |
-| `execCheckPrompt` | 检查任务 | 检查条件并返回 true/false |
+| `execCheckPrompt` | 路由节点 | 检查条件并返回 true/false，用于分支路由 |
 | `execReport` | 报告任务 | 生成汇总报告 |
 | `execShell` | Shell 命令 | 执行 Shell 命令（构建、测试等） |
 | `summarize` | Skill 生成 | 总结会话生成 Skill |
@@ -139,6 +154,8 @@ await agent.execPrompt('第二个任务');  // 任务 #2
 
 ### 数据校验
 
+#### execCollectPrompt 内置校验
+
 自动校验，失败时重试：
 
 ```typescript
@@ -152,21 +169,38 @@ const result = await agent.execCollectPrompt('收集用户数据', {
 });
 ```
 
-### 条件检查
+#### 使用 checkPrompt 进行额外校验
 
-检查条件并分支执行：
+`checkPrompt` 选项在任务完成后运行，进行自定义校验：
 
 ```typescript
-// 检查测试是否通过
-const testResult = await agent.execCheckPrompt('运行测试并检查是否全部通过');
-if (!testResult.result) {
-  await agent.execPrompt('修复失败的测试');
-}
+// checkPrompt 在主任务完成后使用 --resume 模式运行
+await agent.execPrompt('创建用户模块', {
+  checkPrompt: '验证模块符合项目规范'
+});
 
+// 同样适用于 execCollectPrompt
+const result = await agent.execCollectPrompt('收集配置数据', {
+  keys: [...],
+  checkPrompt: '验证所有配置值都有效'
+});
+```
+
+### 使用 execCheckPrompt 进行分支路由
+
+`execCheckPrompt` 是一个路由节点，返回布尔值用于分支决策：
+
+```typescript
 // 检查代码质量
-const lintResult = await agent.execCheckPrompt('检查是否有 lint 错误');
-if (lintResult.result) {
-  await agent.execPrompt('修复 lint 问题');
+const qualityCheck = await agent.execCheckPrompt('检查代码质量分数是否超过 80');
+if (qualityCheck.result) {
+  // 高质量 - 进行部署
+  const deployAgent = new StepWise('DeployAgent');
+  await deployAgent.execPrompt('部署到生产环境');
+} else {
+  // 低质量 - 路由到改进 Agent
+  const improveAgent = new StepWise('ImproveAgent');
+  await improveAgent.execPrompt('提升代码质量');
 }
 ```
 
@@ -238,7 +272,7 @@ const result = await agent.execShell('npm test', {
 });
 ```
 
-### CLI 支持
+### CLI 智能体支持
 
 切换不同的 CLI 智能体：
 
@@ -320,6 +354,13 @@ StepWise 通过任务序号和进度持久化实现步骤控制：
 - 字段完整性校验
 - 类型匹配校验
 - 校验失败自动生成修复提示词
+- `checkPrompt` 选项支持自定义校验
+
+### 分支路由机制
+
+- `execCheckPrompt` 输出 `{ result: true/false }` 到 `check_result.json`
+- 根据结果路由到不同的 Agent
+- 实现条件分支工作流
 
 ### Skill 生成机制
 
@@ -327,16 +368,18 @@ StepWise 通过任务序号和进度持久化实现步骤控制：
 - **生成条件**：多次尝试成功的任务、有价值的经验
 - **存储位置**：项目级 `.claude/skills/` 目录
 
-### Session 复用
+### CLI 智能体集成
 
-StepWise 基于 Claude Code 的 headless 模式实现，支持 Session 复用：
+StepWise 通过 AI CLI 智能体的 headless 模式工作，支持 Session 复用：
 
 ```bash
-# 新会话执行任务
+# Claude Code 示例
 claude --dangerously-skip-permissions --session-id <uuid> -p "你的提示词"
-
-# 恢复会话继续执行
 claude --dangerously-skip-permissions --resume <session-id> -p "你的提示词"
+
+# OpenCode 示例
+opencode --session-id <uuid> -p "你的提示词"
+opencode --resume <session-id> -p "你的提示词"
 ```
 
 核心机制：
