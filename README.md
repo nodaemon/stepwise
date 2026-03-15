@@ -1,7 +1,7 @@
 # StepWise
 
 <p align="center">
-  <strong>Step-by-step task orchestration - Make AI coding assistants reliably execute complex tasks</strong>
+  <strong>Efficient AI Agent Team Building Framework - Make AI coding assistants reliably execute complex tasks</strong>
 </p>
 
 <p align="center">
@@ -17,7 +17,7 @@
 
 ## Why StepWise?
 
-When working with AI Agents on complex development tasks, we often face three major pain points:
+When working with AI coding assistants on complex development tasks, we often face three major pain points:
 
 | Pain Point | StepWise Solution |
 |------------|-------------------|
@@ -25,7 +25,7 @@ When working with AI Agents on complex development tasks, we often face three ma
 | Private data handling is difficult | Support Skill-generating Agents, auto-summarize Skills after multiple successful attempts |
 | Debugging is hard, progress lost on interruption | Checkpoint recovery, debug mode for quick validation |
 
-StepWise is a task orchestration tool built on Node.js and TypeScript. It enables you to break down complex coding tasks into multiple steps, customize prompts for each step, and call AI coding assistants (Claude Code, OpenCode, etc.) to execute them.
+StepWise enables AI coding assistants (Claude Code, OpenCode, etc.) to complete complex tasks reliably through step-by-step orchestration, data validation, conditional routing, and checkpoint recovery.
 
 ---
 
@@ -60,6 +60,7 @@ if (!buildResult.success) {
 Collect structured data reliably with built-in validation and retry mechanisms:
 
 ```typescript
+// Internal mechanisms ensure stable collection
 const result = await agent.execCollectPrompt('Collect all API endpoints', {
   keys: [
     { name: 'name', description: 'API name', type: 'string' },
@@ -67,12 +68,6 @@ const result = await agent.execCollectPrompt('Collect all API endpoints', {
     { name: 'path', description: 'API path', type: 'string' }
   ]
 });
-
-// Internal mechanisms ensure stable collection:
-// 1. JSON format validation
-// 2. Field completeness check
-// 3. Type matching verification
-// 4. Auto-retry with fix prompts on validation failure
 
 // Optionally, add custom validation with checkPrompt
 const result = await agent.execCollectPrompt('Collect user data', {

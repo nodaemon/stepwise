@@ -1,7 +1,7 @@
 # StepWise
 
 <p align="center">
-  <strong>逐步执行的任务编排工具 - 让 AI 编程助手可靠执行复杂任务</strong>
+  <strong>高效的 AI Agent 团队构建框架 - 让 AI 编程助手可靠执行复杂任务</strong>
 </p>
 
 <p align="center">
@@ -17,7 +17,7 @@
 
 ## 为什么需要 StepWise？
 
-在使用 AI Agent 进行复杂开发任务时，我们经常遇到三大痛点：
+在使用 AI 编程助手进行复杂开发任务时，我们经常遇到三大痛点：
 
 | 痛点 | StepWise 解决方案 |
 |------|------------------|
@@ -25,7 +25,7 @@
 | 私有数据处理困难 | 支持 Skill 生成 Agent，多次尝试成功后自动总结 Skill |
 | 调试困难、中断丢失 | 断点恢复、调试模式快速验证 |
 
-StepWise 是一个基于 Node.js 和 TypeScript 构建的任务编排工具。它允许你将复杂的代码任务拆分为多个步骤，为每个步骤定制提示词，然后调用 AI 编程助手（Claude Code、OpenCode 等）执行。
+StepWise 通过步骤化编排、数据校验、条件路由和断点恢复等机制，让 AI 编程助手（Claude Code、OpenCode 等）能够稳定可靠地完成复杂任务。
 
 ---
 
@@ -60,6 +60,7 @@ if (!buildResult.success) {
 内置校验和重试机制，确保数据收集稳定可靠：
 
 ```typescript
+// 内置机制确保稳定收集
 const result = await agent.execCollectPrompt('收集所有 API 接口', {
   keys: [
     { name: 'name', description: 'API 名称', type: 'string' },
@@ -67,12 +68,6 @@ const result = await agent.execCollectPrompt('收集所有 API 接口', {
     { name: 'path', description: 'API 路径', type: 'string' }
   ]
 });
-
-// 内置机制确保稳定收集：
-// 1. JSON 格式校验
-// 2. 字段完整性检查
-// 3. 类型匹配验证
-// 4. 校验失败自动生成修复提示词重试
 
 // 可选：使用 checkPrompt 添加自定义校验
 const result = await agent.execCollectPrompt('收集用户数据', {
