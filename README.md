@@ -1,7 +1,7 @@
 # StepWise
 
 <p align="center">
-  <strong>Step-by-step task orchestration for AI CLI agents - build reliable AI workflows with checkpoint recovery</strong>
+  <strong>Step-by-step task orchestration - Make AI coding assistants reliably execute complex tasks</strong>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@ When working with AI Agents on complex development tasks, we often face three ma
 | Private data handling is difficult | Support Skill-generating Agents, auto-summarize Skills after multiple successful attempts |
 | Debugging is hard, progress lost on interruption | Checkpoint recovery, debug mode for quick validation |
 
-StepWise is a task orchestration tool built on Node.js and TypeScript. It enables you to break down complex coding tasks into multiple steps, customize prompts for each step, and delegate execution to AI CLI agents (Claude Code, OpenCode, etc.).
+StepWise is a task orchestration tool built on Node.js and TypeScript. It enables you to break down complex coding tasks into multiple steps, customize prompts for each step, and call AI coding assistants (Claude Code, OpenCode, etc.) to execute them.
 
 ---
 
@@ -274,7 +274,7 @@ const result = await agent.execShell('npm test', {
 
 ### CLI Agent Support
 
-Switch between different CLI agents:
+Switch between different AI coding assistants:
 
 ```typescript
 import { setAgentType } from 'stepwise';
@@ -307,7 +307,7 @@ setResumePath('MyTask_20260315_143000_123');
 // Enable debug mode
 enableDebugMode(true);
 
-// Switch CLI agent
+// Switch AI coding assistant
 setAgentType('claude');  // or 'opencode'
 
 // Save/load data
@@ -370,7 +370,7 @@ StepWise implements step control through task sequence numbers and progress pers
 
 ### CLI Agent Integration
 
-StepWise works with AI CLI agents through their headless mode with session reuse:
+StepWise works with AI coding assistants through their headless mode with session reuse:
 
 ```bash
 # Claude Code example

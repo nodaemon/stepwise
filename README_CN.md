@@ -1,7 +1,7 @@
 # StepWise
 
 <p align="center">
-  <strong>逐步执行的任务编排工具 - 为 AI CLI 智能体构建可靠的 AI 工作流，支持断点恢复</strong>
+  <strong>逐步执行的任务编排工具 - 让 AI 编程助手可靠执行复杂任务</strong>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
 | 私有数据处理困难 | 支持 Skill 生成 Agent，多次尝试成功后自动总结 Skill |
 | 调试困难、中断丢失 | 断点恢复、调试模式快速验证 |
 
-StepWise 是一个基于 Node.js 和 TypeScript 构建的任务编排工具。它允许你将复杂的代码任务拆分为多个步骤，为每个步骤定制提示词，然后交由 AI CLI 智能体（Claude Code、OpenCode 等）执行。
+StepWise 是一个基于 Node.js 和 TypeScript 构建的任务编排工具。它允许你将复杂的代码任务拆分为多个步骤，为每个步骤定制提示词，然后调用 AI 编程助手（Claude Code、OpenCode 等）执行。
 
 ---
 
@@ -272,9 +272,9 @@ const result = await agent.execShell('npm test', {
 });
 ```
 
-### CLI 智能体支持
+### AI 编程助手支持
 
-切换不同的 CLI 智能体：
+切换不同的 AI 编程助手：
 
 ```typescript
 import { setAgentType } from 'stepwise';
@@ -307,7 +307,7 @@ setResumePath('MyTask_20260315_143000_123');
 // 启用调试模式
 enableDebugMode(true);
 
-// 切换 CLI 智能体
+// 切换 AI 编程助手
 setAgentType('claude');  // 或 'opencode'
 
 // 保存/加载数据
@@ -368,9 +368,9 @@ StepWise 通过任务序号和进度持久化实现步骤控制：
 - **生成条件**：多次尝试成功的任务、有价值的经验
 - **存储位置**：项目级 `.claude/skills/` 目录
 
-### CLI 智能体集成
+### AI 编程助手集成
 
-StepWise 通过 AI CLI 智能体的 headless 模式工作，支持 Session 复用：
+StepWise 通过 AI 编程助手的 headless 模式工作，支持 Session 复用：
 
 ```bash
 # Claude Code 示例
