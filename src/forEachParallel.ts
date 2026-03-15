@@ -151,7 +151,24 @@ export async function forEachParallel<T>(
         stepWise
       };
 
-      await handler(context);
+      try {
+        await handler(context);
+      } catch (error) {
+        // 构造详细错误信息
+        const errorDetails = [
+          `[forEachParallel] 执行错误`,
+          `  workerId: ${workerId}`,
+          `  itemIndex: ${currentIndex}`,
+          `  workspacePath: ${workspacePath}`,
+          `  原始错误: ${error instanceof Error ? error.message : String(error)}`
+        ].join('\n');
+
+        // 保留原始堆栈
+        const enhancedError = new Error(errorDetails);
+        enhancedError.stack = errorDetails + '\n\n原始堆栈:\n' + (error instanceof Error ? error.stack : '');
+
+        throw enhancedError;
+      }
     }
   };
 
