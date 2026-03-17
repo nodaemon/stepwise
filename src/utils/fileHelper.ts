@@ -29,7 +29,9 @@ export function loadJsonFile<T>(filePath: string): T | null {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
     return JSON.parse(content) as T;
-  } catch {
+  } catch (e) {
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    console.warn(`[fileHelper] JSON 解析失败: ${filePath}\n错误: ${errorMsg}`);
     return null;
   }
 }

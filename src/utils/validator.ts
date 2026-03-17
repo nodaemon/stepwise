@@ -98,17 +98,25 @@ export function validateJsonArray(
 
   // 3. 字段校验（可选）
   if (options.validateFields !== false && options.format && data.length > 0) {
-    const firstItem = data[0];
+    // 检查所有元素是否为对象类型
+    const invalidIndices: number[] = [];
+    for (let i = 0; i < data.length; i++) {
+      if (typeof data[i] !== 'object' || data[i] === null) {
+        invalidIndices.push(i);
+      }
+    }
 
-    // 检查数组元素是否为对象类型
-    if (typeof firstItem !== 'object' || firstItem === null) {
+    if (invalidIndices.length > 0) {
+      const sampleIndex = invalidIndices[0];
+      const sampleValue = data[sampleIndex];
       errors.push({
         type: 'not_object',
-        message: '数组元素不是对象格式',
-        details: `期望: { ... }，第一个元素实际类型: ${typeof firstItem}，值: ${JSON.stringify(firstItem)}`
+        message: `数组中有 ${invalidIndices.length} 个元素不是对象格式`,
+        details: `元素索引: ${invalidIndices.slice(0, 5).join(', ')}${invalidIndices.length > 5 ? '...' : ''}。第一个非对象元素类型: ${typeof sampleValue}，值: ${JSON.stringify(sampleValue).slice(0, 100)}`
       });
     } else {
-      // 元素是对象，检查必填字段
+      // 所有元素都是对象，检查第一个元素的必填字段
+      const firstItem = data[0];
       for (const key of options.format.keys) {
         if (!(key.name in firstItem)) {
           errors.push({
@@ -156,7 +164,7 @@ export function validateJsonObject<T extends Record<string, any>>(
   const data = parseResult.data;
   const errors: ValidationError[] = [];
 
-  // 3. 必填字段校验
+  // 3. 必填字段校验（包括类型检查）
   for (const field of options.requiredFields) {
     if (!(field.name in data)) {
       errors.push({
@@ -164,11 +172,36 @@ export function validateJsonObject<T extends Record<string, any>>(
         message: `缺少必填字段: "${field.name}"`,
         details: `期望类型: ${field.type}`
       });
-    } else if (field.type === 'boolean' && typeof (data as Record<string, unknown>)[field.name] !== 'boolean') {
+      continue;
+    }
+
+    const value = (data as Record<string, unknown>)[field.name];
+    let typeValid = true;
+
+    switch (field.type) {
+      case 'string':
+        typeValid = typeof value === 'string';
+        break;
+      case 'number':
+        typeValid = typeof value === 'number' && !isNaN(value);
+        break;
+      case 'boolean':
+        typeValid = typeof value === 'boolean';
+        break;
+      case 'object':
+        typeValid = typeof value === 'object' && value !== null && !Array.isArray(value);
+        break;
+      case 'array':
+        typeValid = Array.isArray(value);
+        break;
+    }
+
+    if (!typeValid) {
+      const actualType = Array.isArray(value) ? 'array' : (value === null ? 'null' : typeof value);
       errors.push({
         type: 'type_mismatch',
         message: `字段 "${field.name}" 类型错误`,
-        details: `期望: ${field.type}，实际: ${typeof (data as Record<string, unknown>)[field.name]}`
+        details: `期望: ${field.type}，实际: ${actualType}`
       });
     }
   }
