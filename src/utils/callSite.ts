@@ -17,6 +17,16 @@ function isStepwiseInternal(filePath: string): boolean {
 }
 
 /**
+ * 检查是否是 Node.js 内部模块（如 node:internal/process/task_queues）
+ */
+function isNodeInternal(filePath: string): boolean {
+  return filePath.startsWith('node:') ||
+         filePath.includes('/node_modules/') ||
+         filePath.includes('internal/') ||
+         !filePath.includes('/');
+}
+
+/**
  * 获取用户代码的调用位置
  * 跳过所有 stepwise 包内部的栈帧，返回第一个外部调用位置
  * @returns 格式为 "文件名:行号" 的字符串
@@ -36,8 +46,8 @@ export function getUserCallSite(): string {
       const lineNum = match[2];
       const fileName = filePath.split('/').pop() || filePath;
 
-      // 检查是否在 stepwise 包内
-      if (!isStepwiseInternal(filePath)) {
+      // 检查是否在 stepwise 包内或 Node.js 内部
+      if (!isStepwiseInternal(filePath) && !isNodeInternal(filePath)) {
         return `${fileName}:${lineNum}`;
       }
     }
