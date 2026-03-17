@@ -3,7 +3,6 @@
  * 内部维护 taskName、resumePath、debugMode、agentType、workerId、已注册的名字列表
  */
 import * as path from 'path';
-import * as fs from 'fs';
 import { appendJsonArray, loadJsonFile } from './utils/fileHelper';
 import { AgentType } from './types';
 import { PerformanceTracker } from './utils/performanceTracker';
@@ -23,8 +22,6 @@ interface GlobalState {
   agentType: AgentType;
   /** 已注册的 StepWise 名字列表 */
   registeredNames: Set<string>;
-  /** 任务目录时间戳（第一个 StepWise 创建时设置） */
-  taskDirTimestamp: string;
   /** 是否已打印启动信息 */
   hasPrintedStartup: boolean;
   /** Worker 标识（用于 forEachParallel 并发处理） */
@@ -41,7 +38,6 @@ const globalState: GlobalState = {
   skipSummarize: false,
   agentType: 'claude', // 默认使用 Claude Code
   registeredNames: new Set<string>(),
-  taskDirTimestamp: '',
   hasPrintedStartup: false,
   workerId: '',
   taskDir: ''
@@ -98,16 +94,12 @@ export function setTaskName(taskName: string): void {
   // 初始化性能追踪器
   PerformanceTracker.getInstance().init(trimmedName);
 
-  // 生成任务目录时间戳
-  const timestamp = generateTaskDirTimestamp();
-  globalState.taskDirTimestamp = timestamp;
-
-  // 设置 taskDir（新任务模式）
-  globalState.taskDir = path.resolve(process.cwd(), EXEC_INFO_DIR, `${trimmedName}_${timestamp}`);
+  // 生成任务目录
+  const taskDirName = `${trimmedName}_${generateTaskDirTimestamp()}`;
+  globalState.taskDir = path.resolve(process.cwd(), EXEC_INFO_DIR, taskDirName);
 
   // 打印 Task 级别启动信息（只在首次 setTaskName 时打印）
   if (!globalState.hasPrintedStartup) {
-    const taskDirName = `${trimmedName}_${timestamp}`;
     printTaskStartup(trimmedName, taskDirName);
     globalState.hasPrintedStartup = true;
   }
@@ -222,22 +214,6 @@ export function _registerName(name: string): boolean {
 }
 
 /**
- * 设置任务目录时间戳
- * @internal
- */
-export function _setTaskDirTimestamp(timestamp: string): void {
-  globalState.taskDirTimestamp = timestamp;
-}
-
-/**
- * 获取任务目录时间戳
- * @internal
- */
-export function _getTaskDirTimestamp(): string {
-  return globalState.taskDirTimestamp;
-}
-
-/**
  * 重置全局状态（仅用于测试）
  * @internal
  */
@@ -248,7 +224,6 @@ export function _resetState(): void {
   globalState.skipSummarize = false;
   globalState.agentType = 'claude';
   globalState.registeredNames.clear();
-  globalState.taskDirTimestamp = '';
   globalState.hasPrintedStartup = false;
   globalState.workerId = '';
   globalState.taskDir = '';
