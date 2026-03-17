@@ -11,7 +11,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import { StepWise } from './StepWise';
-import { _getTaskName, _getResumePath, _isDebugMode } from './globalState';
+import { _getTaskName, _getResumePath, _isDebugMode, _getTaskDir } from './globalState';
+import { DATA_DIR, PROGRESS_FILE } from './constants';
 
 /**
  * Worker 配置
@@ -46,6 +47,79 @@ export interface WorkerContext<T> {
   workspacePath: string;
   /** 已创建好的 StepWise 实例，名称为 index，自动绑定 workerId */
   stepWise: StepWise;
+}
+
+/**
+ * 任务恢复状态
+ */
+interface TaskResumeState {
+  /** 任务索引 */
+  index: number;
+  /** Worker 标识 */
+  workerId: string;
+  /** 任务状态 */
+  status: 'completed' | 'in_progress';
+  /** 任务目录路径 */
+  taskDir: string;
+}
+
+/**
+ * 扫描已有任务目录，构建恢复状态表
+ */
+function scanResumeStates(taskDir: string, itemsLength: number): Map<number, TaskResumeState> {
+  const states = new Map<number, TaskResumeState>();
+
+  if (!fs.existsSync(taskDir)) {
+    return states;
+  }
+
+  const entries = fs.readdirSync(taskDir, { withFileTypes: true });
+  // 匹配格式: {index}_{workerId}_{timestamp}，例如: 13_TestAgent5_20250101_120000_123
+  const pattern = /^(\d+)_(.+)_\d{8}_\d{6}_\d{3}$/;
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+
+    const match = entry.name.match(pattern);
+    if (!match) continue;
+
+    const index = parseInt(match[1], 10);
+    const workerId = match[2];
+
+    // 超出范围的任务索引，跳过
+    if (index >= itemsLength) continue;
+
+    const progressPath = path.join(taskDir, entry.name, DATA_DIR, PROGRESS_FILE);
+
+    if (fs.existsSync(progressPath)) {
+      try {
+        const progress = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
+        const hasInProgress = progress.tasks?.some?.((t: any) => t.status === 'in_progress');
+        const status = hasInProgress ? 'in_progress' : 'completed';
+
+        // 如果已有记录，保留 in_progress 的（优先恢复）
+        const existing = states.get(index);
+        if (!existing || (existing.status === 'completed' && status === 'in_progress')) {
+          states.set(index, {
+            index,
+            workerId,
+            status,
+            taskDir: path.join(taskDir, entry.name)
+          });
+        }
+      } catch {
+        // progress.json 损坏，视为 in_progress
+        states.set(index, {
+          index,
+          workerId,
+          status: 'in_progress',
+          taskDir: path.join(taskDir, entry.name)
+        });
+      }
+    }
+  }
+
+  return states;
 }
 
 /**
@@ -114,33 +188,99 @@ export async function forEachParallel<T>(
   }
 
   const isResume = !!_getResumePath();
+  const taskDir = _getTaskDir();
 
   // 1. 确保所有 worktree 已创建
   const workspacePaths = ensureWorktrees(workerConfigs, isResume);
 
-  // 2. 创建主 StepWise（用于最后 merge）
+  // 2. 恢复模式：扫描已有任务状态
+  const resumeStates = isResume ? scanResumeStates(taskDir, items.length) : undefined;
+
+  // 3. 统计恢复信息
+  if (resumeStates && resumeStates.size > 0) {
+    const completed = [...resumeStates.values()].filter(s => s.status === 'completed').length;
+    const inProgress = resumeStates.size - completed;
+    console.log(`[forEachParallel] 恢复模式: ${completed} 个任务已完成, ${inProgress} 个任务进行中`);
+  }
+
+  // 4. 创建主 StepWise（用于最后 merge）
   const mainStepWise = new StepWise('main');
 
-  // 3. 并发执行
-  let itemIndex = 0;
+  // 5. 并发执行
+  let newItemIndex = 0;  // 新任务的分配索引
 
   const worker = async (workerIndex: number) => {
     const workerConfig = workerConfigs[workerIndex];
     const workspacePath = workspacePaths[workerIndex];
     const workerId = workerConfig.branchName;
 
-    while (itemIndex < items.length) {
-      const currentIndex = itemIndex++;
+    // 步骤 A: 恢复自己负责的进行中任务
+    if (resumeStates) {
+      for (const [index, state] of resumeStates) {
+        if (state.workerId === workerId && state.status === 'in_progress') {
+          console.log(`[forEachParallel] Worker ${workerId} 恢复任务 ${index}`);
+
+          const stepWise = new StepWise(String(index), workspacePath, workerConfig.env, workerId);
+          const context: WorkerContext<T> = {
+            item: items[index],
+            index,
+            workerConfig,
+            workspacePath,
+            stepWise
+          };
+
+          try {
+            await handler(context);
+          } catch (error) {
+            // 构造详细错误信息
+            const errorDetails = [
+              `[forEachParallel] 执行错误`,
+              `  workerId: ${workerId}`,
+              `  itemIndex: ${index}`,
+              `  workspacePath: ${workspacePath}`,
+              `  原始错误: ${error instanceof Error ? error.message : String(error)}`
+            ].join('\n');
+
+            // 保留原始堆栈
+            const enhancedError = new Error(errorDetails);
+            enhancedError.stack = errorDetails + '\n\n原始堆栈:\n' + (error instanceof Error ? error.stack : '');
+
+            throw enhancedError;
+          }
+
+          // 标记为已处理
+          resumeStates.delete(index);
+        }
+      }
+    }
+
+    // 步骤 B: 处理新任务（或非恢复模式）
+    while (newItemIndex < items.length) {
+      const currentIndex = newItemIndex++;
 
       // Debug 模式下只处理第一个元素
       if (_isDebugMode() && currentIndex > 0) {
         break;
       }
 
-      const item = items[currentIndex];
+      // 恢复模式：检查任务状态
+      if (resumeStates) {
+        const state = resumeStates.get(currentIndex);
 
-      // 创建 StepWise，名称为 index，默认 cwd 为 workspacePath，默认 env 为 workerConfig.env
-      // workerId 作为实例属性传入，避免并发时的全局状态竞态
+        if (state) {
+          if (state.status === 'completed') {
+            // 已完成，跳过
+            console.log(`[forEachParallel] 跳过已完成的任务 ${currentIndex}`);
+            continue;
+          }
+          if (state.status === 'in_progress' && state.workerId !== workerId) {
+            // 其他 worker 正在恢复，跳过
+            continue;
+          }
+        }
+      }
+
+      const item = items[currentIndex];
       const stepWise = new StepWise(String(currentIndex), workspacePath, workerConfig.env, workerId);
 
       const context: WorkerContext<T> = {
@@ -175,7 +315,7 @@ export async function forEachParallel<T>(
   // 并发执行所有 worker
   await Promise.all(workerConfigs.map((_, idx) => worker(idx)));
 
-  // 4. 串行执行 merge（任务完成后）
+  // 6. 串行执行 merge（任务完成后）
   await mergeWorkerBranches(workerConfigs, mainStepWise);
 }
 
