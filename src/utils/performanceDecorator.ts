@@ -3,7 +3,7 @@
  * 使用 TC39 装饰器实现 AOP，性能统计逻辑与业务代码分离
  */
 
-import { getCallSite } from './callSite';
+import { getUserCallSite } from './callSite';
 import { PerformanceTracker } from './performanceTracker';
 import { PerformanceType, ExecutionResult, CollectResult, CheckResult, SummarizeResult, ShellResult } from '../types';
 import { _getTaskDir } from '../globalState';
@@ -58,7 +58,7 @@ export function trackPerformance(type: PerformanceType) {
 
       // 跳过的任务不记录（执行时间不足 3 秒）
       if (duration >= SKIPPED_THRESHOLD_MS) {
-        const key = getCallSite(2);
+        const key = getUserCallSite();
         PerformanceTracker.getInstance().record(key, type, duration);
         PerformanceTracker.getInstance().saveReport(getPerformanceReportPath());
       }
