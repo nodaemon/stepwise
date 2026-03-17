@@ -1,3 +1,6 @@
+// 注册 source-map-support，支持运行时将 JS 行号映射回 TS 源码行号
+import 'source-map-support/register';
+
 // StepWise 类
 export { StepWise } from './StepWise';
 
@@ -37,5 +40,7 @@ export {
   _isDebugMode,
   _shouldSkipSummarize,
   _registerName,
-  _getAgentType
+  _getAgentType,
+  _getTaskDir,
+  _setTaskDir
 } from './globalState';

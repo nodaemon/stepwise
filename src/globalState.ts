@@ -27,6 +27,8 @@ interface GlobalState {
   hasPrintedStartup: boolean;
   /** Worker 标识（用于 forEachParallel 并发处理） */
   workerId: string;
+  /** 任务目录路径（用于性能统计报告输出） */
+  taskDir: string;
 }
 
 /** 全局状态实例 */
@@ -39,7 +41,8 @@ const globalState: GlobalState = {
   registeredNames: new Set<string>(),
   taskDirTimestamp: '',
   hasPrintedStartup: false,
-  workerId: ''
+  workerId: '',
+  taskDir: ''
 };
 
 /**
@@ -238,4 +241,21 @@ export function _resetState(): void {
   globalState.taskDirTimestamp = '';
   globalState.hasPrintedStartup = false;
   globalState.workerId = '';
+  globalState.taskDir = '';
+}
+
+/**
+ * 获取任务目录路径
+ * @internal
+ */
+export function _getTaskDir(): string {
+  return globalState.taskDir;
+}
+
+/**
+ * 设置任务目录路径
+ * @internal
+ */
+export function _setTaskDir(dir: string): void {
+  globalState.taskDir = dir;
 }

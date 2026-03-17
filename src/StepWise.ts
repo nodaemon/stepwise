@@ -34,7 +34,7 @@ import {
 import {
   buildCollectPrompt,
   buildReportPrompt,
-  buildCheckPrompt,
+  buildPostCheckPrompt,
   buildFullPrompt,
   replaceVariables,
   buildSummarizePrompt
@@ -56,8 +56,10 @@ import {
   _shouldSkipSummarize,
   _registerName,
   _setTaskDirTimestamp,
-  _getTaskDirTimestamp
+  _getTaskDirTimestamp,
+  _setTaskDir
 } from './globalState';
+import { trackPerformance } from './utils/performanceDecorator';
 
 /**
  * StepWise 主类
@@ -144,6 +146,9 @@ export class StepWise {
 
       this.taskDir = taskDirFullPath;
 
+      // 设置全局 taskDir（用于性能统计报告输出）
+      _setTaskDir(taskDirFullPath);
+
       // 根据 agentName 查找对应的 Agent 目录
       const agentDir = this.findAgentDir(taskDirFullPath, this.name);
       if (agentDir) {
@@ -191,6 +196,9 @@ export class StepWise {
 
       const taskDirName = `${taskName}_${timestamp}`;
       this.taskDir = path.resolve(process.cwd(), EXEC_INFO_DIR, taskDirName);
+
+      // 设置全局 taskDir（用于性能统计报告输出）
+      _setTaskDir(this.taskDir);
 
       // Agent 目录使用新的时间戳
       const agentTimestamp = this.formatTimestamp(new Date());
@@ -886,24 +894,25 @@ export class StepWise {
   }
 
   /**
-   * 执行 checkPrompt
+   * 执行 postCheckPrompt
    */
-  private async executeCheckPromptInternal(
-    checkPrompt: string,
+  @trackPerformance('postCheck')
+  private async runPostCheck(
+    postCheckPrompt: string,
     cwd: string | undefined,
     env: string[] | undefined,
     sessionId: string,
     taskLogDir: string,
     taskIndex: number
   ): Promise<void> {
-    const processedCheckPrompt = this.processPrompt(checkPrompt);
+    const processedPostCheckPrompt = this.processPrompt(postCheckPrompt);
 
-    // 写入 checkPrompt 日志
+    // 写入 postCheckPrompt 日志
     if (taskLogDir) {
-      this.logger?.writeTaskLog(taskLogDir, 'check_prompt.txt', processedCheckPrompt);
+      this.logger?.writeTaskLog(taskLogDir, 'post_check_prompt.txt', processedPostCheckPrompt);
     }
 
-    await this.executor.execute(processedCheckPrompt, {
+    await this.executor.execute(processedPostCheckPrompt, {
       cwd,
       env,
       sessionId,
@@ -935,6 +944,7 @@ export class StepWise {
   /**
    * 执行普通任务
    */
+  @trackPerformance('prompt')
   async execPrompt(prompt: string, options?: ExecOptions): Promise<ExecutionResult> {
     this.validatePrompt(prompt);
 
@@ -1002,8 +1012,8 @@ export class StepWise {
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
 
     if (result.success) {
-      if (options?.checkPrompt && !_isDebugMode()) {
-        await this.executeCheckPromptInternal(options.checkPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
+      if (options?.postCheckPrompt && !_isDebugMode()) {
+        await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
       }
       this.recordTaskComplete(taskIndex, `${taskIndex}_task`, sessionId, taskType);
     }
@@ -1014,6 +1024,7 @@ export class StepWise {
   /**
    * 执行收集任务
    */
+  @trackPerformance('prompt')
   async execCollectPrompt(
     prompt: string,
     outputFormat: OutputFormat,
@@ -1099,9 +1110,9 @@ export class StepWise {
 
     this.writeTaskLogs(taskLogDir, result);
 
-    // 在读取 JSON 之前执行 checkPrompt
-    if (result.success && options?.checkPrompt && !_isDebugMode()) {
-      await this.executeCheckPromptInternal(options.checkPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
+    // 在读取 JSON 之前执行 postCheckPrompt
+    if (result.success && options?.postCheckPrompt && !_isDebugMode()) {
+      await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
     }
 
     let data: Record<string, any>[] = [];
@@ -1133,6 +1144,7 @@ export class StepWise {
    * 执行检查任务
    * 输出文件名固定为 check_result.json， 存放在 Agent 的 check 目录
    */
+  @trackPerformance('prompt')
   async execCheckPrompt(
     prompt: string,
     options?: ExecOptions
@@ -1197,7 +1209,7 @@ export class StepWise {
     const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
     // 构建完整提示词
-    const extraPrompt = buildCheckPrompt(outputPath, processedPrompt, effectiveCwd);
+    const extraPrompt = buildPostCheckPrompt(outputPath, processedPrompt, effectiveCwd);
     const fullPrompt = buildFullPrompt(processedPrompt, extraPrompt);
 
     this.logger?.logTaskStart(taskIndex, taskType, sessionId);
@@ -1221,9 +1233,9 @@ export class StepWise {
 
     this.writeTaskLogs(taskLogDir, result);
 
-    // 在读取 check result JSON 之前执行 checkPrompt
-    if (result.success && options?.checkPrompt && !_isDebugMode()) {
-      await this.executeCheckPromptInternal(options.checkPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
+    // 在读取 check result JSON 之前执行 postCheckPrompt
+    if (result.success && options?.postCheckPrompt && !_isDebugMode()) {
+      await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
     }
 
     let checkResult = false;
@@ -1258,6 +1270,7 @@ export class StepWise {
    * 执行报告任务
    * 输出到 TaskName 目录的 report/ 子目录
    */
+  @trackPerformance('prompt')
   async execReport(
     prompt: string,
     outputFormat: OutputFormat,
@@ -1342,9 +1355,9 @@ export class StepWise {
 
     this.writeTaskLogs(taskLogDir, result);
 
-    // 在读取 JSON 之前执行 checkPrompt
-    if (result.success && options?.checkPrompt && !_isDebugMode()) {
-      await this.executeCheckPromptInternal(options.checkPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
+    // 在读取 JSON 之前执行 postCheckPrompt
+    if (result.success && options?.postCheckPrompt && !_isDebugMode()) {
+      await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
     }
 
     let data: Record<string, any>[] = [];
@@ -1397,6 +1410,7 @@ export class StepWise {
    * 用户主动调用的总结方法
    * 用于在最后一个任务完成后，总结当前 session
    */
+  @trackPerformance('summarize')
   async summarize(options?: SummarizeOptions): Promise<SummarizeResult> {
     if (!this.currentSessionId) {
       throw new Error('错误: 没有活动的 session，无法总结');
@@ -1506,6 +1520,7 @@ export class StepWise {
    *   retry: true        // 失败时重试
    * });
    */
+  @trackPerformance('prompt')
   async execShell(command: string, options?: ShellOptions): Promise<ShellResult> {
     // 验证命令不能为空
     if (!command || command.trim() === '') {

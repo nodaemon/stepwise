@@ -37,7 +37,7 @@ export interface ExecOptions {
    * 如果指定，主任务完成后会使用 --resume 模式执行此提示词
    * 支持 data 变量替换
    */
-  checkPrompt?: string;
+  postCheckPrompt?: string;
   /**
    * 额外的环境变量数组，格式为 "KEY=VALUE"
    */
@@ -224,9 +224,9 @@ export interface ShellOptions {
 }
 
 /**
- * Shell 执行结果
- * execShell 方法的返回类型
- */
+   * Shell 执行结果
+   * execShell 方法的返回类型
+   */
 export interface ShellResult {
   /**
    * 标准输出 (stdout)
@@ -263,4 +263,59 @@ export interface ShellResult {
    * 在整个任务流程中的序号
    */
   taskIndex: number;
+}
+
+// ============ 性能统计相关类型 ============
+
+/**
+ * 性能统计类型
+ * - prompt: execPrompt、execCollectPrompt、execCheckPrompt、execReport、execShell
+ * - summarize: summarize 方法
+ * - postCheck: ExecOptions.postCheckPrompt 选项触发的验证检查
+ */
+export type PerformanceType = 'prompt' | 'summarize' | 'postCheck';
+
+/**
+ * 单个类型的性能统计
+ */
+export interface PerformanceTypeStats {
+  /** 执行次数 */
+  count: number;
+  /** 总耗时（毫秒） */
+  totalDuration: number;
+  /** 最大耗时（毫秒） */
+  maxDuration: number;
+  /** 最小耗时（毫秒） */
+  minDuration: number;
+}
+
+/**
+ * 单个 key 的性能统计
+ */
+export interface PerformanceStats {
+  /** 统计 key，格式为 "文件名:行号" */
+  key: string;
+  /** 各类型的性能统计 */
+  types: Record<PerformanceType, PerformanceTypeStats>;
+}
+
+/**
+ * 性能统计报告
+ */
+export interface PerformanceReport {
+  /** 任务名称 */
+  taskName: string;
+  /** 生成时间 */
+  generatedAt: string;
+  /** 汇总信息 */
+  summary: {
+    /** 总执行次数 */
+    totalCount: number;
+    /** 总耗时（毫秒） */
+    totalDuration: number;
+    /** 唯一 key 数量 */
+    uniqueKeys: number;
+  };
+  /** 各 key 的性能统计 */
+  stats: PerformanceStats[];
 }
