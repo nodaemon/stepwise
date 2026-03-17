@@ -933,6 +933,68 @@ export class StepWise {
   }
 
   /**
+   * 从输出文本中提取 JSON 数组
+   * 
+   * 【使用场景】
+   * 
+   * 当 AI 没有使用工具写入文件，而是直接在输出中返回 JSON 时，
+   * 使用此方法从输出文本中提取 JSON 数组。
+   * 
+   * 例如，OpenCode 可能直接返回：
+   * ```
+   * [
+   *   {"id": 1, "name": "Alice"},
+   *   {"id": 2, "name": "Bob"}
+   * ]
+   * ```
+   * 或者在 markdown 代码块中：
+   * ```json
+   * [{"id": 1, "name": "Alice"}]
+   * ```
+   * 
+   * 【提取策略】
+   * 1. 优先尝试提取 markdown 代码块中的 JSON
+   * 2. 如果失败，尝试匹配 [...] 格式的数组
+   * 3. 确保解析结果是数组类型才返回
+   * 
+   * @param output AI 输出的文本
+   * @returns 解析出的 JSON 数组，解析失败返回空数组
+   */
+  private extractJsonArrayFromOutput(output: string): Record<string, any>[] {
+    if (!output || !output.trim()) {
+      return [];
+    }
+
+    // 尝试提取 markdown 代码块中的 JSON
+    const codeBlockMatch = output.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (codeBlockMatch) {
+      try {
+        const parsed = JSON.parse(codeBlockMatch[1].trim());
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      } catch {
+        // 继续尝试其他方式
+      }
+    }
+
+    // 尝试匹配数组格式 [...]
+    const arrayMatch = output.match(/\[[\s\S]*\]/);
+    if (arrayMatch) {
+      try {
+        const parsed = JSON.parse(arrayMatch[0]);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      } catch {
+        // 解析失败
+      }
+    }
+
+    return [];
+  }
+
+  /**
    * 执行普通任务
    */
   async execPrompt(prompt: string, options?: ExecOptions): Promise<ExecutionResult> {
@@ -1105,16 +1167,36 @@ export class StepWise {
     }
 
     let data: Record<string, any>[] = [];
-    if (result.success && fileExists(outputPath)) {
-      data = await this.readJsonWithValidation<Record<string, any>[]>(
-        outputPath,
-        options,
-        { cwd: effectiveCwd, env: effectiveEnv, taskLogDir, taskIndex, taskType },
-        {
-          validate: (content) => validateJsonArray(content, { format: outputFormat, validateFields: true }),
-          expectedFormat: 'array'
+    if (result.success) {
+      // 策略一：优先从文件读取
+      // AI 应该使用工具将数据写入文件
+      if (fileExists(outputPath)) {
+        data = await this.readJsonWithValidation<Record<string, any>[]>(
+          outputPath,
+          options,
+          { cwd: effectiveCwd, env: effectiveEnv, taskLogDir, taskIndex, taskType },
+          {
+            validate: (content) => validateJsonArray(content, { format: outputFormat, validateFields: true }),
+            expectedFormat: 'array'
+          }
+        ) || [];
+      }
+      
+      // 策略二：从 output 中解析 JSON
+      // 某些 AI（如 OpenCode）可能不调用 Write 工具，直接在输出中返回 JSON
+      // 这种情况下，我们从 output 中提取 JSON 数组，并写入文件
+      if (data.length === 0 && result.output) {
+        data = this.extractJsonArrayFromOutput(result.output);
+        if (data.length > 0) {
+          // 确保目录存在
+          const outputDir = path.dirname(outputPath);
+          if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+          }
+          // 将解析出的数据写入文件，供后续读取
+          fs.writeFileSync(outputPath, JSON.stringify(data, null, 2), 'utf-8');
         }
-      ) || [];
+      }
     }
 
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
