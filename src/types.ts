@@ -269,11 +269,12 @@ export interface ShellResult {
 
 /**
  * 性能统计类型
- * - prompt: execPrompt、execCollectPrompt、execCheckPrompt、execReport、execShell
+ * - prompt: execPrompt、execCollectPrompt、execCheckPrompt、execReport
+ * - shell: execShell
  * - summarize: summarize 方法
  * - postCheck: ExecOptions.postCheckPrompt 选项触发的验证检查
  */
-export type PerformanceType = 'prompt' | 'summarize' | 'postCheck';
+export type PerformanceType = 'prompt' | 'shell' | 'summarize' | 'postCheck';
 
 /**
  * 单个类型的性能统计

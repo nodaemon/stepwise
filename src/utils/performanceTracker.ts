@@ -68,6 +68,7 @@ export class PerformanceTracker {
         key,
         types: {
           prompt: { ...emptyStats },
+          shell: { ...emptyStats },
           summarize: { ...emptyStats },
           postCheck: { ...emptyStats }
         }
@@ -188,6 +189,34 @@ export class PerformanceTracker {
       const minutes = Math.floor(ms / 60000);
       const seconds = Math.round((ms % 60000) / 1000);
       return `${minutes}m${seconds}s`;
+    }
+  }
+
+  /**
+   * 加载已有的性能报告（用于恢复模式）
+   * @param inputPath JSON 文件路径
+   */
+  loadReport(inputPath: string): void {
+    if (!fs.existsSync(inputPath)) {
+      return;
+    }
+
+    try {
+      const content = fs.readFileSync(inputPath, 'utf-8');
+      const report: PerformanceReport = JSON.parse(content);
+
+      // 恢复 taskName
+      if (report.taskName) {
+        this.taskName = report.taskName;
+      }
+
+      // 合并统计数据
+      for (const stat of report.stats) {
+        this.statsMap.set(stat.key, stat);
+      }
+    } catch (error) {
+      // 解析失败时忽略，继续使用空的 statsMap
+      console.warn(`[PerformanceTracker] 加载性能报告失败: ${inputPath}`);
     }
   }
 

@@ -55,11 +55,10 @@ import {
   _isDebugMode,
   _shouldSkipSummarize,
   _registerName,
-  _setTaskDirTimestamp,
-  _getTaskDirTimestamp,
-  _setTaskDir
+  _getTaskDir
 } from './globalState';
 import { trackPerformance } from './utils/performanceDecorator';
+import { PerformanceTracker } from './utils/performanceTracker';
 
 /**
  * StepWise 主类
@@ -133,24 +132,25 @@ export class StepWise {
   private initDirectories(): void {
     const taskName = _getTaskName();
     const resumePath = _getResumePath();
+    const taskDir = _getTaskDir();
 
     if (resumePath) {
       // 恢复模式
-      const taskDirFullPath = path.resolve(process.cwd(), EXEC_INFO_DIR, resumePath);
-      if (!fs.existsSync(taskDirFullPath)) {
+      if (!taskDir || !fs.existsSync(taskDir)) {
         throw new Error(
           `[StepWise] 无法恢复任务：找不到任务目录 "${resumePath}"\n` +
           `建议: 去掉 setResumePath() 调用，从头开始执行`
         );
       }
 
-      this.taskDir = taskDirFullPath;
+      this.taskDir = taskDir;
 
-      // 设置全局 taskDir（用于性能统计报告输出）
-      _setTaskDir(taskDirFullPath);
+      // 加载已有的性能数据（恢复模式）
+      const performancePath = path.join(this.taskDir, LOGS_DIR, 'performance.json');
+      PerformanceTracker.getInstance().loadReport(performancePath);
 
       // 根据 agentName 查找对应的 Agent 目录
-      const agentDir = this.findAgentDir(taskDirFullPath, this.name);
+      const agentDir = this.findAgentDir(taskDir, this.name);
       if (agentDir) {
         // 找到已有目录，恢复模式
         this.agentDir = agentDir;
@@ -186,19 +186,12 @@ export class StepWise {
       }
     } else {
       // 新任务模式
-      let timestamp = _getTaskDirTimestamp();
+      // taskDir 已在 setTaskName() 中设置
+      this.taskDir = taskDir;
 
-      if (!timestamp) {
-        // 第一个 StepWise 创建时生成任务目录时间戳
-        timestamp = this.formatTimestamp(new Date());
-        _setTaskDirTimestamp(timestamp);
-      }
-
-      const taskDirName = `${taskName}_${timestamp}`;
-      this.taskDir = path.resolve(process.cwd(), EXEC_INFO_DIR, taskDirName);
-
-      // 设置全局 taskDir（用于性能统计报告输出）
-      _setTaskDir(this.taskDir);
+      // 加载已有的性能数据（恢复模式或新任务模式）
+      const performancePath = path.join(this.taskDir, LOGS_DIR, 'performance.json');
+      PerformanceTracker.getInstance().loadReport(performancePath);
 
       // Agent 目录使用新的时间戳
       const agentTimestamp = this.formatTimestamp(new Date());
@@ -1523,7 +1516,7 @@ export class StepWise {
    *   retry: true        // 失败时重试
    * });
    */
-  @trackPerformance('prompt')
+  @trackPerformance('shell')
   async execShell(command: string, options?: ShellOptions): Promise<ShellResult> {
     // 验证命令不能为空
     if (!command || command.trim() === '') {

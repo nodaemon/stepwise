@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import { appendJsonArray, loadJsonFile } from './utils/fileHelper';
 import { AgentType } from './types';
 import { PerformanceTracker } from './utils/performanceTracker';
+import { EXEC_INFO_DIR } from './constants';
 
 /** 全局状态 */
 interface GlobalState {
@@ -101,6 +102,9 @@ export function setTaskName(taskName: string): void {
   const timestamp = generateTaskDirTimestamp();
   globalState.taskDirTimestamp = timestamp;
 
+  // 设置 taskDir（新任务模式）
+  globalState.taskDir = path.resolve(process.cwd(), EXEC_INFO_DIR, `${trimmedName}_${timestamp}`);
+
   // 打印 Task 级别启动信息（只在首次 setTaskName 时打印）
   if (!globalState.hasPrintedStartup) {
     const taskDirName = `${trimmedName}_${timestamp}`;
@@ -115,6 +119,8 @@ export function setTaskName(taskName: string): void {
  */
 export function setResumePath(resumePath: string): void {
   globalState.resumePath = resumePath.trim();
+  // 设置 taskDir（恢复模式）
+  globalState.taskDir = path.resolve(process.cwd(), EXEC_INFO_DIR, resumePath.trim());
 }
 
 /**
