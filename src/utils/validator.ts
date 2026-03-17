@@ -99,13 +99,24 @@ export function validateJsonArray(
   // 3. 字段校验（可选）
   if (options.validateFields !== false && options.format && data.length > 0) {
     const firstItem = data[0];
-    for (const key of options.format.keys) {
-      if (!(key.name in firstItem)) {
-        errors.push({
-          type: 'missing_field',
-          message: `缺少必填字段: "${key.name}"`,
-          details: `字段描述: ${key.description}`
-        });
+
+    // 检查数组元素是否为对象类型
+    if (typeof firstItem !== 'object' || firstItem === null) {
+      errors.push({
+        type: 'not_object',
+        message: '数组元素不是对象格式',
+        details: `期望: { ... }，第一个元素实际类型: ${typeof firstItem}，值: ${JSON.stringify(firstItem)}`
+      });
+    } else {
+      // 元素是对象，检查必填字段
+      for (const key of options.format.keys) {
+        if (!(key.name in firstItem)) {
+          errors.push({
+            type: 'missing_field',
+            message: `缺少必填字段: "${key.name}"`,
+            details: `字段描述: ${key.description}`
+          });
+        }
       }
     }
   }
