@@ -904,7 +904,8 @@ export class StepWise {
     sessionId: string,
     taskLogDir: string,
     taskIndex: number
-  ): Promise<void> {
+  ): Promise<{ duration: number }> {
+    const startTime = Date.now();
     const processedPostCheckPrompt = this.processPrompt(postCheckPrompt);
 
     // 写入 postCheckPrompt 日志
@@ -922,6 +923,8 @@ export class StepWise {
       taskIndex,
       taskType: 'check'
     });
+
+    return { duration: Date.now() - startTime };
   }
 
   /**

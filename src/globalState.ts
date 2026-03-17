@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { appendJsonArray, loadJsonFile } from './utils/fileHelper';
 import { AgentType } from './types';
+import { PerformanceTracker } from './utils/performanceTracker';
 
 /** 全局状态 */
 interface GlobalState {
@@ -92,6 +93,9 @@ export function setTaskName(taskName: string): void {
   // 注册 TaskName
   globalState.registeredNames.add(trimmedName);
   globalState.taskName = trimmedName;
+
+  // 初始化性能追踪器
+  PerformanceTracker.getInstance().init(trimmedName);
 
   // 生成任务目录时间戳
   const timestamp = generateTaskDirTimestamp();
