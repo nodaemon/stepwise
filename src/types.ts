@@ -288,6 +288,8 @@ export interface PerformanceTypeStats {
   maxDuration: number;
   /** 最小耗时（毫秒） */
   minDuration: number;
+  /** 最大耗时对应的日志目录路径（相对于 cwd） */
+  maxDurationLogDir?: string;
 }
 
 /**

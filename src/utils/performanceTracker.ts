@@ -51,8 +51,9 @@ export class PerformanceTracker {
    * @param key 统计 key，格式为 "文件名:行号"
    * @param type 性能类型
    * @param duration 耗时（毫秒）
+   * @param logDir 日志目录路径
    */
-  record(key: string, type: PerformanceType, duration: number): void {
+  record(key: string, type: PerformanceType, duration: number, logDir?: string): void {
     let stats = this.statsMap.get(key);
 
     if (!stats) {
@@ -81,7 +82,13 @@ export class PerformanceTracker {
     const typeStats = stats.types[type];
     typeStats.count++;
     typeStats.totalDuration += duration;
-    typeStats.maxDuration = Math.max(typeStats.maxDuration, duration);
+
+    // 更新最大值及其日志目录（仅在大于时更新）
+    if (duration > typeStats.maxDuration) {
+      typeStats.maxDuration = duration;
+      typeStats.maxDurationLogDir = logDir;
+    }
+
     typeStats.minDuration = Math.min(typeStats.minDuration, duration);
   }
 
@@ -162,6 +169,11 @@ export class PerformanceTracker {
           : 0;
 
         lines.push(`  ${prefix} ${type.padEnd(10)}: ${typeStats.count} 次, 总计 ${this.formatDuration(typeStats.totalDuration)} (平均 ${this.formatDuration(avgDuration)}, 最大 ${this.formatDuration(typeStats.maxDuration)}, 最小 ${this.formatDuration(typeStats.minDuration)})`);
+
+        // 添加最大耗时日志目录
+        if (typeStats.maxDurationLogDir) {
+          lines.push(`     最大耗时日志: ${typeStats.maxDurationLogDir}`);
+        }
       });
 
       lines.push('--------------------------------------------------------------------------------');

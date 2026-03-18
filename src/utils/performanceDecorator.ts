@@ -59,7 +59,9 @@ export function trackPerformance(type: PerformanceType) {
       // 跳过的任务不记录（执行时间不足 3 秒）
       if (duration >= SKIPPED_THRESHOLD_MS) {
         const key = getUserCallSite();
-        PerformanceTracker.getInstance().record(key, type, duration);
+        // 从 StepWise 实例获取当前任务日志目录
+        const logDir = this.getCurrentTaskLogDir?.();
+        PerformanceTracker.getInstance().record(key, type, duration, logDir);
         PerformanceTracker.getInstance().saveReport(getPerformanceReportPath());
       }
 

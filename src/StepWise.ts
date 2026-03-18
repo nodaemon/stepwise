@@ -84,6 +84,8 @@ export class StepWise {
   private defaultEnv?: string[];
   /** Worker 标识（用于 forEachParallel 并发处理） */
   private workerId?: string;
+  /** 当前任务的日志目录（用于性能统计） */
+  private _currentTaskLogDir: string = '';
 
   constructor(name: string, defaultCwd?: string, defaultEnv?: string[], workerId?: string) {
     // 检查 TaskName 是否设置
@@ -982,6 +984,7 @@ export class StepWise {
 
     const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
+    this._currentTaskLogDir = taskLogDir;
     const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
     this.logger?.logTaskStart(taskIndex, taskType, sessionId);
@@ -1074,6 +1077,7 @@ export class StepWise {
 
     const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
+    this._currentTaskLogDir = taskLogDir;
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
     const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
@@ -1201,6 +1205,7 @@ export class StepWise {
 
     const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
+    this._currentTaskLogDir = taskLogDir;
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
     const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
@@ -1319,6 +1324,7 @@ export class StepWise {
 
     const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
+    this._currentTaskLogDir = taskLogDir;
     const outputPath = this.getReportOutputPath(outputFileName);
     const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
@@ -1403,6 +1409,13 @@ export class StepWise {
   }
 
   /**
+   * 获取当前任务日志目录
+   */
+  getCurrentTaskLogDir(): string {
+    return this._currentTaskLogDir;
+  }
+
+  /**
    * 用户主动调用的总结方法
    * 用于在最后一个任务完成后，总结当前 session
    */
@@ -1424,6 +1437,7 @@ export class StepWise {
 
     // 创建日志目录
     const logDir = this.logger?.createTaskLogDirByName(logDirName) || '';
+    this._currentTaskLogDir = logDir;
 
     // 获取技能文件目录
     const skillsDir = this.getSkillsDir(effectiveCwd);
@@ -1556,6 +1570,7 @@ export class StepWise {
 
     // 创建任务日志目录
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
+    this._currentTaskLogDir = taskLogDir;
 
     // 设置 ShellExecutor 的日志目录
     if (taskLogDir) {
