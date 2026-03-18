@@ -1008,13 +1008,19 @@ export class StepWise {
 
     this.writeTaskLogs(taskLogDir, result);
 
+    // 重要：更新 currentSessionId 为实际使用的 sessionId
+    // OpenCode 等执行器可能从 stdout 解析出真实的 sessionId
+    if (result.success && result.sessionId !== sessionId) {
+      this.currentSessionId = result.sessionId;
+    }
+
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
 
     if (result.success) {
       if (options?.postCheckPrompt && !_isDebugMode()) {
-        await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
+        await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, result.sessionId, taskLogDir, taskIndex);
       }
-      this.recordTaskComplete(taskIndex, `${taskIndex}_task`, sessionId, taskType);
+      this.recordTaskComplete(taskIndex, `${taskIndex}_task`, result.sessionId, taskType);
     }
 
     return result;
@@ -1110,9 +1116,14 @@ export class StepWise {
 
     this.writeTaskLogs(taskLogDir, result);
 
+    // 重要：更新 currentSessionId 为实际使用的 sessionId
+    if (result.success && result.sessionId !== sessionId) {
+      this.currentSessionId = result.sessionId;
+    }
+
     // 在读取 JSON 之前执行 postCheckPrompt
     if (result.success && options?.postCheckPrompt && !_isDebugMode()) {
-      await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
+      await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, result.sessionId, taskLogDir, taskIndex);
     }
 
     let data: Record<string, any>[] = [];
@@ -1131,7 +1142,7 @@ export class StepWise {
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
 
     if (result.success) {
-      this.recordTaskComplete(taskIndex, `${taskIndex}_collect`, sessionId, taskType, outputFileName);
+      this.recordTaskComplete(taskIndex, `${taskIndex}_collect`, result.sessionId, taskType, outputFileName);
     }
 
     return {
@@ -1234,9 +1245,14 @@ export class StepWise {
 
     this.writeTaskLogs(taskLogDir, result);
 
+    // 重要：更新 currentSessionId 为实际使用的 sessionId
+    if (result.success && result.sessionId !== sessionId) {
+      this.currentSessionId = result.sessionId;
+    }
+
     // 在读取 check result JSON 之前执行 postCheckPrompt
     if (result.success && options?.postCheckPrompt && !_isDebugMode()) {
-      await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
+      await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, result.sessionId, taskLogDir, taskIndex);
     }
 
     let checkResult = false;
@@ -1258,7 +1274,7 @@ export class StepWise {
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
 
     if (result.success) {
-      this.recordTaskComplete(taskIndex, `${taskIndex}_check`, sessionId, taskType, outputFileName, checkResult);
+      this.recordTaskComplete(taskIndex, `${taskIndex}_check`, result.sessionId, taskType, outputFileName, checkResult);
     }
 
     return {
@@ -1357,9 +1373,14 @@ export class StepWise {
 
     this.writeTaskLogs(taskLogDir, result);
 
+    // 重要：更新 currentSessionId 为实际使用的 sessionId
+    if (result.success && result.sessionId !== sessionId) {
+      this.currentSessionId = result.sessionId;
+    }
+
     // 在读取 JSON 之前执行 postCheckPrompt
     if (result.success && options?.postCheckPrompt && !_isDebugMode()) {
-      await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, sessionId, taskLogDir, taskIndex);
+      await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, result.sessionId, taskLogDir, taskIndex);
     }
 
     let data: Record<string, any>[] = [];
@@ -1378,7 +1399,7 @@ export class StepWise {
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
 
     if (result.success) {
-      this.recordTaskComplete(taskIndex, `${taskIndex}_report`, sessionId, taskType, outputFileName);
+      this.recordTaskComplete(taskIndex, `${taskIndex}_report`, result.sessionId, taskType, outputFileName);
     }
 
     return {

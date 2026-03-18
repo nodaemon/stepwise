@@ -10,3 +10,8 @@ export type { AgentExecutor, AgentExecutorOptions, ExecutorRawResult } from './t
 export { BaseExecutor } from './base';
 export { ClaudeExecutor } from './claude';
 export { OpenCodeExecutor } from './opencode';
+export { FallbackExecutor, getFallbackState, resetFallbackState } from './fallback';
+
+// 内部执行器回调注册（用于 FallbackExecutor 降级）
+export { registerTaskCallback, getTaskCallback } from './internal';
+export type { TaskExecutionCallback } from './internal';

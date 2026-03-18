@@ -3,6 +3,7 @@
  * 封装 opencode 命令的执行逻辑
  */
 
+import * as childProcess from 'child_process';
 import { BaseExecutor } from './base';
 import { OPENCODE_PERMISSION_ALL } from '../constants';
 
@@ -17,9 +18,12 @@ function isWindows(): boolean {
  * OpenCode 执行器
  *
  * 命令格式：
- * - 新会话/恢复会话: opencode run --session <uuid> "prompt"
+ * - 新会话/恢复会话: opencode run --session <session-id> "prompt"
  *
- * 注意：OpenCode 的 --session 参数会自动判断是新会话还是恢复会话
+ * Session ID 获取策略：
+ * 1. 首次执行时不传 --session，让 OpenCode 创建新会话
+ * 2. 从 stdout 的 JSON 输出中解析 sessionId
+ * 3. 如果 stdout 解析失败，调用 `opencode session list` 获取最新的 sessionId
  *
  * 权限处理：
  * 通过环境变量 OPENCODE_PERMISSION 设置权限，跳过交互式确认
@@ -28,39 +32,37 @@ export class OpenCodeExecutor extends BaseExecutor {
   /** 执行器类型标识 */
   readonly agentType = 'opencode';
 
+  /** 缓存的 sessionId（在 Node 进程内存中保存） */
+  private cachedSessionId: string | null = null;
+
   /**
    * 返回 CLI 命令名称
    * Windows 下需要使用 opencode.cmd
    */
   protected getCommand(): string {
-    // Windows 下 npm 全局安装的命令需要使用 .cmd 扩展名
     return isWindows() ? 'opencode.cmd' : 'opencode';
   }
 
   /**
    * 构建执行环境变量
    * 设置权限配置，跳过所有权限确认
-   * @param extraEnv 额外的环境变量数组，格式为 "KEY=VALUE"
    */
   protected buildEnv(extraEnv?: string[]): NodeJS.ProcessEnv {
-    // 调用父类方法获取基础环境变量（包含 extraEnv 解析）
     const env = super.buildEnv(extraEnv);
-    // 设置权限：允许所有操作，跳过交互式确认
-    // 这样可以实现无人值守的自动化执行
     env.OPENCODE_PERMISSION = OPENCODE_PERMISSION_ALL;
     return env;
   }
 
   /**
+   * 判断是否是 OpenCode 格式的 session ID
+   * OpenCode 的 session ID 格式: ses_xxx
+   */
+  private isOpenCodeSessionId(sessionId: string): boolean {
+    return sessionId.startsWith('ses_');
+  }
+
+  /**
    * 构建命令行参数
-   *
-   * @param prompt 提示词内容
-   * @param sessionId 会话 ID
-   * @param isResume 是否使用恢复模式
-   *   - Claude: 需要根据此参数区分 --resume 和 --session-id
-   *   - OpenCode: 统一使用 --session，CLI 工具自动检测，此参数不直接影响命令构建
-   * @param debugFile debug 日志文件路径（暂未使用）
-   * @returns 命令行参数数组
    */
   protected buildArgs(
     prompt: string,
@@ -70,32 +72,168 @@ export class OpenCodeExecutor extends BaseExecutor {
   ): string[] {
     const args: string[] = [];
 
-    // 使用 run 子命令进行非交互式执行
     args.push('run');
 
-    // 指定会话 ID
-    // OpenCode 会自动判断：
-    // - 如果是新 ID，创建新会话
-    // - 如果是已有 ID，恢复该会话
-    args.push('--session', sessionId);
+    // 仅当是 OpenCode 格式时才传入 --session
+    if (this.isOpenCodeSessionId(sessionId)) {
+      args.push('--session', sessionId);
+    }
 
-    // 提示词（放在最后）
+    args.push('--format', 'json');
     args.push(prompt);
-
-    // TODO: 如果 OpenCode 后续支持 debug 日志输出，可以在这里添加
-    // 目前 OpenCode 的 CLI 不支持 --debug-file 参数
-    // 可以使用 --print-logs 和 --log-level 环境变量作为替代方案
 
     return args;
   }
 
   /**
-   * 获取速率限制正则表达式列表
-   * OpenCode 的错误格式可能与 Claude 不同，这里先使用基类的默认实现
-   * 后续可以根据实际情况调整
+   * 从 stdout 解析 OpenCode 的 sessionId
    */
-  // protected getRateLimitPatterns(): RegExp[] {
-  //   // 如果 OpenCode 的错误格式不同，可以在这里重写
-  //   return super.getRateLimitPatterns();
-  // }
+  protected parseSessionIdFromStdout(stdout: string): string | null {
+    if (!stdout || stdout.trim() === '') {
+      return null;
+    }
+
+    const lines = stdout.split('\n');
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (!trimmedLine) continue;
+
+      try {
+        const json = JSON.parse(trimmedLine);
+        if (json.sessionID && typeof json.sessionID === 'string') {
+          return json.sessionID;
+        }
+      } catch {
+        // 忽略解析失败的行
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * 通过 `opencode session list` 获取最新的 sessionId
+   * 当 stdout 解析失败时使用此方法作为备选
+   * 
+   * @returns 最新的 sessionId，如果获取失败返回 null
+   */
+  private async fetchLatestSessionId(): Promise<string | null> {
+    return new Promise((resolve) => {
+      const command = this.getCommand();
+      const args = ['session', 'list'];
+
+      const child = childProcess.spawn(command, args, {
+        env: this.buildEnv(),
+        shell: isWindows()
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout?.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      child.stderr?.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      child.on('error', (error) => {
+        console.error(`[OpenCode] 获取 session list 失败: ${error.message}`);
+        resolve(null);
+      });
+
+      child.on('close', (code) => {
+        if (code !== 0) {
+          console.error(`[OpenCode] session list 退出码: ${code}`);
+          resolve(null);
+          return;
+        }
+
+        // 解析 session list 输出
+        // 格式：Session ID                      Title                    Updated
+        //       ses_xxx                         xxx                      18:25
+        const sessionId = this.parseSessionListOutput(stdout);
+        resolve(sessionId);
+      });
+
+      child.stdin?.end();
+    });
+  }
+
+  /**
+   * 解析 `opencode session list` 的输出
+   * 提取最新的（第一个）sessionId
+   * 
+   * @param output session list 命令的输出
+   * @returns 最新的 sessionId，如果解析失败返回 null
+   */
+  private parseSessionListOutput(output: string): string | null {
+    if (!output || output.trim() === '') {
+      return null;
+    }
+
+    const lines = output.split('\n');
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (!trimmedLine) continue;
+
+      // 跳过表头行
+      if (trimmedLine.startsWith('Session ID') || trimmedLine.startsWith('─')) {
+        continue;
+      }
+
+      // 提取第一个字段（Session ID）
+      // 格式：ses_xxx 后面跟着空格
+      const match = trimmedLine.match(/^(ses_[a-zA-Z0-9]+)/);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * 获取 sessionId（供外部调用）
+   * 返回缓存的 sessionId
+   */
+  getCachedSessionId(): string | null {
+    return this.cachedSessionId;
+  }
+
+  /**
+   * 设置缓存的 sessionId（供外部调用）
+   */
+  setCachedSessionId(sessionId: string): void {
+    this.cachedSessionId = sessionId;
+  }
+
+  /**
+   * 执行完成后获取 sessionId
+   * 优先从 stdout 解析，失败时调用 session list
+   * 
+   * @param stdout 命令的标准输出
+   * @returns 解析出的 sessionId
+   */
+  protected async getSessionIdAfterExecution(stdout: string): Promise<string | null> {
+    // 优先从 stdout 解析
+    let sessionId = this.parseSessionIdFromStdout(stdout);
+
+    if (sessionId) {
+      this.cachedSessionId = sessionId;
+      return sessionId;
+    }
+
+    // stdout 解析失败，尝试从 session list 获取
+    console.log('[OpenCode] stdout 解析 sessionId 失败，尝试从 session list 获取...');
+    sessionId = await this.fetchLatestSessionId();
+
+    if (sessionId) {
+      this.cachedSessionId = sessionId;
+      return sessionId;
+    }
+
+    return null;
+  }
 }

@@ -68,6 +68,28 @@ export abstract class BaseExecutor implements AgentExecutor {
   }
 
   /**
+   * 从 stdout 解析 sessionId（子类可重写）
+   * 用于 OpenCode 等需要从输出中获取实际 sessionId 的执行器
+   * 
+   * @param stdout 命令的标准输出
+   * @returns 解析出的 sessionId，如果不需要解析返回 null
+   */
+  protected parseSessionIdFromStdout(stdout: string): string | null {
+    return null;
+  }
+
+  /**
+   * 执行完成后获取 sessionId（子类可重写）
+   * OpenCode 等执行器可以重写此方法，在 stdout 解析失败时通过其他方式获取 sessionId
+   * 
+   * @param stdout 命令的标准输出
+   * @returns Promise<string | null> 解析出的 sessionId
+   */
+  protected async getSessionIdAfterExecution(stdout: string): Promise<string | null> {
+    return this.parseSessionIdFromStdout(stdout);
+  }
+
+  /**
    * 执行提示词任务
    * 包含重试机制和错误处理
    */
@@ -101,6 +123,12 @@ export abstract class BaseExecutor implements AgentExecutor {
 
         // 退出码为 0 表示成功
         if (result.exitCode === 0) {
+          // 尝试获取 sessionId（OpenCode 可能需要从 stdout 或 session list 解析）
+          const parsedSessionId = await this.getSessionIdAfterExecution(result.stdout);
+          if (parsedSessionId) {
+            sessionId = parsedSessionId;
+          }
+
           const duration = Date.now() - startTime;
           return {
             sessionId,
@@ -221,9 +249,11 @@ export abstract class BaseExecutor implements AgentExecutor {
       }
 
       // 执行命令
+      // Windows 下需要 shell: true 来正确执行 .cmd 文件并捕获 stdout
       const child = childProcess.spawn(command, args, {
         cwd,
-        env: this.buildEnv(options.env)
+        env: this.buildEnv(options.env),
+        shell: process.platform === 'win32'
       });
 
       // SIGKILL 定时器引用，用于在 close 事件中清除
