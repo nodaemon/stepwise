@@ -290,3 +290,11 @@ Key mechanisms:
 - [API Reference](doc/api.md) - Detailed API documentation
 - [Examples](demos.md) - Complete usage examples
 - [中文文档](README_CN.md) - Chinese documentation
+
+---
+
+## License
+
+This project is licensed under the [MulanPSL2](https://license.coscl.org.cn/MulanPSL2) - Mulan Permissive Software License, Version 2.
+
+[![License: MulanPSL2](https://img.shields.io/badge/License-MulanPSL2-blue.svg)](https://license.coscl.org.cn/MulanPSL2)

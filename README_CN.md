@@ -290,3 +290,11 @@ opencode run --session <uuid> "你的提示词"
 - [API 文档](doc/api_cn.md) - 详细的 API 参考
 - [示例](demos_cn.md) - 完整的使用示例
 - [English](README.md) - English Documentation
+
+---
+
+## 开源协议
+
+本项目采用 [MulanPSL2](https://license.coscl.org.cn/MulanPSL2)（木兰宽松许可证，第2版）开源协议。
+
+[![License: MulanPSL2](https://img.shields.io/badge/License-MulanPSL2-blue.svg)](https://license.coscl.org.cn/MulanPSL2)
