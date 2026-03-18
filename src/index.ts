@@ -12,7 +12,8 @@ export {
   setSkipSummarize,
   saveCollectData,
   loadCollectData,
-  setAgentType
+  setAgentType,
+  setOpenCodeServerConfig
 } from './globalState';
 
 // 并发处理接口

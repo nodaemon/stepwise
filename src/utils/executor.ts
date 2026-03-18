@@ -3,11 +3,12 @@
  * 根据智能体类型创建对应的执行器实例
  */
 
-import { _getAgentType } from '../globalState';
+import { _getAgentType, _getOpenCodeServerConfig } from '../globalState';
 import { AgentType } from '../types';
 import { AgentExecutor, AgentExecutorOptions } from '../executors/types';
 import { ClaudeExecutor } from '../executors/claude';
 import { OpenCodeExecutor } from '../executors/opencode';
+import { OpenCodeServerExecutor } from '../executors/opencodeServer';
 
 // 向后兼容：重新导出类型（从 executors/types.ts）
 export type { AgentExecutorOptions as ExecutorOptions } from '../executors/types';
@@ -18,7 +19,13 @@ export type { AgentExecutorOptions as ExecutorOptions } from '../executors/types
  */
 const executorFactories: Record<AgentType, () => AgentExecutor> = {
   claude: () => new ClaudeExecutor(),
-  opencode: () => new OpenCodeExecutor(),
+  opencode: () => {
+    const config = _getOpenCodeServerConfig();
+    if (config.serverUrl) {
+      return new OpenCodeServerExecutor(config.serverUrl, config.autoStart) as unknown as AgentExecutor;
+    }
+    return new OpenCodeExecutor();
+  }
 };
 
 /**

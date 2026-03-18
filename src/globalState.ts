@@ -28,6 +28,10 @@ interface GlobalState {
   workerId: string;
   /** 任务目录路径（用于性能统计报告输出） */
   taskDir: string;
+  /** OpenCode Server URL（用于 HTTP API 模式） */
+  opencodeServerUrl: string;
+  /** OpenCode 是否自动启动 Server */
+  opencodeAutoStartServer: boolean;
 }
 
 /** 全局状态实例 */
@@ -40,7 +44,9 @@ const globalState: GlobalState = {
   registeredNames: new Set<string>(),
   hasPrintedStartup: false,
   workerId: '',
-  taskDir: ''
+  taskDir: '',
+  opencodeServerUrl: 'http://127.0.0.1:4096',
+  opencodeAutoStartServer: false
 };
 
 /**
@@ -142,6 +148,20 @@ export function setSkipSummarize(skip: boolean = true): void {
 }
 
 /**
+ * 设置 OpenCode Server 配置
+ * @param serverUrl Server URL，如 'http://localhost:4096'
+ * @param autoStart 是否自动启动 Server，默认 false（需手动启动）
+ */
+export function setOpenCodeServerConfig(serverUrl?: string, autoStart?: boolean): void {
+  if (serverUrl !== undefined) {
+    globalState.opencodeServerUrl = serverUrl;
+  }
+  if (autoStart !== undefined) {
+    globalState.opencodeAutoStartServer = autoStart;
+  }
+}
+
+/**
  * 保存收集的数据到磁盘（存储在当前工作目录cwd）
  */
 export function saveCollectData(data: Record<string, any>[], fileName: string = 'collect_data.json'): void {
@@ -201,6 +221,17 @@ export function _shouldSkipSummarize(): boolean {
 }
 
 /**
+ * 获取 OpenCode Server 配置
+ * @internal
+ */
+export function _getOpenCodeServerConfig(): { serverUrl: string; autoStart: boolean } {
+  return {
+    serverUrl: globalState.opencodeServerUrl,
+    autoStart: globalState.opencodeAutoStartServer
+  };
+}
+
+/**
  * 注册 StepWise 名字
  * @returns true 表示注册成功，false 表示名字已存在
  * @internal
@@ -227,6 +258,8 @@ export function _resetState(): void {
   globalState.hasPrintedStartup = false;
   globalState.workerId = '';
   globalState.taskDir = '';
+  globalState.opencodeServerUrl = 'http://127.0.0.1:4096';
+  globalState.opencodeAutoStartServer = false;
 }
 
 /**
