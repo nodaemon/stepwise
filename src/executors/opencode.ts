@@ -18,12 +18,12 @@ function isWindows(): boolean {
  * OpenCode 执行器
  *
  * 命令格式：
- * - 新会话/恢复会话: opencode run --session <session-id> "prompt"
+ * - 新会话: opencode run "prompt"
+ * - 恢复会话: opencode run --session <session-id> "prompt"
  *
  * Session ID 获取策略：
  * 1. 首次执行时不传 --session，让 OpenCode 创建新会话
- * 2. 从 stdout 的 JSON 输出中解析 sessionId
- * 3. 如果 stdout 解析失败，调用 `opencode session list` 获取最新的 sessionId
+ * 2. 执行成功后调用 `opencode session list` 获取最新的 sessionId
  *
  * 权限处理：
  * 通过环境变量 OPENCODE_PERMISSION 设置权限，跳过交互式确认
@@ -79,41 +79,13 @@ export class OpenCodeExecutor extends BaseExecutor {
       args.push('--session', sessionId);
     }
 
-    args.push('--format', 'json');
     args.push(prompt);
 
     return args;
   }
 
-  /**
-   * 从 stdout 解析 OpenCode 的 sessionId
-   */
-  protected parseSessionIdFromStdout(stdout: string): string | null {
-    if (!stdout || stdout.trim() === '') {
-      return null;
-    }
-
-    const lines = stdout.split('\n');
-    for (const line of lines) {
-      const trimmedLine = line.trim();
-      if (!trimmedLine) continue;
-
-      try {
-        const json = JSON.parse(trimmedLine);
-        if (json.sessionID && typeof json.sessionID === 'string') {
-          return json.sessionID;
-        }
-      } catch {
-        // 忽略解析失败的行
-      }
-    }
-
-    return null;
-  }
-
-  /**
+/**
    * 通过 `opencode session list` 获取最新的 sessionId
-   * 当 stdout 解析失败时使用此方法作为备选
    * 
    * @returns 最新的 sessionId，如果获取失败返回 null
    */
@@ -209,31 +181,17 @@ export class OpenCodeExecutor extends BaseExecutor {
     this.cachedSessionId = sessionId;
   }
 
-  /**
+/**
    * 执行完成后获取 sessionId
-   * 优先从 stdout 解析，失败时调用 session list
-   * 
-   * @param stdout 命令的标准输出
-   * @returns 解析出的 sessionId
+   * 通过 session list 获取最新的 sessionId
    */
-  protected async getSessionIdAfterExecution(stdout: string): Promise<string | null> {
-    // 优先从 stdout 解析
-    let sessionId = this.parseSessionIdFromStdout(stdout);
+  protected async getSessionIdAfterExecution(): Promise<string | null> {
+    const sessionId = await this.fetchLatestSessionId();
 
     if (sessionId) {
       this.cachedSessionId = sessionId;
-      return sessionId;
     }
 
-    // stdout 解析失败，尝试从 session list 获取
-    console.log('[OpenCode] stdout 解析 sessionId 失败，尝试从 session list 获取...');
-    sessionId = await this.fetchLatestSessionId();
-
-    if (sessionId) {
-      this.cachedSessionId = sessionId;
-      return sessionId;
-    }
-
-    return null;
+    return sessionId;
   }
 }

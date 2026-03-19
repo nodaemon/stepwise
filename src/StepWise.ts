@@ -452,6 +452,14 @@ export class StepWise {
       if (this.progress.tasks.length > 0) {
         const maxIndex = Math.max(...this.progress.tasks.map(t => t.taskIndex));
         this.taskCounter = maxIndex;
+
+        // 从最后一个已完成任务恢复 currentSessionId
+        const lastCompletedTask = this.progress.tasks
+          .filter(t => t.status === 'completed')
+          .sort((a, b) => b.taskIndex - a.taskIndex)[0];
+        if (lastCompletedTask && lastCompletedTask.sessionId) {
+          this.currentSessionId = lastCompletedTask.sessionId;
+        }
       } else {
         this.taskCounter = 0;
       }

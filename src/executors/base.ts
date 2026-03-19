@@ -67,26 +67,14 @@ export abstract class BaseExecutor implements AgentExecutor {
     return env;
   }
 
-  /**
-   * 从 stdout 解析 sessionId（子类可重写）
-   * 用于 OpenCode 等需要从输出中获取实际 sessionId 的执行器
-   * 
-   * @param stdout 命令的标准输出
-   * @returns 解析出的 sessionId，如果不需要解析返回 null
-   */
-  protected parseSessionIdFromStdout(stdout: string): string | null {
+/**
+ * 执行完成后获取 sessionId（子类可重写）
+ * OpenCode 等执行器可以重写此方法，通过 session list 获取 sessionId
+ * 
+ * @returns Promise<string | null> 解析出的 sessionId
+ */
+  protected async getSessionIdAfterExecution(): Promise<string | null> {
     return null;
-  }
-
-  /**
-   * 执行完成后获取 sessionId（子类可重写）
-   * OpenCode 等执行器可以重写此方法，在 stdout 解析失败时通过其他方式获取 sessionId
-   * 
-   * @param stdout 命令的标准输出
-   * @returns Promise<string | null> 解析出的 sessionId
-   */
-  protected async getSessionIdAfterExecution(stdout: string): Promise<string | null> {
-    return this.parseSessionIdFromStdout(stdout);
   }
 
   /**
@@ -123,8 +111,8 @@ export abstract class BaseExecutor implements AgentExecutor {
 
         // 退出码为 0 表示成功
         if (result.exitCode === 0) {
-          // 尝试获取 sessionId（OpenCode 可能需要从 stdout 或 session list 解析）
-          const parsedSessionId = await this.getSessionIdAfterExecution(result.stdout);
+          // 尝试获取 sessionId（OpenCode 通过 session list 获取）
+          const parsedSessionId = await this.getSessionIdAfterExecution();
           if (parsedSessionId) {
             sessionId = parsedSessionId;
           }
