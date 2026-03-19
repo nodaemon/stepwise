@@ -273,8 +273,8 @@ export async function forEachParallel<T>(
             console.log(`[forEachParallel] 跳过已完成的任务 ${currentIndex}`);
             continue;
           }
-          if (state.status === 'in_progress' && state.workerId !== workerId) {
-            // 其他 worker 正在恢复，跳过
+          if (state.status === 'in_progress') {
+            // 所有 in_progress 任务都在步骤 A 中被处理，跳过
             continue;
           }
         }
