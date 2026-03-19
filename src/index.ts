@@ -15,13 +15,6 @@ export {
   setAgentType
 } from './globalState';
 
-// 内部执行器回调注册（用于 OpenCode 自动降级）
-export { registerTaskCallback, getTaskCallback } from './executors/internal';
-export type { TaskExecutionCallback } from './executors/internal';
-
-// 自动降级状态
-export { getFallbackState, resetFallbackState } from './executors/fallback';
-
 // 并发处理接口
 export { forEachParallel } from './forEachParallel';
 export type { WorkerConfig, WorkerContext, ForEachParallelOptions } from './forEachParallel';
