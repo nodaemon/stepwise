@@ -94,14 +94,20 @@ export function setTaskName(taskName: string): void {
   // 初始化性能追踪器
   PerformanceTracker.getInstance().init(trimmedName);
 
-  // 生成任务目录
-  const taskDirName = `${trimmedName}_${generateTaskDirTimestamp()}`;
-  globalState.taskDir = path.resolve(process.cwd(), EXEC_INFO_DIR, taskDirName);
+  if (_getResumePath() == '') {
+    // 生成任务目录
+    const taskDirName = `${trimmedName}_${generateTaskDirTimestamp()}`;
+    globalState.taskDir = path.resolve(process.cwd(), EXEC_INFO_DIR, taskDirName);
 
-  // 打印 Task 级别启动信息（只在首次 setTaskName 时打印）
-  if (!globalState.hasPrintedStartup) {
-    printTaskStartup(trimmedName, taskDirName);
-    globalState.hasPrintedStartup = true;
+    // 打印 Task 级别启动信息（只在首次 setTaskName 时打印）
+    if (!globalState.hasPrintedStartup) {
+      printTaskStartup(trimmedName, taskDirName);
+      globalState.hasPrintedStartup = true;
+    }
+  } else {
+    console.log('================================================================================');
+    console.log(`StepWise 恢复任务启动: ${_getResumePath()}`);
+    console.log('================================================================================');
   }
 }
 

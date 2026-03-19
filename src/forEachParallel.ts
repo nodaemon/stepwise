@@ -314,8 +314,12 @@ export async function forEachParallel<T>(
 
   // 并发执行所有 worker
   await Promise.all(workerConfigs.map((_, idx) => worker(idx)));
+  console.log("[forEachParallel] 已全部执行完成");
 
-  // 6. 串行执行 merge（任务完成后）
+  // 6. 整合所有 worker 的报告（任务完成后）
+  await mergeWorkerReports(taskDir, workerConfigs);
+
+  // 7. 串行执行 merge（任务完成后）
   await mergeWorkerBranches(workerConfigs, mainStepWise);
 }
 
@@ -394,6 +398,69 @@ function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean): stri
 }
 
 /**
+ * 整合所有 worker 的报告文件
+ * 将各个 TestAgent 目录下的 report/*.json 文件合并到 taskDir/report/ 目录
+ */
+async function mergeWorkerReports(taskDir: string, workerConfigs: WorkerConfig[]): Promise<void> {
+  const reportDir = path.join(taskDir, 'report');
+  if (!fs.existsSync(reportDir)) {
+    fs.mkdirSync(reportDir, { recursive: true });
+  }
+
+  console.log(`[forEachParallel] 开始整合报告文件...`);
+
+  // 遍历任务目录下的所有子目录（每个 worker 会创建自己的目录）
+  const entries = fs.readdirSync(taskDir, { withFileTypes: true });
+  const workerDirs: string[] = [];
+
+  // 匹配格式: {index}_{workerName}_{timestamp}，例如: 63_TestAgent4_20260319_102847_757
+  const workerDirPattern = /^\d+_.+_\d{8}_\d{6}_\d{3}$/;
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (!workerDirPattern.test(entry.name)) continue;
+    if (entry.name === 'logs' || entry.name === 'report') continue;
+
+    workerDirs.push(path.join(taskDir, entry.name));
+  }
+
+  console.log(`[forEachParallel] 找到 ${workerDirs.length} 个 worker 目录`);
+
+  // 收集所有报告数据
+  const allReports: Map<string, any[]> = new Map();
+
+  for (const workerDir of workerDirs) {
+    const workerReportDir = path.join(workerDir, 'report');
+    if (!fs.existsSync(workerReportDir)) continue;
+
+    const files = fs.readdirSync(workerReportDir);
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+
+      const filePath = path.join(workerReportDir, file);
+      try {
+        const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        if (Array.isArray(data)) {
+          const existing = allReports.get(file) || [];
+          allReports.set(file, [...existing, ...data]);
+        }
+      } catch (error) {
+        console.warn(`[forEachParallel] 读取报告文件失败: ${filePath}`);
+      }
+    }
+  }
+
+  // 写入合并后的报告文件
+  for (const [fileName, data] of allReports.entries()) {
+    const outputPath = path.join(reportDir, fileName);
+    fs.writeFileSync(outputPath, JSON.stringify(data, null, 2), 'utf-8');
+    console.log(`[forEachParallel] 合并报告: ${fileName} (${data.length} 条记录)`);
+  }
+
+  console.log(`[forEachParallel] 报告整合完成，共 ${allReports.size} 个文件`);
+}
+
+/**
  * 将所有 worktree 的分支合并到当前目录
  * 任务完成后串行执行
  */
@@ -408,7 +475,10 @@ async function mergeWorkerBranches(
       `将分支 ${config.branchName} 的代码合并到当前分支。` +
       `如果遇到冲突，请合理解决冲突，优先保留当前分支的修改。` +
       `合并完成后推送到远端。`,
-      { newSession: true }
+      {
+        newSession: true,
+        env: config.env
+      }
     );
   }
 }

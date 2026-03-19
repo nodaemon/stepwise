@@ -629,8 +629,17 @@ export class StepWise {
 
   /**
    * 获取报告任务的输出目录（在 TaskName 目录下）
+   * 如果是 forEachParallel 场景（有 workerId），则输出到 agent 目录下的 report 子目录
+   * 否则输出到 taskDir 下的 report 目录
    */
   private getReportOutputDir(): string {
+    // 如果是 forEachParallel 场景（有 workerId），则输出到当前 agent 目录下的 report 子目录
+    if (this.workerId) {
+      const dir = path.join(this.agentDir, REPORT_DIR);
+      ensureDir(dir);
+      return dir;
+    }
+    // 否则输出到 taskDir 下的 report 目录（原有的逻辑）
     const dir = path.join(this.taskDir, REPORT_DIR);
     ensureDir(dir);
     return dir;
