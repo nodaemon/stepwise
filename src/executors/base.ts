@@ -67,6 +67,16 @@ export abstract class BaseExecutor implements AgentExecutor {
     return env;
   }
 
+/**
+ * 执行完成后获取 sessionId（子类可重写）
+ * OpenCode 等执行器可以重写此方法，通过 session list 获取 sessionId
+ * 
+ * @returns Promise<string | null> 解析出的 sessionId
+ */
+  protected async getSessionIdAfterExecution(): Promise<string | null> {
+    return null;
+  }
+
   /**
    * 执行提示词任务
    * 包含重试机制和错误处理
@@ -101,6 +111,12 @@ export abstract class BaseExecutor implements AgentExecutor {
 
         // 退出码为 0 表示成功
         if (result.exitCode === 0) {
+          // 尝试获取 sessionId（OpenCode 通过 session list 获取）
+          const parsedSessionId = await this.getSessionIdAfterExecution();
+          if (parsedSessionId) {
+            sessionId = parsedSessionId;
+          }
+
           const duration = Date.now() - startTime;
           return {
             sessionId,
@@ -221,9 +237,11 @@ export abstract class BaseExecutor implements AgentExecutor {
       }
 
       // 执行命令
+      // Windows 下需要 shell: true 来正确执行 .cmd 文件并捕获 stdout
       const child = childProcess.spawn(command, args, {
         cwd,
-        env: this.buildEnv(options.env)
+        env: this.buildEnv(options.env),
+        shell: process.platform === 'win32'
       });
 
       // SIGKILL 定时器引用，用于在 close 事件中清除

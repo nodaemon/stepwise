@@ -5,7 +5,7 @@
 
 import { _getAgentType } from '../globalState';
 import { AgentType } from '../types';
-import { AgentExecutor, AgentExecutorOptions } from '../executors/types';
+import { AgentExecutor } from '../executors/types';
 import { ClaudeExecutor } from '../executors/claude';
 import { OpenCodeExecutor } from '../executors/opencode';
 
@@ -31,7 +31,7 @@ const executorFactories: Record<AgentType, () => AgentExecutor> = {
  * // 默认返回 Claude 执行器
  * const executor = createExecutor();
  *
- * // 切换到 OpenCode 后返回 OpenCode 执行器
+ * // 切换到 OpenCode
  * setAgentType('opencode');
  * const executor = createExecutor();
  */
