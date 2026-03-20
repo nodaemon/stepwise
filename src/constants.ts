@@ -29,6 +29,9 @@ export const MAX_RETRIES = 3;
 /** 默认执行超时时间：3 小时（毫秒）- AI 任务 */
 export const DEFAULT_TIMEOUT_MS = 3 * 60 * 60 * 1000;
 
+/** 503 错误默认等待时间（毫秒）：5 分钟 */
+export const DEFAULT_503_WAIT_MS = 5 * 60 * 1000;
+
 // ============ Shell 任务相关常量 ============
 
 /**
