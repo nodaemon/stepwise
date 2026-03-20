@@ -11,7 +11,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import { StepWise } from './StepWise';
-import { _getTaskName, _getResumePath, _isDebugMode, _getTaskDir } from './globalState';
+import { _getTaskName, _getResumePath, _isDebugMode, _getTaskDir, _clearRegisteredNames } from './globalState';
 import { DATA_DIR, PROGRESS_FILE } from './constants';
 
 /**
@@ -189,6 +189,12 @@ export async function forEachParallel<T>(
 
   const isResume = !!_getResumePath();
   const taskDir = _getTaskDir();
+
+  // 恢复模式：清理之前注册的名字，避免名字重复错误
+  if (isResume) {
+    _clearRegisteredNames();
+    console.log('[forEachParallel] 恢复模式：已清理已注册的名字');
+  }
 
   // 1. 确保所有 worktree 已创建
   const workspacePaths = ensureWorktrees(workerConfigs, isResume);

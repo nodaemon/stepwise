@@ -42,5 +42,6 @@ export {
   _registerName,
   _getAgentType,
   _getTaskDir,
-  _setTaskDir
+  _setTaskDir,
+  _clearRegisteredNames
 } from './globalState';

@@ -220,6 +220,14 @@ export function _registerName(name: string): boolean {
 }
 
 /**
+ * 清除所有已注册的名字（用于恢复模式）
+ * @internal
+ */
+export function _clearRegisteredNames(): void {
+  globalState.registeredNames.clear();
+}
+
+/**
  * 重置全局状态（仅用于测试）
  * @internal
  */
