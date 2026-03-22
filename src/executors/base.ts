@@ -133,6 +133,7 @@ export abstract class BaseExecutor implements AgentExecutor {
           console.log(`\n${rateLimitInfo.message}`);
           // 重要：不增加 attempts，等待后继续循环重试
           await this.waitUntilReset(rateLimitInfo.resetTime);
+          attempts--; // 速率限制/503 不计入重试次数
           continue;
         }
 
@@ -158,6 +159,7 @@ export abstract class BaseExecutor implements AgentExecutor {
         if (rateLimitInfo) {
           console.log(`\n${rateLimitInfo.message}`);
           await this.waitUntilReset(rateLimitInfo.resetTime);
+          attempts--; // 速率限制/503 不计入重试次数
           continue;
         }
 
