@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { EXECUTE_LOG, LOGS_DIR, TaskType, TASK_TYPE_NAMES } from '../constants';
-import { ValidationError } from './validator';
+import { SchemaValidationError } from './schemaUtils';
 
 /**
  * 日志记录器
@@ -145,9 +145,12 @@ export class Logger {
   logValidationFailed(
     taskIndex: number,
     attempt: number,
-    errors: ValidationError[]
+    errors: SchemaValidationError[]
   ): void {
-    const errorMessages = errors.map(e => `  - ${e.message}`).join('\n');
+    const errorMessages = errors.map(e => {
+      const path = e.path || '(root)';
+      return `  - ${path}: ${e.message} [${e.keyword}]`;
+    }).join('\n');
     this.writeSummaryLog(`任务 ${taskIndex} 校验失败 (第 ${attempt} 次尝试)\n${errorMessages}`);
   }
 }

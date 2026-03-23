@@ -353,17 +353,19 @@ Executes a collection task, collecting data and saving as JSON file.
 **OutputFormat**
 
 ```typescript
-interface OutputFormat {
-  primaryKey?: string;  // Primary key for deduplication
-  keys: OutputKey[];    // Output key list
+interface PropertyDef {
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  description?: string;  // Field description
+  required?: boolean;    // Whether required, defaults to true
 }
 
-interface OutputKey {
-  name: string;        // Key name
-  description: string; // Key description
-  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
-}
+// OutputFormat is a direct mapping of field name to PropertyDef
+type OutputFormat = Record<string, PropertyDef>;
 ```
+
+**Automatic Deduplication**
+
+The first field with `required: true` (or the first field if `required` is not specified) is automatically used for deduplication.
 
 **Output Location**
 
@@ -380,19 +382,20 @@ interface CollectResult extends ExecutionResult {
 **Example**
 
 ```typescript
+// First required field is auto-used for deduplication
 const result = await agent.execCollectPrompt(
   'Collect all TypeScript interface definitions in the project',
   {
-    primaryKey: 'name',
-    keys: [
-      { name: 'name', description: 'Interface name', type: 'string' },
-      { name: 'file', description: 'File location', type: 'string' },
-      { name: 'properties', description: 'Property list', type: 'array' }
-    ]
+    name: { type: 'string', description: 'Interface name' },
+    file: { type: 'string', description: 'File location' },
+    properties: { type: 'array', description: 'Property list' },
+    description: { type: 'string', description: 'Interface description', required: false }
   }
 );
 
-console.log(`Collected ${result.data.length} interfaces`);
+// 'name' is automatically used as the deduplication key (first required field)
+
+console.log(`Collected ${result.data.length} items`);
 ```
 
 ---
@@ -457,11 +460,9 @@ Output is saved to TaskName directory's `report/` subdirectory (shared by all ag
 await agent.execReport(
   'Generate project API analysis report based on collected data',
   {
-    keys: [
-      { name: 'title', description: 'Report title', type: 'string' },
-      { name: 'summary', description: 'Summary', type: 'string' },
-      { name: 'recommendations', description: 'Recommendations', type: 'array' }
-    ]
+    title: { type: 'string', description: 'Report title' },
+    summary: { type: 'string', description: 'Summary' },
+    recommendations: { type: 'array', description: 'Recommendations' }
   },
   'api_report.json'
 );
@@ -828,25 +829,29 @@ interface ValidateOptions {
 Output format definition.
 
 ```typescript
-interface OutputFormat {
-  primaryKey?: string;  // Primary key (optional)
-  keys: OutputKey[];    // Output key list
-}
+// OutputFormat is a direct mapping of field name to PropertyDef
+type OutputFormat = Record<string, PropertyDef>;
 ```
 
 ---
 
-### OutputKey
+### PropertyDef
 
-Output key definition.
+Property definition for output fields.
 
 ```typescript
-interface OutputKey {
-  name: string;        // Key name
-  description: string; // Key description
+interface PropertyDef {
   type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  description?: string;  // Field description (optional)
+  required?: boolean;    // Whether required, defaults to true
 }
 ```
+
+**Key Features:**
+
+- `required` defaults to `true` if not specified
+- The first required field is automatically used for deduplication
+- JSON Schema is automatically generated for AI guidance
 
 ---
 
@@ -990,44 +995,56 @@ interface SummarizeResult extends ExecutionResult {
 
 ---
 
-### ValidationErrorType
+### ValidationResult
 
-Validation error type.
+Validation result. This is now an alias for `SchemaValidationResult`.
 
 ```typescript
-type ValidationErrorType =
-  | 'parse_error'    // JSON parsing failed
-  | 'not_array'      // Not an array
-  | 'not_object'     // Not an object
-  | 'missing_field'  // Missing field
-  | 'type_mismatch'; // Type mismatch
+type ValidationResult<T = unknown> = SchemaValidationResult<T>;
 ```
+
+See `SchemaValidationResult` for details.
 
 ---
 
-### ValidationError
+### SchemaValidationError
 
-Validation error details.
+Schema validation error details, directly mapping AJV ErrorObject to preserve complete original information.
 
 ```typescript
-interface ValidationError {
-  type: ValidationErrorType; // Error type
-  message: string;           // Error message
-  details?: string;          // Detailed information
+interface SchemaValidationError {
+  /** AJV instance path, e.g. "/0/name" */
+  path: string;
+  /** AJV original error message (English) */
+  message: string;
+  /** AJV error keyword, e.g. 'required', 'type', 'additionalProperties' */
+  keyword: string;
+  /** AJV error parameters */
+  params: Record<string, unknown>;
+  /** Actual data value */
+  data: unknown;
 }
 ```
 
+**Key Features:**
+
+- `path`: AJV instance path format (e.g. `/0/name`), preserving original structure
+- `message`: Original AJV error message in English, more precise for AI understanding
+- `keyword`: Identifies the error type (useful for programmatic handling)
+- `params`: AJV error parameters containing additional context
+- `data`: The actual invalid value at the error location
+
 ---
 
-### ValidationResult
+### SchemaValidationResult
 
-Validation result.
+Schema validation result.
 
 ```typescript
-interface ValidationResult<T = unknown> {
-  valid: boolean;            // Whether valid
-  errors: ValidationError[]; // Error list
-  data?: T;                  // Parsed data (when validation succeeds)
+interface SchemaValidationResult<T> {
+  valid: boolean;                  // Whether valid
+  errors: SchemaValidationError[]; // Error list
+  data?: T;                        // Parsed data (when validation succeeds)
 }
 ```
 

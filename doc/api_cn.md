@@ -353,17 +353,19 @@ if (result.success) {
 **OutputFormat**
 
 ```typescript
-interface OutputFormat {
-  primaryKey?: string;  // 主键，用于去重
-  keys: OutputKey[];    // 输出字段列表
+interface PropertyDef {
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  description?: string;  // 字段描述
+  required?: boolean;    // 是否必填，默认 true
 }
 
-interface OutputKey {
-  name: string;        // 字段名
-  description: string; // 字段描述
-  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
-}
+// OutputFormat 直接映射字段名到 PropertyDef
+type OutputFormat = Record<string, PropertyDef>;
 ```
+
+**自动去重**
+
+第一个 `required: true` 的字段（或未指定 `required` 时的第一个字段）自动用于去重。
 
 **输出位置**
 
@@ -380,17 +382,18 @@ interface CollectResult extends ExecutionResult {
 **示例**
 
 ```typescript
+// 第一个必填字段自动用于去重
 const result = await agent.execCollectPrompt(
   '收集项目中所有的 TypeScript 接口定义',
   {
-    primaryKey: 'name',
-    keys: [
-      { name: 'name', description: '接口名称', type: 'string' },
-      { name: 'file', description: '文件位置', type: 'string' },
-      { name: 'properties', description: '属性列表', type: 'array' }
-    ]
+    name: { type: 'string', description: '接口名称' },
+    file: { type: 'string', description: '文件位置' },
+    properties: { type: 'array', description: '属性列表' },
+    description: { type: 'string', description: '接口描述', required: false }
   }
 );
+
+// 'name' 自动作为去重键（第一个必填字段）
 
 console.log(`收集到 ${result.data.length} 个接口`);
 ```
@@ -457,11 +460,9 @@ if (result.success && result.result) {
 await agent.execReport(
   '根据收集的数据生成项目 API 分析报告',
   {
-    keys: [
-      { name: 'title', description: '报告标题', type: 'string' },
-      { name: 'summary', description: '摘要', type: 'string' },
-      { name: 'recommendations', description: '建议', type: 'array' }
-    ]
+    title: { type: 'string', description: '报告标题' },
+    summary: { type: 'string', description: '摘要' },
+    recommendations: { type: 'array', description: '建议' }
   },
   'api_report.json'
 );
@@ -828,25 +829,29 @@ interface ValidateOptions {
 输出格式定义。
 
 ```typescript
-interface OutputFormat {
-  primaryKey?: string;  // 主键（可选）
-  keys: OutputKey[];    // 输出字段列表
-}
+// OutputFormat 直接映射字段名到 PropertyDef
+type OutputFormat = Record<string, PropertyDef>;
 ```
 
 ---
 
-### OutputKey
+### PropertyDef
 
 输出字段定义。
 
 ```typescript
-interface OutputKey {
-  name: string;        // 字段名
-  description: string; // 字段描述
+interface PropertyDef {
   type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  description?: string;  // 字段描述（可选）
+  required?: boolean;    // 是否必填，默认 true
 }
 ```
+
+**关键特性：**
+
+- `required` 未指定时默认为 `true`
+- 第一个必填字段自动用于去重
+- 自动生成 JSON Schema 用于 AI 引导
 
 ---
 
@@ -990,44 +995,56 @@ interface SummarizeResult extends ExecutionResult {
 
 ---
 
-### ValidationErrorType
+### ValidationResult
 
-校验错误类型。
+校验结果。现在是 `SchemaValidationResult` 的类型别名。
 
 ```typescript
-type ValidationErrorType =
-  | 'parse_error'    // JSON 解析失败
-  | 'not_array'      // 不是数组
-  | 'not_object'     // 不是对象
-  | 'missing_field'  // 缺少字段
-  | 'type_mismatch'; // 类型不匹配
+type ValidationResult<T = unknown> = SchemaValidationResult<T>;
 ```
+
+详见 `SchemaValidationResult`。
 
 ---
 
-### ValidationError
+### SchemaValidationError
 
-校验错误详情。
+Schema 校验错误详情，直接映射 AJV ErrorObject，保留完整的原始信息。
 
 ```typescript
-interface ValidationError {
-  type: ValidationErrorType; // 错误类型
-  message: string;           // 错误消息
-  details?: string;          // 详细信息
+interface SchemaValidationError {
+  /** AJV 实例路径，如 "/0/name" */
+  path: string;
+  /** AJV 原始错误消息（英文） */
+  message: string;
+  /** AJV 错误关键字，如 'required'、'type'、'additionalProperties' 等 */
+  keyword: string;
+  /** AJV 错误参数 */
+  params: Record<string, unknown>;
+  /** 实际的数据值 */
+  data: unknown;
 }
 ```
 
+**关键特性：**
+
+- `path`：AJV 实例路径格式（如 `/0/name`），保留原始结构
+- `message`：AJV 原始英文错误信息，比翻译更精确，AI 理解更准确
+- `keyword`：标识错误类型（便于程序化处理）
+- `params`：AJV 错误参数，包含额外的上下文信息
+- `data`：错误位置的实际数据值
+
 ---
 
-### ValidationResult
+### SchemaValidationResult
 
-校验结果。
+Schema 校验结果。
 
 ```typescript
-interface ValidationResult<T = unknown> {
-  valid: boolean;            // 是否有效
-  errors: ValidationError[]; // 错误列表
-  data?: T;                  // 解析后的数据（校验成功时）
+interface SchemaValidationResult<T> {
+  valid: boolean;                  // 是否有效
+  errors: SchemaValidationError[]; // 错误列表
+  data?: T;                        // 解析后的数据（校验成功时）
 }
 ```
 

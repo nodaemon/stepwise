@@ -1,26 +1,15 @@
 import { OutputFormat } from '../types';
+import {
+  buildJsonSchema,
+  validateAgainstSchema,
+  checkDuplicateKeys,
+  getFirstRequiredField,
+  SchemaValidationError,
+  SchemaValidationResult
+} from './schemaUtils';
 
-/** 校验错误类型 */
-export type ValidationErrorType =
-  | 'parse_error'       // JSON 解析失败
-  | 'not_array'         // 不是数组
-  | 'not_object'        // 不是对象
-  | 'missing_field'     // 缺少字段
-  | 'type_mismatch';    // 类型不匹配
-
-/** 校验错误 */
-export interface ValidationError {
-  type: ValidationErrorType;
-  message: string;
-  details?: string;
-}
-
-/** 校验结果 */
-export interface ValidationResult<T = unknown> {
-  valid: boolean;
-  errors: ValidationError[];
-  data?: T;
-}
+/** 校验结果 - 直接复用 SchemaValidationResult */
+export type ValidationResult<T = unknown> = SchemaValidationResult<T>;
 
 /** 数组校验选项 */
 export interface ArrayValidateOptions {
@@ -50,9 +39,11 @@ function createParseErrorResult(error: string): ValidationResult<never> {
   return {
     valid: false,
     errors: [{
-      type: 'parse_error',
-      message: 'JSON 格式错误，无法解析',
-      details: error
+      path: '',
+      message: 'JSON parse error',
+      keyword: 'parse_error',
+      params: {},
+      data: error
     }]
   };
 }
@@ -77,52 +68,51 @@ export function validateJsonArray(
       return {
         valid: false,
         errors: [{
-          type: 'not_array',
-          message: `JSON 不是数组格式，检测到嵌套结构: "${nestedPath}"`,
-          details: `请直接输出数组 [ ... ]，而非 { "${nestedPath}": [ ... ] }`
+          path: '',
+          message: 'Expected array, got object with nested array',
+          keyword: 'not_array',
+          params: { nestedPath },
+          data: null
         }]
       };
     }
     return {
       valid: false,
       errors: [{
-        type: 'not_array',
-        message: 'JSON 不是数组格式',
-        details: `期望: [ ... ]，实际类型: ${typeof parseResult.data}`
+        path: '',
+        message: 'Expected array',
+        keyword: 'not_array',
+        params: { actualType: typeof parseResult.data },
+        data: null
       }]
     };
   }
 
   const data = parseResult.data;
-  const errors: ValidationError[] = [];
+  const errors: SchemaValidationError[] = [];
 
-  // 3. 字段校验（可选）
+  // 3. 使用 JSON Schema 校验（如果提供了 format）
   if (options.validateFields !== false && options.format && data.length > 0) {
-    // 检查所有元素是否为对象类型
-    const invalidIndices: number[] = [];
-    for (let i = 0; i < data.length; i++) {
-      if (typeof data[i] !== 'object' || data[i] === null) {
-        invalidIndices.push(i);
-      }
+    const schema = buildJsonSchema(options.format);
+    const schemaResult = validateAgainstSchema<Record<string, any>[]>(data, schema);
+
+    if (!schemaResult.valid) {
+      // 直接使用 SchemaValidationError，不再转换
+      errors.push(...schemaResult.errors);
     }
 
-    if (invalidIndices.length > 0) {
-      const sampleIndex = invalidIndices[0];
-      const sampleValue = data[sampleIndex];
-      errors.push({
-        type: 'not_object',
-        message: `数组中有 ${invalidIndices.length} 个元素不是对象格式`,
-        details: `元素索引: ${invalidIndices.slice(0, 5).join(', ')}${invalidIndices.length > 5 ? '...' : ''}。第一个非对象元素类型: ${typeof sampleValue}，值: ${JSON.stringify(sampleValue).slice(0, 100)}`
-      });
-    } else {
-      // 所有元素都是对象，检查第一个元素的必填字段
-      const firstItem = data[0];
-      for (const key of options.format.keys) {
-        if (!(key.name in firstItem)) {
+    // 4. 检查去重字段是否有重复
+    if (errors.length === 0) {
+      const dedupeKey = getFirstRequiredField(options.format);
+      if (dedupeKey) {
+        const dupCheck = checkDuplicateKeys(data, dedupeKey);
+        if (dupCheck.hasDuplicates) {
           errors.push({
-            type: 'missing_field',
-            message: `缺少必填字段: "${key.name}"`,
-            details: `字段描述: ${key.description}`
+            path: '',
+            message: `Duplicate values found in field "${dedupeKey}"`,
+            keyword: 'duplicate_key',
+            params: { field: dedupeKey },
+            data: dupCheck.duplicates.slice(0, 5)
           });
         }
       }
@@ -154,23 +144,27 @@ export function validateJsonObject<T extends Record<string, any>>(
     return {
       valid: false,
       errors: [{
-        type: 'not_object',
-        message: 'JSON 不是对象格式',
-        details: `期望: { ... }，实际类型: ${Array.isArray(parseResult.data) ? 'array' : typeof parseResult.data}`
+        path: '',
+        message: 'Expected object',
+        keyword: 'not_object',
+        params: { actualType: Array.isArray(parseResult.data) ? 'array' : typeof parseResult.data },
+        data: null
       }]
     };
   }
 
   const data = parseResult.data;
-  const errors: ValidationError[] = [];
+  const errors: SchemaValidationError[] = [];
 
   // 3. 必填字段校验（包括类型检查）
   for (const field of options.requiredFields) {
     if (!(field.name in data)) {
       errors.push({
-        type: 'missing_field',
-        message: `缺少必填字段: "${field.name}"`,
-        details: `期望类型: ${field.type}`
+        path: `/${field.name}`,
+        message: 'missing required property',
+        keyword: 'required',
+        params: { missingProperty: field.name },
+        data: undefined
       });
       continue;
     }
@@ -199,9 +193,11 @@ export function validateJsonObject<T extends Record<string, any>>(
     if (!typeValid) {
       const actualType = Array.isArray(value) ? 'array' : (value === null ? 'null' : typeof value);
       errors.push({
-        type: 'type_mismatch',
-        message: `字段 "${field.name}" 类型错误`,
-        details: `期望: ${field.type}，实际: ${actualType}`
+        path: `/${field.name}`,
+        message: `expected ${field.type}, got ${actualType}`,
+        keyword: 'type',
+        params: { expected: field.type, actual: actualType },
+        data: value
       });
     }
   }
@@ -243,13 +239,19 @@ function findNestedArray(obj: unknown, path: string = ''): string | null {
  * @returns 修复提示词字符串
  */
 export function buildFixPrompt(
-  errors: ValidationError[],
+  errors: SchemaValidationError[],
   outputPath: string,
   expectedFormat: 'array' | 'object'
 ): string {
-  const errorDescriptions = errors.map(e =>
-    `- ${e.message}${e.details ? `\n  ${e.details}` : ''}`
-  ).join('\n');
+  const errorDescriptions = errors.map(e => {
+    let line = `- path: "${e.path}"`;
+    line += `\n  message: ${e.message}`;
+    line += `\n  keyword: ${e.keyword}`;
+    if (e.data !== undefined) {
+      line += `\n  data: ${JSON.stringify(e.data)}`;
+    }
+    return line;
+  }).join('\n\n');
 
   const formatExample = expectedFormat === 'array'
     ? '[\n  { "field1": "value1", "field2": "value2" },\n  { "field1": "value3", "field2": "value4" }\n]'
