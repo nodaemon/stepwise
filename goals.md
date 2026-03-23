@@ -204,16 +204,13 @@ interface ValidateOptions {
   maxRetries?: number; // 最大重试次数，默认 3
 }
 
-interface OutputFormat {
-  primaryKey?: string;
-  keys: OutputKey[];
+interface PropertyDef {
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  description?: string;
+  required?: boolean;
 }
 
-interface OutputKey {
-  name: string;
-  description: string;
-  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
-}
+type OutputFormat = Record<string, PropertyDef>;
 
 interface ExecutionResult {
   sessionId: string;

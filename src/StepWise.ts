@@ -785,12 +785,17 @@ export class StepWise {
     if (!outputFormat) {
       throw new Error(`[StepWise.${methodName}] outputFormat 参数不能为空`);
     }
-    if (!outputFormat.keys || !Array.isArray(outputFormat.keys) || outputFormat.keys.length === 0) {
-      throw new Error(`[StepWise.${methodName}] outputFormat.keys 不能为空数组`);
+    const propertyKeys = Object.keys(outputFormat);
+    if (propertyKeys.length === 0) {
+      throw new Error(`[StepWise.${methodName}] outputFormat 不能为空对象`);
     }
-    for (const key of outputFormat.keys) {
-      if (!key.name || typeof key.name !== 'string') {
-        throw new Error(`[StepWise.${methodName}] outputFormat.keys 中的每个元素必须包含有效的 name 属性`);
+    for (const [name, def] of Object.entries(outputFormat)) {
+      if (!def.type) {
+        throw new Error(`[StepWise.${methodName}] outputFormat.${name} 必须包含 type 属性`);
+      }
+      const validTypes = ['string', 'number', 'boolean', 'object', 'array'];
+      if (!validTypes.includes(def.type)) {
+        throw new Error(`[StepWise.${methodName}] outputFormat.${name}.type 必须是 ${validTypes.join(', ')} 之一`);
       }
     }
   }

@@ -50,26 +50,24 @@ export interface ExecOptions {
 }
 
 /**
- * 输出键定义
+ * 属性定义接口
+ * 用于定义输出格式中每个字段的类型和描述
  */
-export interface OutputKey {
-  /** 键名 */
-  name: string;
-  /** 键描述 */
-  description: string;
-  /** 键类型 */
+export interface PropertyDef {
+  /** 字段类型 */
   type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  /** 字段描述 */
+  description?: string;
+  /** 是否必填，默认 true */
+  required?: boolean;
 }
 
 /**
  * 输出格式定义
+ * 直接使用 Record<string, PropertyDef>，框架自动提取必填字段列表
+ * 第一个 required 字段（默认为第一个字段）作为去重 key
  */
-export interface OutputFormat {
-  /** 主键，用于去重 */
-  primaryKey?: string;
-  /** 输出键列表 */
-  keys: OutputKey[];
-}
+export type OutputFormat = Record<string, PropertyDef>;
 
 /**
  * 执行结果

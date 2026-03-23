@@ -118,13 +118,10 @@ async function collectAPIs() {
   const agent = new StepWise('collector');
 
   const outputFormat: OutputFormat = {
-    primaryKey: 'name',
-    keys: [
-      { name: 'name', description: 'API 名称', type: 'string' },
-      { name: 'method', description: 'HTTP 方法 (GET/POST/PUT/DELETE)', type: 'string' },
-      { name: 'path', description: 'API 路径', type: 'string' },
-      { name: 'description', description: '功能描述', type: 'string' }
-    ]
+    name: { type: 'string', description: 'API 名称' },
+    method: { type: 'string', description: 'HTTP 方法 (GET/POST/PUT/DELETE)' },
+    path: { type: 'string', description: 'API 路径' },
+    description: { type: 'string', description: '功能描述' }
   };
 
   // 收集数据，输出文件自动生成
@@ -191,13 +188,10 @@ async function generateReport() {
   const result = await agent.execReport(
     '基于项目分析结果，生成质量报告',
     {
-      primaryKey: 'projectName',
-      keys: [
-        { name: 'projectName', description: '项目名称', type: 'string' },
-        { name: 'qualityScore', description: '质量分数 (0-100)', type: 'number' },
-        { name: 'issues', description: '问题列表', type: 'array' },
-        { name: 'recommendations', description: '改进建议', type: 'array' }
-      ]
+      projectName: { type: 'string', description: '项目名称' },
+      qualityScore: { type: 'number', description: '质量分数 (0-100)' },
+      issues: { type: 'array', description: '问题列表' },
+      recommendations: { type: 'array', description: '改进建议' }
     },
     'quality_report.json'
   );
@@ -336,11 +330,8 @@ async function analyzeProject() {
   const components = await agent.execCollectPrompt(
     '收集项目中所有的 React 组件',
     {
-      primaryKey: 'name',
-      keys: [
-        { name: 'name', description: '组件名称', type: 'string' },
-        { name: 'file', description: '所在文件', type: 'string' }
-      ]
+      name: { type: 'string', description: '组件名称' },
+      file: { type: 'string', description: '所在文件' }
     }
   );
 
@@ -356,11 +347,8 @@ async function analyzeProject() {
   await agent.execReport(
     '基于分析结果，生成项目组件分析报告',
     {
-      primaryKey: 'summary',
-      keys: [
-        { name: 'summary', description: '总体概述', type: 'string' },
-        { name: 'statistics', description: '统计数据', type: 'object' }
-      ]
+      summary: { type: 'string', description: '总体概述' },
+      statistics: { type: 'object', description: '统计数据' }
     },
     'report.json'
   );
@@ -389,11 +377,8 @@ async function debugFlow() {
   const result = await agent.execCollectPrompt(
     '收集所有的函数定义',
     {
-      primaryKey: 'name',
-      keys: [
-        { name: 'name', description: '函数名', type: 'string' },
-        { name: 'file', description: '文件路径', type: 'string' }
-      ]
+      name: { type: 'string', description: '函数名' },
+      file: { type: 'string', description: '文件路径' }
     }
   );
 
@@ -482,13 +467,13 @@ for (const item of data.data) {
 await agent.execPrompt('分析项目结构，收集数据，处理数据，生成报告...');
 ```
 
-### 2. 使用主键去重
+### 2. 自动去重
 
 ```typescript
-// 使用 primaryKey 避免重复数据
-const format = {
-  primaryKey: 'name',  // 相同 name 的数据只保留最新一条
-  keys: [/* ... */]
+// 第一个必填字段自动用于去重
+const format: OutputFormat = {
+  name: { type: 'string', description: '项目名称' },  // 自动用于去重
+  value: { type: 'number', description: '项目值' }
 };
 ```
 

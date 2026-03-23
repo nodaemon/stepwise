@@ -25,12 +25,25 @@ export * from './types';
 // 常量（仅导出类型，不导出内部常量）
 export type { TaskType } from './constants';
 
-// 校验工具类型
+// 校验工具类型 - ValidationResult 直接使用 SchemaValidationResult
+export type { ValidationResult } from './utils/validator';
+
+// Schema 工具类型
 export type {
-  ValidationErrorType,
-  ValidationError,
-  ValidationResult
-} from './utils/validator';
+  JsonSchema,
+  SchemaValidationError,
+  SchemaValidationResult
+} from './utils/schemaUtils';
+
+// Schema 工具函数
+export {
+  buildJsonSchema,
+  getFirstRequiredField,
+  getRequiredFields,
+  checkDuplicateKeys,
+  validateAgainstSchema,
+  formatValidationErrors
+} from './utils/schemaUtils';
 
 // 导出测试用的内部函数
 export {

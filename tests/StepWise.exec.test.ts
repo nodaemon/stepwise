@@ -159,10 +159,8 @@ describe('StepWise execPrompt 接口测试', () => {
       const result = await agent.execCollectPrompt(
         'Collect data',
         {
-          keys: [
-            { name: 'name', description: 'Name', type: 'string' },
-            { name: 'value', description: 'Value', type: 'number' }
-          ]
+          name: { type: 'string', description: 'Name' },
+          value: { type: 'number', description: 'Value' }
         }
       );
 
@@ -176,7 +174,7 @@ describe('StepWise execPrompt 接口测试', () => {
 
       const result = await agent.execCollectPrompt(
         'Collect for $target',
-        { keys: [{ name: 'result', description: 'Result', type: 'string' }] },
+        { result: { type: 'string', description: 'Result' } },
         { data: { target: 'TestData' } }
       );
 
@@ -217,7 +215,7 @@ describe('StepWise execPrompt 接口测试', () => {
 
       const result = await agent.execReport(
         'Generate report',
-        { keys: [{ name: 'title', description: 'Title', type: 'string' }] },
+        { title: { type: 'string', description: 'Title' } },
         'report.json'
       );
 
@@ -230,7 +228,7 @@ describe('StepWise execPrompt 接口测试', () => {
 
       await agent.execReport(
         'Generate report',
-        { keys: [{ name: 'title', description: 'Title', type: 'string' }] },
+        { title: { type: 'string', description: 'Title' } },
         'report.json'
       );
 
@@ -246,7 +244,7 @@ describe('StepWise execPrompt 接口测试', () => {
 
       const result = await agent.execReport(
         'Generate report for $title',
-        { keys: [{ name: 'title', description: 'Title', type: 'string' }] },
+        { title: { type: 'string', description: 'Title' } },
         'report.json',
         { data: { title: 'Test Report' } }
       );

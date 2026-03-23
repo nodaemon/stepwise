@@ -75,20 +75,15 @@ if (!buildResult.success) {
 Collect structured data reliably with built-in validation and retry mechanisms:
 
 ```typescript
-// Internal mechanisms ensure stable collection
+// Simple format - first required field is automatically used for deduplication
 const result = await agent.execCollectPrompt('Collect all API endpoints', {
-  keys: [
-    { name: 'name', description: 'API name', type: 'string' },
-    { name: 'method', description: 'HTTP method', type: 'string' },
-    { name: 'path', description: 'API path', type: 'string' }
-  ]
+  name: { type: 'string', description: 'API name' },
+  method: { type: 'string', description: 'HTTP method' },
+  path: { type: 'string', description: 'API path' },
+  description: { type: 'string', description: 'API description', required: false }
 });
 
-// Optionally, add custom validation with checkPrompt
-const result = await agent.execCollectPrompt('Collect user data', {
-  keys: [...],
-  checkPrompt: 'Verify all email addresses are valid'
-});
+// The first required field ('name' in this case) is automatically used for deduplication
 ```
 
 ### Example 3: Parallel Processing of Collected Data

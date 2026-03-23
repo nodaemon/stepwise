@@ -1,4 +1,5 @@
-import { OutputFormat } from '../types';
+import { OutputFormat, PropertyDef } from '../types';
+import { buildJsonSchema, getFirstRequiredField } from './schemaUtils';
 
 /**
  * 根据字段类型生成示例值
@@ -42,30 +43,41 @@ export function replaceVariables(prompt: string, data: Record<string, any>): str
 }
 
 /**
- * 构建收集任务的额外提示词
- * @param outputFormat 输出格式
+ * 构建数组输出任务的公共提示词
+ * @param outputFormat 输出格式（直接是 Record<string, PropertyDef>）
  * @param outputFileName 输出文件名（应为绝对路径）
  * @param cwd Claude 命令执行的工作目录
+ * @param introText 开头引导文案
  * @returns 额外提示词
  */
-export function buildCollectPrompt(
+function buildArrayOutputPrompt(
   outputFormat: OutputFormat,
   outputFileName: string,
-  cwd?: string
+  cwd: string | undefined,
+  introText: string
 ): string {
-  const keyDescriptions = outputFormat.keys
-    .map((key) => `  "${key.name}": <${key.description}>`)
+  // 生成 JSON Schema
+  const schema = buildJsonSchema(outputFormat);
+  const dedupeKey = getFirstRequiredField(outputFormat);
+
+  // 生成示例
+  const exampleItem = Object.entries(outputFormat)
+    .map(([name, def]) => {
+      const exampleValue = getExampleValue(def.type);
+      return `    "${name}": ${exampleValue}`;
+    })
     .join(',\n');
 
-  const exampleItem = outputFormat.keys
-    .map((key) => {
-      const exampleValue = getExampleValue(key.type);
-      return `    "${key.name}": ${exampleValue}`;
+  // 生成字段说明
+  const keyDescriptions = Object.entries(outputFormat)
+    .map(([name, def]) => {
+      const required = def.required !== false ? '(必填)' : '(可选)';
+      return `  "${name}": <${def.description || name}> ${required}`;
     })
     .join(',\n');
 
   const requirements: string[] = [
-    '1. 必须输出 JSON 对象数组格式（见下方示例）',
+    '1. 必须输出 JSON 对象数组格式（见下方 JSON Schema）',
     '2. 如果文件已存在，读取现有数组，将新数据追加到数组末尾，然后写入完整的数组',
     '3. 确保 JSON 格式正确，数组必须是合法的 JSON',
     '4. 请直接将数据写入文件，不需要在回复中展示完整数据',
@@ -78,16 +90,22 @@ export function buildCollectPrompt(
     requirements.push(dirWarning);
   }
 
-  if (outputFormat.primaryKey) {
-    requirements.push(`6. 对于 ${outputFormat.primaryKey} 相同的数据需要去重，保留最新的数据`);
+  // 去重要求
+  if (dedupeKey) {
+    requirements.push(`6. "${dedupeKey}" 字段值不能重复，如果发现重复请保留最新数据`);
   }
 
   return `
-请按照以下格式输出数据，并写入到 ${outputFileName} 文件中：
+${introText}，并写入到 ${outputFileName} 文件中：
 
-## 输出格式（JSON 对象数组）
+## 输出格式（JSON Schema）
 
-正确的格式示例：
+\`\`\`json
+${JSON.stringify(schema, null, 2)}
+\`\`\`
+
+## 示例数据
+
 \`\`\`json
 [
   {
@@ -120,8 +138,23 @@ ${requirements.join('\n')}
 }
 
 /**
+ * 构建收集任务的额外提示词
+ * @param outputFormat 输出格式（直接是 Record<string, PropertyDef>）
+ * @param outputFileName 输出文件名（应为绝对路径）
+ * @param cwd Claude 命令执行的工作目录
+ * @returns 额外提示词
+ */
+export function buildCollectPrompt(
+  outputFormat: OutputFormat,
+  outputFileName: string,
+  cwd?: string
+): string {
+  return buildArrayOutputPrompt(outputFormat, outputFileName, cwd, '请按照以下格式输出数据');
+}
+
+/**
  * 构建报告任务的额外提示词
- * @param outputFormat 输出格式
+ * @param outputFormat 输出格式（直接是 Record<string, PropertyDef>）
  * @param outputFileName 输出文件名（应为绝对路径）
  * @param cwd Claude 命令执行的工作目录
  * @returns 额外提示词
@@ -131,70 +164,7 @@ export function buildReportPrompt(
   outputFileName: string,
   cwd?: string
 ): string {
-  const keyDescriptions = outputFormat.keys
-    .map((key) => `  "${key.name}": <${key.description}>`)
-    .join(',\n');
-
-  const exampleItem = outputFormat.keys
-    .map((key) => {
-      const exampleValue = getExampleValue(key.type);
-      return `    "${key.name}": ${exampleValue}`;
-    })
-    .join(',\n');
-
-  const requirements: string[] = [
-    '1. 必须输出 JSON 对象数组格式（见下方示例）',
-    '2. 如果文件已存在，读取现有数组，将新数据追加到数组末尾，然后写入完整的数组',
-    '3. 确保 JSON 格式正确，数组必须是合法的 JSON',
-    '4. 请直接将数据写入文件，不需要在回复中展示完整数据',
-    '5. 写入完成后使用 Read 工具验证文件内容是否为合法的 JSON 数组'
-  ];
-
-  // 当 cwd 和 process.cwd() 不一致时，添加明确说明
-  const dirWarning = getDirWarning(cwd, outputFileName);
-  if (dirWarning) {
-    requirements.push(dirWarning);
-  }
-
-  if (outputFormat.primaryKey) {
-    requirements.push(`6. 对于 ${outputFormat.primaryKey} 相同的数据需要去重，保留最新的数据`);
-  }
-
-  return `
-请按照以下格式输出报告数据，并写入到 ${outputFileName} 文件中：
-
-## 输出格式（JSON 对象数组）
-
-正确的格式示例：
-\`\`\`json
-[
-  {
-${exampleItem}
-  }
-]
-\`\`\`
-
-每个对象的字段说明：
-{
-${keyDescriptions}
-}
-
-## 禁止的格式
-
-**特别注意：不要使用嵌套结构！**
-
-以下格式是错误的，绝对不要输出：
-- ❌ 嵌套对象：\`{"data": [...]}\`、\`{"items": [...]}\`、\`{"results": [...]}\`
-- ❌ 单个对象：\`{"name": "xxx"}\`
-- ❌ 多个 JSON 拼接：\`{}\\n{}\`
-- ❌ 带 markdown 代码块标记
-
-**正确做法**：直接输出数组 \`[{...}, {...}]\`，不要包裹在任何对象中
-
-## 要求
-
-${requirements.join('\n')}
-`;
+  return buildArrayOutputPrompt(outputFormat, outputFileName, cwd, '请按照以下格式输出报告数据');
 }
 
 /**

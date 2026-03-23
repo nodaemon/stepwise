@@ -118,13 +118,10 @@ async function collectAPIs() {
   const agent = new StepWise('collector');
 
   const outputFormat: OutputFormat = {
-    primaryKey: 'name',
-    keys: [
-      { name: 'name', description: 'API name', type: 'string' },
-      { name: 'method', description: 'HTTP method (GET/POST/PUT/DELETE)', type: 'string' },
-      { name: 'path', description: 'API path', type: 'string' },
-      { name: 'description', description: 'Function description', type: 'string' }
-    ]
+    name: { type: 'string', description: 'API name' },
+    method: { type: 'string', description: 'HTTP method (GET/POST/PUT/DELETE)' },
+    path: { type: 'string', description: 'API path' },
+    description: { type: 'string', description: 'Function description' }
   };
 
   // Collect data, output file is auto-generated
@@ -191,13 +188,10 @@ async function generateReport() {
   const result = await agent.execReport(
     'Based on project analysis results, generate quality report',
     {
-      primaryKey: 'projectName',
-      keys: [
-        { name: 'projectName', description: 'Project name', type: 'string' },
-        { name: 'qualityScore', description: 'Quality score (0-100)', type: 'number' },
-        { name: 'issues', description: 'List of issues', type: 'array' },
-        { name: 'recommendations', description: 'Recommendations', type: 'array' }
-      ]
+      projectName: { type: 'string', description: 'Project name' },
+      qualityScore: { type: 'number', description: 'Quality score (0-100)' },
+      issues: { type: 'array', description: 'List of issues' },
+      recommendations: { type: 'array', description: 'Recommendations' }
     },
     'quality_report.json'
   );
@@ -336,11 +330,8 @@ async function analyzeProject() {
   const components = await agent.execCollectPrompt(
     'Collect all React components in the project',
     {
-      primaryKey: 'name',
-      keys: [
-        { name: 'name', description: 'Component name', type: 'string' },
-        { name: 'file', description: 'File location', type: 'string' }
-      ]
+      name: { type: 'string', description: 'Component name' },
+      file: { type: 'string', description: 'File location' }
     }
   );
 
@@ -356,11 +347,8 @@ async function analyzeProject() {
   await agent.execReport(
     'Based on analysis results, generate project component analysis report',
     {
-      primaryKey: 'summary',
-      keys: [
-        { name: 'summary', description: 'Overall summary', type: 'string' },
-        { name: 'statistics', description: 'Statistics', type: 'object' }
-      ]
+      summary: { type: 'string', description: 'Overall summary' },
+      statistics: { type: 'object', description: 'Statistics' }
     },
     'report.json'
   );
@@ -389,11 +377,8 @@ async function debugFlow() {
   const result = await agent.execCollectPrompt(
     'Collect all function definitions',
     {
-      primaryKey: 'name',
-      keys: [
-        { name: 'name', description: 'Function name', type: 'string' },
-        { name: 'file', description: 'File path', type: 'string' }
-      ]
+      name: { type: 'string', description: 'Function name' },
+      file: { type: 'string', description: 'File path' }
     }
   );
 
@@ -482,13 +467,13 @@ for (const item of data.data) {
 await agent.execPrompt('Analyze project structure, collect data, process data, generate report...');
 ```
 
-### 2. Use Primary Key for Deduplication
+### 2. Automatic Deduplication
 
 ```typescript
-// Use primaryKey to avoid duplicate data
-const format = {
-  primaryKey: 'name',  // Data with same name keeps only the latest
-  keys: [/* ... */]
+// First required field is automatically used for deduplication
+const format: OutputFormat = {
+  name: { type: 'string', description: 'Item name' },  // Auto-used for deduplication
+  value: { type: 'number', description: 'Item value' }
 };
 ```
 

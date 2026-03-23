@@ -37,16 +37,14 @@ export function loadJsonFile<T>(filePath: string): T | null {
 }
 
 /**
- * 追加合并 JSON 数组并去重
+ * 追加合并 JSON 数组
  * @param filePath 目标文件路径
  * @param newData 新数据数组
- * @param primaryKey 主键，用于去重
  * @returns 合并后的数组
  */
 export function appendJsonArray(
   filePath: string,
-  newData: Record<string, any>[],
-  primaryKey?: string
+  newData: Record<string, any>[]
 ): Record<string, any>[] {
   let existingData: Record<string, any>[] = [];
 
@@ -65,22 +63,6 @@ export function appendJsonArray(
 
   // 合并数据
   const combinedData = [...existingData, ...newData];
-
-  // 去重
-  if (primaryKey) {
-    const seen = new Map<string, Record<string, any>>();
-    // 从后往前遍历，保留最新的数据
-    for (let i = combinedData.length - 1; i >= 0; i--) {
-      const item = combinedData[i];
-      const keyValue = item[primaryKey];
-      if (keyValue !== undefined && !seen.has(String(keyValue))) {
-        seen.set(String(keyValue), item);
-      }
-    }
-    const uniqueData = Array.from(seen.values()).reverse();
-    saveJsonFile(filePath, uniqueData);
-    return uniqueData;
-  }
 
   saveJsonFile(filePath, combinedData);
   return combinedData;
