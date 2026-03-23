@@ -75,20 +75,15 @@ if (!buildResult.success) {
 内置校验和重试机制，确保数据收集稳定可靠：
 
 ```typescript
-// 内置机制确保稳定收集
+// 简洁格式 - 第一个必填字段自动用于去重
 const result = await agent.execCollectPrompt('收集所有 API 接口', {
-  keys: [
-    { name: 'name', description: 'API 名称', type: 'string' },
-    { name: 'method', description: 'HTTP 方法', type: 'string' },
-    { name: 'path', description: 'API 路径', type: 'string' }
-  ]
+  name: { type: 'string', description: 'API 名称' },
+  method: { type: 'string', description: 'HTTP 方法' },
+  path: { type: 'string', description: 'API 路径' },
+  description: { type: 'string', description: 'API 描述', required: false }
 });
 
-// 可选：使用 checkPrompt 添加自定义校验
-const result = await agent.execCollectPrompt('收集用户数据', {
-  keys: [...],
-  checkPrompt: '验证所有邮箱地址格式正确'
-});
+// 第一个必填字段（此处为 name）自动用于去重
 ```
 
 ### 示例 3：并行处理收集到的数据
