@@ -14,6 +14,8 @@ This document provides detailed API reference for StepWise.
   - [saveCollectData](#savecollectdatadata-recordstring-any-filename-string-void)
   - [loadCollectData](#loadcollectdatafilename-string-recordstring-any)
   - [setAgentType](#setagenttypetype-agenttype-void)
+  - [getTaskDir](#gettaskdir-string)
+  - [getReportPath](#getreportpathfilename-string-string)
 - [StepWise Class](#stepwise-class)
   - [Constructor](#constructor)
   - [Task Execution Methods](#task-execution-methods)
@@ -216,6 +218,68 @@ setTaskName('MyTask');
 // Or use the default Claude Code agent
 setAgentType('claude'); // Optional, claude is the default
 setTaskName('MyTask');
+```
+
+---
+
+### getTaskDir(): string
+
+Gets the task directory path (Task level).
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| string | Absolute path of task directory |
+
+**Example**
+
+```typescript
+import { getTaskDir } from 'stepwise';
+
+const taskDir = getTaskDir();
+console.log('Task directory:', taskDir);
+// Output: /path/to/stepwise_exec_infos/MyTask_20260324_120000_123
+```
+
+---
+
+### getReportPath(fileName: string): string
+
+Gets the absolute path of a task-level report file.
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| fileName | string | Report file name (e.g., `"api_report.json"`) |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| string | Absolute path of the report file (file may not exist) |
+
+**Behavior**
+
+- Used to get the Task-level report directory path after `forEachParallel` parallel execution, containing merged reports from all agents
+- Functionally identical to StepWise instance's `getReportPath` method, but can be used without creating an instance
+
+**Example**
+
+```typescript
+import { getReportPath } from 'stepwise';
+
+// Get report file path
+const reportPath = getReportPath('api_report.json');
+console.log('Report path:', reportPath);
+// Output: /path/to/stepwise_exec_infos/MyTask_xxx/report/api_report.json
+
+// Read report content
+if (fs.existsSync(reportPath)) {
+  const content = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
+  console.log('Report data:', content);
+}
 ```
 
 ---

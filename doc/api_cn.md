@@ -14,6 +14,8 @@
   - [saveCollectData](#savecollectdatadata-recordstring-any-filename-string-void)
   - [loadCollectData](#loadcollectdatafilename-string-recordstring-any)
   - [setAgentType](#setagenttypetype-agenttype-void)
+  - [getTaskDir](#gettaskdir-string)
+  - [getReportPath](#getreportpathfilename-string-string)
 - [StepWise 类](#stepwise-类)
   - [构造函数](#构造函数)
   - [任务执行方法](#任务执行方法)
@@ -216,6 +218,68 @@ setTaskName('MyTask');
 // 或使用默认的 Claude Code 智能体
 setAgentType('claude'); // 可省略，默认就是 claude
 setTaskName('MyTask');
+```
+
+---
+
+### getTaskDir(): string
+
+获取任务目录路径（Task 级别）。
+
+**返回值**
+
+| 类型 | 描述 |
+|------|------|
+| string | 任务目录的绝对路径 |
+
+**示例**
+
+```typescript
+import { getTaskDir } from 'stepwise';
+
+const taskDir = getTaskDir();
+console.log('任务目录:', taskDir);
+// 输出: /path/to/stepwise_exec_infos/MyTask_20260324_120000_123
+```
+
+---
+
+### getReportPath(fileName: string): string
+
+获取任务级别报告文件的绝对路径。
+
+**参数**
+
+| 参数 | 类型 | 描述 |
+|------|------|------|
+| fileName | string | 报告文件名（如 `"api_report.json"`） |
+
+**返回值**
+
+| 类型 | 描述 |
+|------|------|
+| string | 报告文件的绝对路径（文件可能不存在） |
+
+**行为**
+
+- 用于获取 `forEachParallel` 并行执行后，各 Agent 报告合并后的 Task 级别 report 目录路径
+- 与 StepWise 实例的 `getReportPath` 方法功能相同，但可在不创建实例的情况下使用
+
+**示例**
+
+```typescript
+import { getReportPath } from 'stepwise';
+
+// 获取报告文件路径
+const reportPath = getReportPath('api_report.json');
+console.log('报告路径:', reportPath);
+// 输出: /path/to/stepwise_exec_infos/MyTask_xxx/report/api_report.json
+
+// 读取报告内容
+if (fs.existsSync(reportPath)) {
+  const content = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
+  console.log('报告数据:', content);
+}
 ```
 
 ---

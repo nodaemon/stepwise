@@ -6,7 +6,7 @@ import * as path from 'path';
 import { appendJsonArray, loadJsonFile } from './utils/fileHelper';
 import { AgentType } from './types';
 import { PerformanceTracker } from './utils/performanceTracker';
-import { EXEC_INFO_DIR } from './constants';
+import { EXEC_INFO_DIR, REPORT_DIR } from './constants';
 
 /** 全局状态 */
 interface GlobalState {
@@ -257,4 +257,18 @@ export function _getTaskDir(): string {
  */
 export function _setTaskDir(dir: string): void {
   globalState.taskDir = dir;
+}
+
+/**
+ * 获取任务目录路径（Task 级别）
+ */
+export function getTaskDir(): string {
+  return globalState.taskDir;
+}
+
+/**
+ * 获取任务级别报告文件的绝对路径
+ */
+export function getReportPath(fileName: string): string {
+  return path.join(globalState.taskDir, REPORT_DIR, fileName);
 }

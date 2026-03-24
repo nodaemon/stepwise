@@ -12,7 +12,9 @@ export {
   setSkipSummarize,
   saveCollectData,
   loadCollectData,
-  setAgentType
+  setAgentType,
+  getTaskDir,
+  getReportPath
 } from './globalState';
 
 // 并发处理接口
