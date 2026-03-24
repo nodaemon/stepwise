@@ -656,6 +656,46 @@ Gets the current task directory path (TaskName directory).
 
 ---
 
+#### getReportPath(fileName: string): string
+
+Gets the absolute path of a report file.
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| fileName | string | Report file name (e.g., `"api_report.json"`) |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| string | Absolute path of the report file (file may not exist) |
+
+**Example**
+
+```typescript
+// Generate report
+await agent.execReport(
+  'Analyze all API endpoints in the project',
+  format,
+  'api_report.json'
+);
+
+// Get report file path
+const reportPath = agent.getReportPath('api_report.json');
+console.log('Report path:', reportPath);
+// Output: /path/to/stepwise_exec_infos/TaskName_xxx/report/api_report.json
+
+// Read report content
+if (fs.existsSync(reportPath)) {
+  const content = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
+  console.log('Data:', content);
+}
+```
+
+---
+
 #### getTaskCounter(): number
 
 Gets the current task count.

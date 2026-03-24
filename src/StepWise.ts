@@ -1445,6 +1445,20 @@ export class StepWise {
   }
 
   /**
+   * 获取报告文件的绝对路径
+   * 
+   * @param fileName 报告文件名（如 "api_report.json"）
+   * @returns 报告文件的绝对路径（文件可能不存在）
+   * 
+   * @example
+   * const reportPath = agent.getReportPath('api_report.json');
+   * // 返回: /path/to/stepwise_exec_infos/TaskName_xxx/report/api_report.json
+   */
+  getReportPath(fileName: string): string {
+    return path.join(this.taskDir, REPORT_DIR, fileName);
+  }
+
+  /**
    * 获取当前任务计数
    */
   getTaskCounter(): number {

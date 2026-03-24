@@ -656,6 +656,46 @@ await agent.summarize();
 
 ---
 
+#### getReportPath(fileName: string): string
+
+获取报告文件的绝对路径。
+
+**参数**
+
+| 参数 | 类型 | 描述 |
+|------|------|------|
+| fileName | string | 报告文件名（如 `"api_report.json"`） |
+
+**返回值**
+
+| 类型 | 描述 |
+|------|------|
+| string | 报告文件的绝对路径（文件可能不存在） |
+
+**示例**
+
+```typescript
+// 生成报告
+await agent.execReport(
+  '分析项目中的所有 API 接口',
+  format,
+  'api_report.json'
+);
+
+// 获取报告文件路径
+const reportPath = agent.getReportPath('api_report.json');
+console.log('报告路径:', reportPath);
+// 输出: /path/to/stepwise_exec_infos/TaskName_xxx/report/api_report.json
+
+// 读取报告内容
+if (fs.existsSync(reportPath)) {
+  const content = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
+  console.log('数据:', content);
+}
+```
+
+---
+
 #### getTaskCounter(): number
 
 获取当前任务计数。
