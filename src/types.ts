@@ -207,20 +207,6 @@ export interface ShellOptions {
    * 例如：{ NODE_ENV: 'production', DEBUG: 'true' }
    */
   env?: Record<string, string>;
-
-  /**
-   * 失败时是否自动重试
-   * 默认 false
-   * 如果为 true，命令失败后会自动重试
-   */
-  retry?: boolean;
-
-  /**
-   * 重试次数
-   * 默认 3 次
-   * 仅当 retry 为 true 时生效
-   */
-  retryCount?: number;
 }
 
 /**

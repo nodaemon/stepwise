@@ -7,7 +7,7 @@ import * as childProcess from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ExecutionResult } from '../types';
-import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_503_WAIT_MS } from '../constants';
+import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS } from '../constants';
 import { Logger } from '../utils/logger';
 import { AgentExecutorOptions, AgentExecutor, ExecutorRawResult } from './types';
 
@@ -492,11 +492,11 @@ export abstract class BaseExecutor implements AgentExecutor {
   }
 
   /**
-   * 构建默认的速率限制信息（无具体时间，等待 10 分钟）
+   * 构建默认的速率限制信息（无具体时间，等待 5 分钟）
    */
   private buildDefaultRateLimitInfo(): RateLimitInfo {
-    const resetTime = new Date(Date.now() + 10 * 60 * 1000);
-    const message = `已达到 API 使用限额（429 错误）。未获取到具体重置时间，将等待 10 分钟后重试。`;
+    const resetTime = new Date(Date.now() + DEFAULT_RETRY_WAIT_MS);
+    const message = `已达到 API 使用限额（429 错误）。未获取到具体重置时间，将等待 5 分钟后重试。`;
     return { resetTime, message };
   }
 
@@ -505,7 +505,7 @@ export abstract class BaseExecutor implements AgentExecutor {
    * 503 错误表示 API 服务暂时不可用（No available providers）
    */
   private build503ErrorRateLimitInfo(): RateLimitInfo {
-    const resetTime = new Date(Date.now() + DEFAULT_503_WAIT_MS);
+    const resetTime = new Date(Date.now() + DEFAULT_RETRY_WAIT_MS);
     const message = `API 服务暂时不可用（503/No available providers）。将等待 5 分钟后重试。`;
     return { resetTime, message };
   }

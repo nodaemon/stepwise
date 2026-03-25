@@ -1657,9 +1657,7 @@ export class StepWise {
     const result = await this.shellExecutor.execute(command, {
       cwd: effectiveCwd,
       timeout: options?.timeout,
-      env: options?.env,
-      retry: options?.retry,
-      retryCount: options?.retryCount
+      env: options?.env
     });
 
     // 更新结果中的 taskIndex

@@ -552,8 +552,6 @@ interface ShellOptions {
   cwd?: string;        // Working directory, uses process.cwd() if not specified
   timeout?: number;    // Timeout in milliseconds, default 5 minutes (300000ms)
   env?: Record<string, string>; // Environment variables, merged with process.env
-  retry?: boolean;     // Whether to automatically retry on failure, default false
-  retryCount?: number; // Number of retries, default 3
 }
 ```
 
@@ -587,9 +585,7 @@ console.log('Output:', result.stdout);
 // With options
 const result = await agent.execShell('npm test', {
   timeout: 60000,     // Timeout 60 seconds
-  cwd: './project',   // Specify working directory
-  retry: true,        // Retry on failure
-  retryCount: 3       // Retry 3 times
+  cwd: './project'    // Specify working directory
 });
 
 // Using environment variables
@@ -1009,8 +1005,6 @@ interface ShellOptions {
   cwd?: string;        // Working directory
   timeout?: number;    // Timeout (milliseconds), default 300000
   env?: Record<string, string>; // Environment variables
-  retry?: boolean;     // Whether to retry on failure, default false
-  retryCount?: number; // Number of retries, default 3
 }
 ```
 

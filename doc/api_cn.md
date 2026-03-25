@@ -552,8 +552,6 @@ interface ShellOptions {
   cwd?: string;        // 工作目录，未指定则使用 process.cwd()
   timeout?: number;    // 超时时间（毫秒），默认 5 分钟 (300000ms)
   env?: Record<string, string>; // 环境变量，会与 process.env 合并
-  retry?: boolean;     // 失败时是否自动重试，默认 false
-  retryCount?: number; // 重试次数，默认 3 次
 }
 ```
 
@@ -587,9 +585,7 @@ console.log('输出:', result.stdout);
 // 带选项
 const result = await agent.execShell('npm test', {
   timeout: 60000,     // 超时 60 秒
-  cwd: './project',   // 指定工作目录
-  retry: true,        // 失败时重试
-  retryCount: 3       // 重试 3 次
+  cwd: './project'    // 指定工作目录
 });
 
 // 使用环境变量
@@ -1009,8 +1005,6 @@ interface ShellOptions {
   cwd?: string;        // 工作目录
   timeout?: number;    // 超时时间（毫秒），默认 300000
   env?: Record<string, string>; // 环境变量
-  retry?: boolean;     // 失败时是否重试，默认 false
-  retryCount?: number; // 重试次数，默认 3
 }
 ```
 
