@@ -94,8 +94,8 @@ function scanResumeStates(taskDir: string, itemsLength: number): Map<number, Tas
     if (fs.existsSync(progressPath)) {
       try {
         const progress = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
-        const hasInProgress = progress.tasks?.some?.((t: any) => t.status === 'in_progress');
-        const status = hasInProgress ? 'in_progress' : 'completed';
+        const isCompleted = progress.isCompleted === true;
+        const status = isCompleted ? 'completed' : 'in_progress';
 
         // 如果已有记录，保留 in_progress 的（优先恢复）
         const existing = states.get(index);
@@ -257,6 +257,7 @@ export async function forEachParallel<T>(
 
           // 标记为已恢复
           recoveredIndices.add(index);
+          stepWise.markCompleted();
         }
       }
     }
@@ -305,6 +306,7 @@ export async function forEachParallel<T>(
 
       try {
         await handler(context);
+        stepWise.markCompleted();
       } catch (error) {
         // 构造详细错误信息
         const errorDetails = [

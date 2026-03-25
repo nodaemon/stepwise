@@ -180,7 +180,8 @@ export class StepWise {
           taskDir: this.agentDir,
           taskCounter: 0,
           tasks: [],
-          lastUpdated: Date.now()
+          lastUpdated: Date.now(),
+          isCompleted: false
         };
         this.taskCounter = 0;
 
@@ -216,7 +217,8 @@ export class StepWise {
         taskDir: this.agentDir,
         taskCounter: 0,
         tasks: [],
-        lastUpdated: Date.now()
+        lastUpdated: Date.now(),
+        isCompleted: false
       };
       this.saveProgress();
     }
@@ -443,6 +445,18 @@ export class StepWise {
   }
 
   /**
+   * 标记任务完全完成
+   * 用于 forEachParallel 恢复时判断任务是否真正完成
+   */
+  public markCompleted(): void {
+    if (this.progress) {
+      this.progress.isCompleted = true;
+      this.progress.lastUpdated = Date.now();
+      this.saveProgress();
+    }
+  }
+
+  /**
    * 加载进度
    */
   private loadProgress(): void {
@@ -476,7 +490,8 @@ export class StepWise {
         taskDir: this.agentDir,
         taskCounter: 0,
         tasks: [],
-        lastUpdated: Date.now()
+        lastUpdated: Date.now(),
+        isCompleted: false
       };
       this.taskCounter = 0;
       this.executionIndex = 0;

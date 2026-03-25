@@ -176,6 +176,8 @@ export interface ProgressInfo {
   tasks: TaskStatus[];
   /** 最后更新时间 */
   lastUpdated: number;
+  /** 任务是否完全完成，用于 forEachParallel 恢复时判断任务是否真正完成 */
+  isCompleted?: boolean;
 }
 
 // ============ Shell 执行相关类型 ============
