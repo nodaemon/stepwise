@@ -111,6 +111,28 @@ export abstract class BaseExecutor implements AgentExecutor {
 
         // 退出码为 0 表示成功
         if (result.exitCode === 0) {
+          // 检查 stdout 是否为空
+          if (!result.stdout || result.stdout.trim() === '') {
+            console.log(`[${this.agentType}] 警告: 任务执行完成但没有任何输出，将触发重试`);
+
+            // 记录重试日志
+            if (attempts > 1) {
+              options.logger?.logTaskRetry(
+                options.taskIndex || 0,
+                options.taskType || 'task',
+                attempts,
+                '任务执行完成但没有任何输出'
+              );
+            }
+
+            // 空输出视为失败，继续重试循环
+            lastError = `${this.getCommand()} exited with code 0 but produced no output`;
+            lastStdout = result.stdout;
+            lastStderr = result.stderr;
+            lastExitCode = result.exitCode;
+            continue;
+          }
+
           // 尝试获取 sessionId（OpenCode 通过 session list 获取）
           const parsedSessionId = await this.getSessionIdAfterExecution();
           if (parsedSessionId) {
