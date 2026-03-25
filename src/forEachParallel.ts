@@ -487,8 +487,7 @@ async function mergeWorkerBranches(
 
     await mainStepWise.execPrompt(
       `将分支 ${config.branchName} 的代码合并到当前分支。` +
-      `如果遇到冲突，请合理解决冲突，优先保留当前分支的修改。` +
-      `合并完成后推送到远端。`,
+      `如果遇到冲突，请合理解决冲突，优先保留当前分支的修改。`,
       {
         newSession: true,
         env: config.env
