@@ -213,6 +213,7 @@ export async function forEachParallel<T>(
   const mainStepWise = new StepWise('main');
 
   // 5. 并发执行
+  const recoveredIndices = new Set<number>();  // 记录阶段 A 已恢复的索引
   let newItemIndex = 0;  // 新任务的分配索引
 
   const worker = async (workerIndex: number) => {
@@ -254,8 +255,8 @@ export async function forEachParallel<T>(
             throw enhancedError;
           }
 
-          // 标记为已处理
-          resumeStates.delete(index);
+          // 标记为已恢复
+          recoveredIndices.add(index);
         }
       }
     }
@@ -283,6 +284,11 @@ export async function forEachParallel<T>(
             // 所有 in_progress 任务都在步骤 A 中被处理，跳过
             continue;
           }
+        }
+
+        // 检查是否已被阶段 A 恢复
+        if (recoveredIndices.has(currentIndex)) {
+          continue;
         }
       }
 
