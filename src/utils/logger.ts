@@ -153,4 +153,15 @@ export class Logger {
     }).join('\n');
     this.writeSummaryLog(`任务 ${taskIndex} 校验失败 (第 ${attempt} 次尝试)\n${errorMessages}`);
   }
+
+  /**
+   * 记录输出文件不存在
+   */
+  logFileMissing(
+    taskIndex: number,
+    attempt: number,
+    outputPath: string
+  ): void {
+    this.writeSummaryLog(`任务 ${taskIndex} 输出文件不存在 (第 ${attempt} 次尝试): ${outputPath}`);
+  }
 }

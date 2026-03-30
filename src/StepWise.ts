@@ -22,8 +22,7 @@ import { AgentExecutor } from './executors/types';
 import {
   ensureDir,
   saveJsonFile,
-  loadJsonFile,
-  fileExists
+  loadJsonFile
 } from './utils/fileHelper';
 import {
   validateJsonArray,
@@ -37,7 +36,8 @@ import {
   buildPostCheckPrompt,
   buildFullPrompt,
   replaceVariables,
-  buildSummarizePrompt
+  buildSummarizePrompt,
+  buildFileMissingPrompt
 } from './utils/promptBuilder';
 import {
   EXEC_INFO_DIR,
@@ -843,12 +843,15 @@ export class StepWise {
    * 带校验和自动重试的 JSON 文件读取
    *
    * 执行流程：
-   * 1. 如果校验被禁用或文件不存在，直接返回 loadJsonFile 结果
-   * 2. 读取文件内容并执行校验
-   * 3. 校验通过则返回数据
-   * 4. 校验失败则生成修复提示词，让 AI 修复 JSON 文件
-   * 5. 重复步骤 2-4，直到成功或达到最大重试次数
-   * 6. 重试耗尽后返回 null（不抛异常，保持向后兼容）
+   * 1. 如果校验被禁用，直接返回 loadJsonFile 结果
+   * 2. 检查文件是否存在：
+   *    - 文件不存在 + retryOnFileMissing 启用 → 生成提示词让 AI 写入文件，然后重试
+   *    - 文件不存在 + retryOnFileMissing 禁用 → 直接返回 null
+   * 3. 文件存在时，读取并校验内容
+   * 4. 校验通过则返回数据
+   * 5. 校验失败则生成修复提示词，让 AI 修复 JSON 文件
+   * 6. 重复步骤 2-5，直到成功或达到最大重试次数
+   * 7. 重试耗尽后返回 null（不抛异常，保持向后兼容）
    *
    * @param outputPath JSON 文件路径
    * @param execOptions 执行选项，包含 validateOptions 配置
@@ -875,27 +878,63 @@ export class StepWise {
     // 解析校验配置
     const validationEnabled = execOptions?.validateOptions?.enabled !== false;
     const maxRetryAttempts = execOptions?.validateOptions?.maxRetries ?? 3;
+    const retryOnFileMissing = execOptions?.validateOptions?.retryOnFileMissing !== false;
 
-    // 禁用校验或文件不存在时，使用原有逻辑
-    if (!validationEnabled || !fs.existsSync(outputPath)) {
+    // 禁用校验时，使用原有逻辑（直接读取文件）
+    if (!validationEnabled) {
       return loadJsonFile<T>(outputPath);
     }
 
     // 校验循环：attempt 从 1 开始，表示第几次尝试
     for (let attempt = 1; attempt <= maxRetryAttempts + 1; attempt++) {
-      // 步骤 1: 读取并校验文件内容
+      // 步骤 1: 检查文件是否存在
+      if (!fs.existsSync(outputPath)) {
+        // 文件不存在 + 不重试 → 直接返回 null
+        if (!retryOnFileMissing) {
+          return null;
+        }
+
+        // 记录文件缺失日志
+        this.logger?.logFileMissing(context.taskIndex, attempt, outputPath);
+
+        // 检查是否还能重试
+        if (attempt > maxRetryAttempts) {
+          console.error(`[StepWise] 输出文件不存在，已重试 ${maxRetryAttempts} 次: ${outputPath}`);
+          return null;
+        }
+
+        // 生成文件缺失提示词并执行
+        console.log(`[StepWise] 输出文件不存在，第 ${attempt} 次重试...`);
+        const missingPrompt = buildFileMissingPrompt(outputPath, validateConfig.expectedFormat);
+
+        await this.executor.execute(missingPrompt, {
+          cwd: context.cwd,
+          env: context.env,
+          sessionId: this.currentSessionId,
+          useResume: true,
+          taskLogDir: context.taskLogDir,
+          logger: this.logger!,
+          taskIndex: context.taskIndex,
+          taskType: context.taskType
+        });
+
+        // 循环继续，重新检查文件是否存在
+        continue;
+      }
+
+      // 步骤 2: 读取并校验文件内容
       const fileContent = fs.readFileSync(outputPath, 'utf-8');
       const validationResult = validateConfig.validate(fileContent);
 
-      // 步骤 2: 校验通过，返回数据
+      // 步骤 3: 校验通过，返回数据
       if (validationResult.valid) {
         return validationResult.data!;
       }
 
-      // 步骤 3: 校验失败，记录日志
+      // 步骤 4: 校验失败，记录日志
       this.logger?.logValidationFailed(context.taskIndex, attempt, validationResult.errors);
 
-      // 步骤 4: 检查是否还能重试
+      // 步骤 5: 检查是否还能重试
       if (attempt > maxRetryAttempts) {
         // 重试耗尽，记录错误并返回 null
         const errorSummary = validationResult.errors.map(e => `  - ${e.message}`).join('\n');
@@ -903,7 +942,7 @@ export class StepWise {
         return null;
       }
 
-      // 步骤 5: 生成修复提示词并执行
+      // 步骤 6: 生成修复提示词并执行
       console.log(`[StepWise] 校验失败，第 ${attempt} 次重试...`);
       const fixPrompt = buildFixPrompt(validationResult.errors, outputPath, validateConfig.expectedFormat);
 
@@ -1164,7 +1203,7 @@ export class StepWise {
     }
 
     let data: Record<string, any>[] = [];
-    if (result.success && fileExists(outputPath)) {
+    if (result.success) {
       data = await this.readJsonWithValidation<Record<string, any>[]>(
         outputPath,
         options,
@@ -1293,7 +1332,7 @@ export class StepWise {
     }
 
     let checkResult = false;
-    if (result.success && fileExists(outputPath)) {
+    if (result.success) {
       const checkData = await this.readJsonWithValidation<{ result: boolean }>(
         outputPath,
         options,
@@ -1421,7 +1460,7 @@ export class StepWise {
     }
 
     let data: Record<string, any>[] = [];
-    if (result.success && fileExists(outputPath)) {
+    if (result.success) {
       data = await this.readJsonWithValidation<Record<string, any>[]>(
         outputPath,
         options,

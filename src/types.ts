@@ -13,6 +13,8 @@ export interface ValidateOptions {
   enabled?: boolean;
   /** 最大重试次数，默认 3 */
   maxRetries?: number;
+  /** 文件不存在时是否触发重试，默认 true */
+  retryOnFileMissing?: boolean;
 }
 
 /**

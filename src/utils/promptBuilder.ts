@@ -228,6 +228,37 @@ ${requirements.join('\n')}
 }
 
 /**
+ * 构建文件缺失修复提示词
+ * @param outputPath 预期的输出文件路径
+ * @param expectedFormat 期望的 JSON 格式类型
+ * @returns 修复提示词
+ */
+export function buildFileMissingPrompt(
+  outputPath: string,
+  expectedFormat: 'array' | 'object'
+): string {
+  const formatExample = expectedFormat === 'array'
+    ? '[\n  { "field1": "value1", "field2": "value2" },\n  { "field1": "value3", "field2": "value4" }\n]'
+    : '{ "result": true }';
+
+  return `预期的输出文件不存在，请将结果写入正确路径：
+
+## 问题
+文件 ${outputPath} 不存在。你需要将结果数据写入到这个路径。
+
+## 正确格式示例
+\`\`\`json
+${formatExample}
+\`\`\`
+
+## 写入要求
+1. 将结果写入文件 ${outputPath}
+2. 确保输出为标准 JSON 格式
+3. 不要使用嵌套结构
+4. 写入完成后使用 Read 工具验证文件内容`;
+}
+
+/**
  * 构建完整的提示词
  * @param originalPrompt 原始提示词
  * @param extraPrompt 额外提示词
