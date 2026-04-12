@@ -67,7 +67,7 @@ export class Logger {
    * 写入日志文件
    */
   writeLog(logPath: string, content: string): void {
-    const timestamp = new Date().toISOString();
+    const timestamp = new Date().toLocaleString('zh-CN', { hour12: false });
     const logContent = `[${timestamp}] ${content}\n`;
     fs.appendFileSync(logPath, logContent, 'utf-8');
   }

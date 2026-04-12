@@ -111,7 +111,7 @@ export class PerformanceTracker {
 
     return {
       taskName: this.taskName,
-      generatedAt: new Date().toISOString(),
+      generatedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
       summary: {
         totalCount,
         totalDuration,

@@ -188,7 +188,7 @@ export class ShellExecutor {
       command,
       cwd: options.cwd,
       timeout: options.timeout,
-      timestamp: new Date(startTime).toISOString(),
+      timestamp: new Date(startTime).toLocaleString('zh-CN', { hour12: false }),
       platform: process.platform
     };
     fs.writeFileSync(infoFile, JSON.stringify(info, null, 2), 'utf-8');

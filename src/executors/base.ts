@@ -347,7 +347,7 @@ export abstract class BaseExecutor implements AgentExecutor {
       args,
       cwd,
       timeout,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toLocaleString('zh-CN', { hour12: false }),
       useResume: useResume === true,
       debugFile,
       // 使用 null 区分"未设置"和"显式设置为空数组"
@@ -608,7 +608,7 @@ export abstract class BaseExecutor implements AgentExecutor {
     lines.push('');
 
     lines.push('【基本信息】');
-    lines.push(`时间: ${new Date().toISOString()}`);
+    lines.push(`时间: ${new Date().toLocaleString('zh-CN', { hour12: false })}`);
     lines.push(`任务序号: ${options.taskIndex || 0}`);
     lines.push(`任务类型: ${options.taskType || 'task'}`);
     lines.push(`会话ID: ${sessionId}`);
