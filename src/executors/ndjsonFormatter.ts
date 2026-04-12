@@ -23,6 +23,8 @@ export interface ParsedNDJsonResult {
 const TOOL_INPUT_MAX_LENGTH = 200;
 /** 工具结果截断阈值 */
 const TOOL_RESULT_MAX_LENGTH = 5000;
+/** Hook 输出截断阈值 */
+const HOOK_OUTPUT_MAX_LENGTH = 300;
 
 /**
  * 截断字符串，超长时显示省略信息
@@ -127,11 +129,94 @@ export function parseAndFormatNDJson(rawStdout: string): ParsedNDJsonResult {
 
     switch (parsed.type) {
       case 'system': {
-        if (parsed.subtype === 'init') {
-          transcriptLines.push('--- Session Init ---');
-          if (parsed.model) transcriptLines.push(`Model: ${parsed.model}`);
-          if (parsed.session_id) transcriptLines.push(`Session: ${parsed.session_id}`);
-          transcriptLines.push('');
+        const subtype = parsed.subtype;
+        switch (subtype) {
+          case 'init': {
+            transcriptLines.push('--- Session Init ---');
+            if (parsed.model) transcriptLines.push(`Model: ${parsed.model}`);
+            if (parsed.session_id) transcriptLines.push(`Session: ${parsed.session_id}`);
+            if (parsed.cwd) transcriptLines.push(`CWD: ${parsed.cwd}`);
+            transcriptLines.push('');
+            break;
+          }
+          case 'hook_started': {
+            transcriptLines.push(`[Hook Started] ${parsed.hook_name || ''} (${parsed.hook_event || ''})`);
+            transcriptLines.push('');
+            break;
+          }
+          case 'hook_progress': {
+            const output = parsed.output || parsed.stdout || '';
+            transcriptLines.push(`[Hook Progress] ${parsed.hook_name || ''}: ${truncate(output, HOOK_OUTPUT_MAX_LENGTH)}`);
+            transcriptLines.push('');
+            break;
+          }
+          case 'hook_response': {
+            transcriptLines.push(`[Hook Response] ${parsed.hook_name || ''}: ${parsed.outcome || ''}` +
+              (parsed.exit_code !== undefined ? ` (exit=${parsed.exit_code})` : ''));
+            transcriptLines.push('');
+            break;
+          }
+          case 'task_started': {
+            transcriptLines.push(`[Task Started] ${parsed.description || ''} (id=${parsed.task_id || ''})`);
+            transcriptLines.push('');
+            break;
+          }
+          case 'task_progress': {
+            transcriptLines.push(`[Task Progress] ${parsed.description || ''} (id=${parsed.task_id || ''})`);
+            transcriptLines.push('');
+            break;
+          }
+          case 'task_notification': {
+            transcriptLines.push(`[Task Notification] ${parsed.status || ''}: ${parsed.summary || ''} (id=${parsed.task_id || ''})`);
+            transcriptLines.push('');
+            break;
+          }
+          case 'post_turn_summary': {
+            transcriptLines.push(`[Turn Summary] ${parsed.title || ''}`);
+            if (parsed.status_category) transcriptLines.push(`  Category: ${parsed.status_category}`);
+            if (parsed.recent_action) transcriptLines.push(`  Action: ${parsed.recent_action}`);
+            transcriptLines.push('');
+            break;
+          }
+          case 'status': {
+            transcriptLines.push(`[Status] ${parsed.status || 'idle'}${parsed.permissionMode ? ' | Mode: ' + parsed.permissionMode : ''}`);
+            transcriptLines.push('');
+            break;
+          }
+          case 'api_retry': {
+            transcriptLines.push(`[API Retry] Attempt ${parsed.attempt || '?'}/${parsed.max_retries || '?'} (${parsed.error || ''})`);
+            transcriptLines.push('');
+            break;
+          }
+          case 'rate_limit_event': {
+            const info = parsed.rate_limit_info;
+            if (info) {
+              transcriptLines.push(`[Rate Limit] ${info.status || ''} (type=${info.rateLimitType || ''}, utilization=${info.utilization || ''})`);
+            } else {
+              transcriptLines.push('[Rate Limit] event received');
+            }
+            transcriptLines.push('');
+            break;
+          }
+          case 'auth_status': {
+            transcriptLines.push(`[Auth] ${parsed.isAuthenticating ? 'Authenticating...' : 'Authenticated'}`);
+            if (parsed.error) transcriptLines.push(`  Error: ${parsed.error}`);
+            transcriptLines.push('');
+            break;
+          }
+          case 'session_state_changed': {
+            transcriptLines.push(`[Session] ${parsed.state || ''}`);
+            transcriptLines.push('');
+            break;
+          }
+          case 'compact_boundary': {
+            transcriptLines.push(`[Compact] trigger=${parsed.compact_metadata?.trigger || ''}`);
+            transcriptLines.push('');
+            break;
+          }
+          default:
+            // 未知 subtype：静默忽略内部消息（local_command_output、files_persisted、elicitation_complete 等）
+            break;
         }
         break;
       }
@@ -212,6 +297,28 @@ export function parseAndFormatNDJson(rawStdout: string): ParsedNDJsonResult {
         transcriptLines.push('');
         break;
       }
+
+      case 'tool_progress': {
+        transcriptLines.push(`[Tool Progress] ${parsed.tool_name || ''} (${parsed.elapsed_time_seconds || 0}s)`);
+        transcriptLines.push('');
+        break;
+      }
+
+      case 'rate_limit_event': {
+        const info = parsed.rate_limit_info;
+        transcriptLines.push(`[Rate Limit] ${info?.status || 'unknown'} (type=${info?.rateLimitType || ''})`);
+        transcriptLines.push('');
+        break;
+      }
+
+      case 'auth_status': {
+        transcriptLines.push(`[Auth] ${parsed.isAuthenticating ? 'Authenticating...' : 'Authenticated'}`);
+        transcriptLines.push('');
+        break;
+      }
+
+      // 静默忽略：control_request, control_response, control_cancel_request,
+      // stream_event, keep_alive, streamlined_text, streamlined_tool_use_summary
     }
   }
 
