@@ -833,10 +833,7 @@ export class StepWise {
   private writeTaskLogs(taskLogDir: string, result: ExecutionResult): void {
     if (taskLogDir) {
       this.logger?.writeTaskLog(taskLogDir, 'output.txt', result.output);
-      // 写入详细过程日志
-      if (result.verboseFormattedOutput) {
-        this.logger?.writeTaskLog(taskLogDir, 'verbose_output.txt', result.verboseFormattedOutput);
-      }
+      // verbose_output.txt 已由 executor 在子进程执行期间实时写入，此处不再重复
       if (result.error) {
         this.logger?.writeTaskLog(taskLogDir, 'error.txt', result.error);
       }

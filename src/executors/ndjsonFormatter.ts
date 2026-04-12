@@ -101,224 +101,41 @@ function extractToolResultContent(content: any): string {
 }
 
 /**
- * 解析并格式化 NDJSON 输出
+ * 解析并格式化 NDJSON 输出（批量模式）
+ * 内部调用 formatNDJsonLine() 逐行处理，复用格式化逻辑
  *
  * @param rawStdout Claude Code --verbose --output-format=stream-json 的 stdout 输出
  * @returns 解析结果，包含最终文本、过程日志等
  */
 export function parseAndFormatNDJson(rawStdout: string): ParsedNDJsonResult {
-  const parseErrors: string[] = [];
   const transcriptLines: string[] = [];
-
   let finalResultText = '';
   let lastAssistantText = '';
   let parsedAnyLine = false;
+  const parseErrors: string[] = [];
 
   const lines = rawStdout.split('\n').filter(line => line.trim() !== '');
 
-  for (let i = 0; i < lines.length; i++) {
-    let parsed: any;
-    try {
-      parsed = JSON.parse(lines[i]);
-    } catch {
-      parseErrors.push(`Line ${i + 1}: invalid JSON`);
-      continue;
+  for (const line of lines) {
+    const result = formatNDJsonLine(line);
+    if (result.formatted) {
+      transcriptLines.push(result.formatted);
+      parsedAnyLine = true;
+    } else if (!result.isJsonParsed && line.trim()) {
+      // JSON 解析失败，记录错误
+      parseErrors.push(`Invalid JSON: ${line.substring(0, 100)}`);
+    } else {
+      // JSON 解析成功但无需格式化（keep_alive 等），标记为已解析
+      parsedAnyLine = true;
     }
 
-    parsedAnyLine = true;
-
-    switch (parsed.type) {
-      case 'system': {
-        const subtype = parsed.subtype;
-        switch (subtype) {
-          case 'init': {
-            transcriptLines.push('--- Session Init ---');
-            if (parsed.model) transcriptLines.push(`Model: ${parsed.model}`);
-            if (parsed.session_id) transcriptLines.push(`Session: ${parsed.session_id}`);
-            if (parsed.cwd) transcriptLines.push(`CWD: ${parsed.cwd}`);
-            transcriptLines.push('');
-            break;
-          }
-          case 'hook_started': {
-            transcriptLines.push(`[Hook Started] ${parsed.hook_name || ''} (${parsed.hook_event || ''})`);
-            transcriptLines.push('');
-            break;
-          }
-          case 'hook_progress': {
-            const output = parsed.output || parsed.stdout || '';
-            transcriptLines.push(`[Hook Progress] ${parsed.hook_name || ''}: ${truncate(output, HOOK_OUTPUT_MAX_LENGTH)}`);
-            transcriptLines.push('');
-            break;
-          }
-          case 'hook_response': {
-            transcriptLines.push(`[Hook Response] ${parsed.hook_name || ''}: ${parsed.outcome || ''}` +
-              (parsed.exit_code !== undefined ? ` (exit=${parsed.exit_code})` : ''));
-            transcriptLines.push('');
-            break;
-          }
-          case 'task_started': {
-            transcriptLines.push(`[Task Started] ${parsed.description || ''} (id=${parsed.task_id || ''})`);
-            transcriptLines.push('');
-            break;
-          }
-          case 'task_progress': {
-            transcriptLines.push(`[Task Progress] ${parsed.description || ''} (id=${parsed.task_id || ''})`);
-            transcriptLines.push('');
-            break;
-          }
-          case 'task_notification': {
-            transcriptLines.push(`[Task Notification] ${parsed.status || ''}: ${parsed.summary || ''} (id=${parsed.task_id || ''})`);
-            transcriptLines.push('');
-            break;
-          }
-          case 'post_turn_summary': {
-            transcriptLines.push(`[Turn Summary] ${parsed.title || ''}`);
-            if (parsed.status_category) transcriptLines.push(`  Category: ${parsed.status_category}`);
-            if (parsed.recent_action) transcriptLines.push(`  Action: ${parsed.recent_action}`);
-            transcriptLines.push('');
-            break;
-          }
-          case 'status': {
-            transcriptLines.push(`[Status] ${parsed.status || 'idle'}${parsed.permissionMode ? ' | Mode: ' + parsed.permissionMode : ''}`);
-            transcriptLines.push('');
-            break;
-          }
-          case 'api_retry': {
-            transcriptLines.push(`[API Retry] Attempt ${parsed.attempt || '?'}/${parsed.max_retries || '?'} (${parsed.error || ''})`);
-            transcriptLines.push('');
-            break;
-          }
-          case 'rate_limit_event': {
-            const info = parsed.rate_limit_info;
-            if (info) {
-              transcriptLines.push(`[Rate Limit] ${info.status || ''} (type=${info.rateLimitType || ''}, utilization=${info.utilization || ''})`);
-            } else {
-              transcriptLines.push('[Rate Limit] event received');
-            }
-            transcriptLines.push('');
-            break;
-          }
-          case 'auth_status': {
-            transcriptLines.push(`[Auth] ${parsed.isAuthenticating ? 'Authenticating...' : 'Authenticated'}`);
-            if (parsed.error) transcriptLines.push(`  Error: ${parsed.error}`);
-            transcriptLines.push('');
-            break;
-          }
-          case 'session_state_changed': {
-            transcriptLines.push(`[Session] ${parsed.state || ''}`);
-            transcriptLines.push('');
-            break;
-          }
-          case 'compact_boundary': {
-            transcriptLines.push(`[Compact] trigger=${parsed.compact_metadata?.trigger || ''}`);
-            transcriptLines.push('');
-            break;
-          }
-          default:
-            // 未知 subtype：静默忽略内部消息（local_command_output、files_persisted、elicitation_complete 等）
-            break;
-        }
-        break;
-      }
-
-      case 'assistant': {
-        const content = parsed.message?.content;
-        if (!Array.isArray(content)) break;
-
-        for (const block of content) {
-          if (!block || typeof block !== 'object') continue;
-
-          switch (block.type) {
-            case 'thinking': {
-              const thinkingText = block.thinking || '';
-              if (thinkingText) {
-                transcriptLines.push('[Thinking]');
-                transcriptLines.push(thinkingText);
-                transcriptLines.push('[/Thinking]');
-                transcriptLines.push('');
-              }
-              break;
-            }
-
-            case 'text': {
-              const text = block.text || '';
-              if (text) {
-                transcriptLines.push(text);
-                transcriptLines.push('');
-                lastAssistantText = text;
-              }
-              break;
-            }
-
-            case 'tool_use': {
-              const toolName = block.name || 'Unknown';
-              const toolInput = block.input || {};
-              transcriptLines.push(`[${toolName}]`);
-              transcriptLines.push(formatToolInput(toolName, toolInput));
-              transcriptLines.push('');
-              break;
-            }
-          }
-        }
-        break;
-      }
-
-      case 'user': {
-        const content = parsed.message?.content;
-        if (!Array.isArray(content)) break;
-
-        for (const block of content) {
-          if (!block || typeof block !== 'object') continue;
-
-          if (block.type === 'tool_result') {
-            const resultContent = extractToolResultContent(block.content);
-            transcriptLines.push('[Tool Result]');
-            transcriptLines.push(`  ${truncate(resultContent, TOOL_RESULT_MAX_LENGTH)}`);
-            transcriptLines.push('[/Tool Result]');
-            transcriptLines.push('');
-          }
-        }
-        break;
-      }
-
-      case 'result': {
-        const resultText = parsed.result || '';
-        if (resultText) {
-          finalResultText = resultText;
-        }
-
-        transcriptLines.push('--- Result ---');
-        transcriptLines.push(finalResultText || lastAssistantText || '(no result)');
-        if (parsed.duration_ms !== undefined) {
-          const durationSec = (parsed.duration_ms / 1000).toFixed(1);
-          transcriptLines.push(`Duration: ${durationSec}s` +
-            (parsed.total_cost_usd !== undefined ? ` | Cost: $${parsed.total_cost_usd.toFixed(4)}` : ''));
-        }
-        transcriptLines.push('');
-        break;
-      }
-
-      case 'tool_progress': {
-        transcriptLines.push(`[Tool Progress] ${parsed.tool_name || ''} (${parsed.elapsed_time_seconds || 0}s)`);
-        transcriptLines.push('');
-        break;
-      }
-
-      case 'rate_limit_event': {
-        const info = parsed.rate_limit_info;
-        transcriptLines.push(`[Rate Limit] ${info?.status || 'unknown'} (type=${info?.rateLimitType || ''})`);
-        transcriptLines.push('');
-        break;
-      }
-
-      case 'auth_status': {
-        transcriptLines.push(`[Auth] ${parsed.isAuthenticating ? 'Authenticating...' : 'Authenticated'}`);
-        transcriptLines.push('');
-        break;
-      }
-
-      // 静默忽略：control_request, control_response, control_cancel_request,
-      // stream_event, keep_alive, streamlined_text, streamlined_tool_use_summary
+    if (result.finalResultText) {
+      finalResultText = result.finalResultText;
+      parsedAnyLine = true;
+    }
+    if (result.assistantText) {
+      lastAssistantText = result.assistantText;
+      parsedAnyLine = true;
     }
   }
 
@@ -328,5 +145,226 @@ export function parseAndFormatNDJson(rawStdout: string): ParsedNDJsonResult {
     formattedTranscript: transcriptLines.join('\n'),
     parsedSuccessfully: parsedAnyLine,
     parseErrors
+  };
+}
+
+/**
+ * 单行 NDJSON 格式化结果
+ */
+export interface NDJsonLineResult {
+  /** 格式化后的文本（可能多行），为 null 表示该行无需输出 */
+  formatted: string | null;
+  /** 如果是 result 类型消息，提取的最终结果文本 */
+  finalResultText: string | null;
+  /** 如果是 assistant text 类型，提取的文本 */
+  assistantText: string | null;
+  /** JSON 是否解析成功（用于区分"解析失败"和"解析成功但无需格式化"） */
+  isJsonParsed: boolean;
+}
+
+/**
+ * 格式化单行 NDJSON
+ * 用于实时逐行处理，每收到一行 stdout 就调用一次
+ *
+ * @param line 一行 JSON 字符串
+ * @returns 格式化结果，JSON 解析失败时返回 formatted=null
+ */
+export function formatNDJsonLine(line: string): NDJsonLineResult {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return { formatted: null, finalResultText: null, assistantText: null, isJsonParsed: false };
+  }
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return { formatted: null, finalResultText: null, assistantText: null, isJsonParsed: false };
+  }
+
+  const lines: string[] = [];
+  let finalResultText: string | null = null;
+  let assistantText: string | null = null;
+
+  switch (parsed.type) {
+    case 'system': {
+      const subtype = parsed.subtype;
+      switch (subtype) {
+        case 'init':
+          lines.push('--- Session Init ---');
+          if (parsed.model) lines.push(`Model: ${parsed.model}`);
+          if (parsed.session_id) lines.push(`Session: ${parsed.session_id}`);
+          if (parsed.cwd) lines.push(`CWD: ${parsed.cwd}`);
+          lines.push('');
+          break;
+        case 'hook_started':
+          lines.push(`[Hook Started] ${parsed.hook_name || ''} (${parsed.hook_event || ''})`);
+          lines.push('');
+          break;
+        case 'hook_progress': {
+          const output = parsed.output || parsed.stdout || '';
+          lines.push(`[Hook Progress] ${parsed.hook_name || ''}: ${truncate(output, HOOK_OUTPUT_MAX_LENGTH)}`);
+          lines.push('');
+          break;
+        }
+        case 'hook_response':
+          lines.push(`[Hook Response] ${parsed.hook_name || ''}: ${parsed.outcome || ''}` +
+            (parsed.exit_code !== undefined ? ` (exit=${parsed.exit_code})` : ''));
+          lines.push('');
+          break;
+        case 'task_started':
+          lines.push(`[Task Started] ${parsed.description || ''} (id=${parsed.task_id || ''})`);
+          lines.push('');
+          break;
+        case 'task_progress':
+          lines.push(`[Task Progress] ${parsed.description || ''} (id=${parsed.task_id || ''})`);
+          lines.push('');
+          break;
+        case 'task_notification':
+          lines.push(`[Task Notification] ${parsed.status || ''}: ${parsed.summary || ''} (id=${parsed.task_id || ''})`);
+          lines.push('');
+          break;
+        case 'post_turn_summary':
+          lines.push(`[Turn Summary] ${parsed.title || ''}`);
+          if (parsed.status_category) lines.push(`  Category: ${parsed.status_category}`);
+          if (parsed.recent_action) lines.push(`  Action: ${parsed.recent_action}`);
+          lines.push('');
+          break;
+        case 'status':
+          lines.push(`[Status] ${parsed.status || 'idle'}${parsed.permissionMode ? ' | Mode: ' + parsed.permissionMode : ''}`);
+          lines.push('');
+          break;
+        case 'api_retry':
+          lines.push(`[API Retry] Attempt ${parsed.attempt || '?'}/${parsed.max_retries || '?'} (${parsed.error || ''})`);
+          lines.push('');
+          break;
+        case 'rate_limit_event': {
+          const info = parsed.rate_limit_info;
+          if (info) {
+            lines.push(`[Rate Limit] ${info.status || ''} (type=${info.rateLimitType || ''}, utilization=${info.utilization || ''})`);
+          } else {
+            lines.push('[Rate Limit] event received');
+          }
+          lines.push('');
+          break;
+        }
+        case 'auth_status':
+          lines.push(`[Auth] ${parsed.isAuthenticating ? 'Authenticating...' : 'Authenticated'}`);
+          if (parsed.error) lines.push(`  Error: ${parsed.error}`);
+          lines.push('');
+          break;
+        case 'session_state_changed':
+          lines.push(`[Session] ${parsed.state || ''}`);
+          lines.push('');
+          break;
+        case 'compact_boundary':
+          lines.push(`[Compact] trigger=${parsed.compact_metadata?.trigger || ''}`);
+          lines.push('');
+          break;
+        default:
+          // 未知 subtype：静默忽略
+          break;
+      }
+      break;
+    }
+
+    case 'assistant': {
+      const content = parsed.message?.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (!block || typeof block !== 'object') continue;
+          switch (block.type) {
+            case 'thinking': {
+              const thinkingText = block.thinking || '';
+              if (thinkingText) {
+                lines.push('[Thinking]');
+                lines.push(thinkingText);
+                lines.push('[/Thinking]');
+                lines.push('');
+              }
+              break;
+            }
+            case 'text': {
+              const text = block.text || '';
+              if (text) {
+                lines.push(text);
+                lines.push('');
+                assistantText = text;
+              }
+              break;
+            }
+            case 'tool_use': {
+              const toolName = block.name || 'Unknown';
+              const toolInput = block.input || {};
+              lines.push(`[${toolName}]`);
+              lines.push(formatToolInput(toolName, toolInput));
+              lines.push('');
+              break;
+            }
+          }
+        }
+      }
+      break;
+    }
+
+    case 'user': {
+      const content = parsed.message?.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (!block || typeof block !== 'object') continue;
+          if (block.type === 'tool_result') {
+            const resultContent = extractToolResultContent(block.content);
+            lines.push('[Tool Result]');
+            lines.push(`  ${truncate(resultContent, TOOL_RESULT_MAX_LENGTH)}`);
+            lines.push('[/Tool Result]');
+            lines.push('');
+          }
+        }
+      }
+      break;
+    }
+
+    case 'result': {
+      const resultText = parsed.result || '';
+      if (resultText) {
+        finalResultText = resultText;
+      }
+      lines.push('--- Result ---');
+      lines.push(finalResultText || '(no result)');
+      if (parsed.duration_ms !== undefined) {
+        const durationSec = (parsed.duration_ms / 1000).toFixed(1);
+        lines.push(`Duration: ${durationSec}s` +
+          (parsed.total_cost_usd !== undefined ? ` | Cost: $${parsed.total_cost_usd.toFixed(4)}` : ''));
+      }
+      lines.push('');
+      break;
+    }
+
+    case 'tool_progress':
+      lines.push(`[Tool Progress] ${parsed.tool_name || ''} (${parsed.elapsed_time_seconds || 0}s)`);
+      lines.push('');
+      break;
+
+    case 'rate_limit_event': {
+      const info = parsed.rate_limit_info;
+      lines.push(`[Rate Limit] ${info?.status || 'unknown'} (type=${info?.rateLimitType || ''})`);
+      lines.push('');
+      break;
+    }
+
+    case 'auth_status':
+      lines.push(`[Auth] ${parsed.isAuthenticating ? 'Authenticating...' : 'Authenticated'}`);
+      lines.push('');
+      break;
+
+    // 静默忽略：control_request, control_response, control_cancel_request,
+    // stream_event, keep_alive, streamlined_text, streamlined_tool_use_summary
+  }
+
+  return {
+    formatted: lines.length > 0 ? lines.join('\n') : null,
+    finalResultText,
+    assistantText,
+    isJsonParsed: true
   };
 }

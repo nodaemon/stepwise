@@ -12,5 +12,5 @@ export { ClaudeExecutor } from './claude';
 export { OpenCodeExecutor } from './opencode';
 
 // NDJSON 解析器
-export { parseAndFormatNDJson } from './ndjsonFormatter';
-export type { ParsedNDJsonResult } from './ndjsonFormatter';
+export { parseAndFormatNDJson, formatNDJsonLine } from './ndjsonFormatter';
+export type { ParsedNDJsonResult, NDJsonLineResult } from './ndjsonFormatter';

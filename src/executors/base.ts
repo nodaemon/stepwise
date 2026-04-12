@@ -10,7 +10,7 @@ import { ExecutionResult } from '../types';
 import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS } from '../constants';
 import { Logger } from '../utils/logger';
 import { AgentExecutorOptions, AgentExecutor, ExecutorRawResult } from './types';
-import { parseAndFormatNDJson } from './ndjsonFormatter';
+import { parseAndFormatNDJson, formatNDJsonLine } from './ndjsonFormatter';
 
 /**
  * 速率限制信息
@@ -142,8 +142,8 @@ export abstract class BaseExecutor implements AgentExecutor {
 
           const duration = Date.now() - startTime;
 
-          // 解析 NDJSON（Claude Code 的 stream-json 输出）
-          // OpenCode 等其他执行器输出纯文本，解析会失败，fallback 到原始 stdout
+          // 解析 NDJSON 提取最终结果文本（用于 output.txt）
+          // verbose_output.txt 已由 runCommand() 实时写入
           const parsed = parseAndFormatNDJson(result.stdout);
           const isNDJson = parsed.parsedSuccessfully && parsed.finalResultText;
           const outputText = isNDJson
@@ -155,10 +155,7 @@ export abstract class BaseExecutor implements AgentExecutor {
             output: outputText,
             success: true,
             timestamp: startTime,
-            duration,
-            verboseFormattedOutput: isNDJson
-              ? parsed.formattedTranscript
-              : result.stdout  // OpenCode 等非 NDJSON 输出，原始文本即为过程日志
+            duration
           };
         }
 
@@ -314,8 +311,37 @@ export abstract class BaseExecutor implements AgentExecutor {
       let stdout = '';
       let stderr = '';
 
+      // 实时写入 verbose_output.txt
+      let verboseStream: fs.WriteStream | null = null;
+      let lineBuffer = '';
+
+      if (taskLogDir) {
+        const verboseFile = path.join(taskLogDir, 'verbose_output.txt');
+        verboseStream = fs.createWriteStream(verboseFile, { encoding: 'utf-8' });
+      }
+
       child.stdout?.on('data', (data) => {
-        stdout += data.toString();
+        const chunk = data.toString();
+        stdout += chunk;
+
+        // 逐行处理并实时写入文件
+        if (verboseStream) {
+          lineBuffer += chunk;
+          const lines = lineBuffer.split('\n');
+          // 最后一行可能不完整，保留在 buffer
+          lineBuffer = lines.pop() || '';
+          for (const line of lines) {
+            if (line.trim() === '') continue;
+            const result = formatNDJsonLine(line);
+            if (result.formatted) {
+              verboseStream.write(result.formatted + '\n');
+            } else if (!result.isJsonParsed) {
+              // 非 JSON 行（OpenCode 等纯文本输出）：原样写入
+              verboseStream.write(line + '\n');
+            }
+            // else: JSON 解析成功但类型被静默忽略（keep_alive 等），跳过
+          }
+        }
       });
 
       child.stderr?.on('data', (data) => {
@@ -324,11 +350,31 @@ export abstract class BaseExecutor implements AgentExecutor {
 
       child.on('error', (error) => {
         clearAllTimers();
+        // 刷新剩余 buffer 并关闭流
+        if (verboseStream) {
+          if (lineBuffer.trim()) {
+            verboseStream.write(lineBuffer + '\n');
+          }
+          verboseStream.end();
+          verboseStream = null; // 防止 close handler 重复关闭
+        }
         reject(error);
       });
 
       child.on('close', (code) => {
         clearAllTimers();
+        // 刷新剩余的不完整行
+        if (verboseStream) {
+          if (lineBuffer.trim()) {
+            const result = formatNDJsonLine(lineBuffer);
+            if (result.formatted) {
+              verboseStream.write(result.formatted + '\n');
+            } else if (!result.isJsonParsed) {
+              verboseStream.write(lineBuffer + '\n');
+            }
+          }
+          verboseStream.end();
+        }
         resolve({
           stdout,
           stderr,
