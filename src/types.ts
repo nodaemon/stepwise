@@ -87,6 +87,8 @@ export interface ExecutionResult {
   timestamp: number;
   /** 执行耗时（毫秒） */
   duration: number;
+  /** 格式化后的详细过程输出（包含思考、工具调用、工具结果等完整过程） */
+  verboseFormattedOutput?: string;
 }
 
 /**

@@ -48,6 +48,9 @@ export class ClaudeExecutor extends BaseExecutor {
       args.push('--debug-file', debugFile);
     }
 
+    // 使用 stream-json 格式捕获完整过程（思考、工具调用、结果）
+    args.push('--verbose', '--output-format', 'stream-json');
+
     // 根据是否恢复会话，使用不同的参数
     if (isResume) {
       // 恢复已有会话

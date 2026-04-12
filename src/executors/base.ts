@@ -10,6 +10,7 @@ import { ExecutionResult } from '../types';
 import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS } from '../constants';
 import { Logger } from '../utils/logger';
 import { AgentExecutorOptions, AgentExecutor, ExecutorRawResult } from './types';
+import { parseAndFormatNDJson } from './ndjsonFormatter';
 
 /**
  * 速率限制信息
@@ -140,12 +141,24 @@ export abstract class BaseExecutor implements AgentExecutor {
           }
 
           const duration = Date.now() - startTime;
+
+          // 解析 NDJSON（Claude Code 的 stream-json 输出）
+          // OpenCode 等其他执行器输出纯文本，解析会失败，fallback 到原始 stdout
+          const parsed = parseAndFormatNDJson(result.stdout);
+          const isNDJson = parsed.parsedSuccessfully && parsed.finalResultText;
+          const outputText = isNDJson
+            ? parsed.finalResultText
+            : result.stdout;
+
           return {
             sessionId,
-            output: result.stdout,
+            output: outputText,
             success: true,
             timestamp: startTime,
-            duration
+            duration,
+            verboseFormattedOutput: isNDJson
+              ? parsed.formattedTranscript
+              : result.stdout  // OpenCode 等非 NDJSON 输出，原始文本即为过程日志
           };
         }
 
