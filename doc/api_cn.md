@@ -1159,13 +1159,26 @@ stepwise_exec_infos/
     │   │   └── progress.json
     │   ├── logs/                           # 执行日志
     │   │   ├── 1_task/
+    │   │   │   ├── prompt.txt              # 任务提示词
+    │   │   │   ├── command.txt             # 执行命令
+    │   │   │   ├── output.txt              # 标准输出摘要
+    │   │   │   ├── verbose_output.txt      # 详细输出（AI思考过程、工具调用等）★关键调试文件
+    │   │   │   ├── debug.log               # 调试日志
+    │   │   │   ├── post_check_prompt.txt   # 后检查提示词（如有）
+    │   │   │   └── execution_info.json     # 执行信息
     │   │   ├── 2_collect/
-    │   │   └── execute.log
+    │   │   │   ├── ...（同上）
+    │   │   └── execute.log                 # 执行汇总日志
     │   └── collect/                        # 收集数据
     │       ├── 2_collect/
     │       └── 3_check/
     └── ...
 ```
+
+**verbose_output.txt 说明**：
+- 记录 AI 的完整思考过程、工具调用、返回结果等详细信息
+- 是分析执行过程、调试问题的最关键文件
+- 当有 postCheckPrompt 时，会在文件末尾追加后检查的输出（带分隔标记）
 
 **目录命名规则**：
 - TaskName 目录：`{taskName}_{YYYYMMDD}_{HHmmss}_{毫秒}`

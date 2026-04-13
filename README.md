@@ -217,13 +217,20 @@ stepwise_exec_infos/
     │   │   └── progress.json
     │   ├── logs/                      # Execution logs
     │   │   ├── 1_task/
+    │   │   │   ├── prompt.txt         # Task prompt
+    │   │   │   ├── output.txt         # Standard output summary
+    │   │   │   ├── verbose_output.txt # Detailed output (AI thinking, tool calls, etc.) ★Key debug file
+    │   │   │   └── ...
     │   │   ├── 2_collect/
-    │   │   └── execute.log
+    │   │   │   ├── ... (same as above)
+    │   │   └── execute.log            # Execution summary log
     │   └── collect/                   # Collected data
     │       └── 2_collect/
     └── Agent2_20260315_143002_789/    # Another agent
         └── ...
 ```
+
+**Key File**: `verbose_output.txt` records AI's complete thinking process and tool calls - the most critical file for analyzing issues. See [API Documentation](doc/api.md) for details.
 
 ---
 

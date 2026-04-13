@@ -1159,13 +1159,26 @@ stepwise_exec_infos/
     │   │   └── progress.json
     │   ├── logs/                           # Execution logs
     │   │   ├── 1_task/
+    │   │   │   ├── prompt.txt              # Task prompt
+    │   │   │   ├── command.txt             # Execution command
+    │   │   │   ├── output.txt              # Standard output summary
+    │   │   │   ├── verbose_output.txt      # Detailed output (AI thinking, tool calls, etc.) ★Key debug file
+    │   │   │   ├── debug.log               # Debug log
+    │   │   │   ├── post_check_prompt.txt   # Post-check prompt (if any)
+    │   │   │   └── execution_info.json     # Execution info
     │   │   ├── 2_collect/
-    │   │   └── execute.log
+    │   │   │   ├── ... (same as above)
+    │   │   └── execute.log                 # Execution summary log
     │   └── collect/                        # Collected data
     │       ├── 2_collect/
     │       └── 3_check/
     └── ...
 ```
+
+**verbose_output.txt Description**:
+- Records AI's complete thinking process, tool calls, return results, and other detailed information
+- The most critical file for analyzing execution process and debugging issues
+- When postCheckPrompt exists, the post-check output is appended at the end (with a separator)
 
 **Directory Naming Rules**:
 - TaskName directory: `{taskName}_{YYYYMMDD}_{HHmmss}_{milliseconds}`

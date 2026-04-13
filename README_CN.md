@@ -217,13 +217,20 @@ stepwise_exec_infos/
     │   │   └── progress.json
     │   ├── logs/                      # 执行日志
     │   │   ├── 1_task/
+    │   │   │   ├── prompt.txt         # 任务提示词
+    │   │   │   ├── output.txt         # 标准输出摘要
+    │   │   │   ├── verbose_output.txt # 详细输出（AI思考过程、工具调用等）★关键调试文件
+    │   │   │   └── ...
     │   │   ├── 2_collect/
-    │   │   └── execute.log
+    │   │   │   ├── ...（同上）
+    │   │   └── execute.log            # 执行汇总日志
     │   └── collect/                   # 收集数据
     │       └── 2_collect/
     └── Agent2_20260315_143002_789/    # 另一个 Agent
         └── ...
 ```
+
+**关键文件**：`verbose_output.txt` 记录 AI 完整思考过程和工具调用，是分析问题的最关键文件。详细说明请参阅 [API 文档](doc/api_cn.md)。
 
 ---
 

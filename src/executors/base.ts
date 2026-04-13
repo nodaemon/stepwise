@@ -317,7 +317,11 @@ export abstract class BaseExecutor implements AgentExecutor {
 
       if (taskLogDir) {
         const verboseFile = path.join(taskLogDir, 'verbose_output.txt');
-        verboseStream = fs.createWriteStream(verboseFile, { encoding: 'utf-8' });
+        verboseStream = fs.createWriteStream(verboseFile, { encoding: 'utf-8', flags: 'a' });
+        // 如果文件已存在且有内容，添加分隔标记
+        if (fs.existsSync(verboseFile) && fs.statSync(verboseFile).size > 0) {
+          verboseStream.write('\n\n========== PostCheck Execution ==========\n');
+        }
       }
 
       child.stdout?.on('data', (data) => {
