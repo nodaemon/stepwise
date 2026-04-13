@@ -1677,8 +1677,9 @@ export class StepWise {
       };
     }
 
-    // 获取工作目录
+    // 获取工作目录和环境变量
     const effectiveCwd = this.getEffectiveCwd(options?.cwd);
+    const effectiveEnv = this.getEffectiveEnv(options?.env);
 
     // 创建任务日志目录
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
@@ -1697,7 +1698,7 @@ export class StepWise {
     const result = await this.shellExecutor.execute(command, {
       cwd: effectiveCwd,
       timeout: options?.timeout,
-      env: options?.env
+      env: effectiveEnv
     });
 
     // 更新结果中的 taskIndex

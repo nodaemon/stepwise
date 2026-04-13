@@ -204,11 +204,11 @@ export interface ShellOptions {
   timeout?: number;
 
   /**
-   * 环境变量
-   * 会与 process.env 合并后传递给子进程
-   * 例如：{ NODE_ENV: 'production', DEBUG: 'true' }
+   * 环境变量数组，格式为 "KEY=VALUE"
+   * 会转换为对象后与 process.env 合并，传递给子进程
+   * 例如：['NODE_ENV=production', 'DEBUG=true']
    */
-  env?: Record<string, string>;
+  env?: string[];
 }
 
 /**

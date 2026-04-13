@@ -65,15 +65,28 @@ export class ShellExecutor {
    */
   private async runCommand(
     command: string,
-    options: { cwd: string; timeout: number; env?: Record<string, string> }
+    options: { cwd: string; timeout: number; env?: string[] }
   ): Promise<ShellResult> {
     const startTime = Date.now();
 
     return new Promise((resolve, reject) => {
+      // 构建环境变量对象（从 string[] 格式转换）
+      const envObject: Record<string, string> = {};
+      if (options.env) {
+        for (const envStr of options.env) {
+          const equalIndex = envStr.indexOf('=');
+          if (equalIndex > 0) {
+            envObject[envStr.substring(0, equalIndex)] = envStr.substring(equalIndex + 1);
+          } else {
+            console.warn(`[ShellExecutor] 忽略无效环境变量格式: "${envStr}"`);
+          }
+        }
+      }
+
       // 构建执行环境
       const env = {
         ...process.env,
-        ...options.env
+        ...envObject
       };
 
       // 判断操作系统，Windows 使用 cmd.exe，其他使用 /bin/sh

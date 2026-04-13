@@ -279,4 +279,107 @@ describe('execShell 功能测试', () => {
       expect(r3.taskIndex).toBe(3);
     });
   });
+
+  describe('execShell 环境变量', () => {
+    it('应该使用 defaultEnv', async () => {
+      setTaskName('ShellEnvDefaultTest');
+      setAgentType('claude');
+
+      // 创建带有 defaultEnv 的 agent
+      const agent = new StepWise('Agent1', undefined, ['DEFAULT_VAR=default_value']);
+
+      await agent.execShell('echo "test"');
+
+      // 验证 spawn 被调用时包含了环境变量
+      expect(mockSpawn).toHaveBeenCalled();
+      const spawnOptions = mockSpawn.mock.calls[0][2];
+      expect(spawnOptions.env.DEFAULT_VAR).toBe('default_value');
+    });
+
+    it('options.env 应该覆盖 defaultEnv', async () => {
+      setTaskName('ShellEnvOverrideTest');
+      setAgentType('claude');
+
+      const agent = new StepWise('Agent1', undefined, ['VAR1=default']);
+
+      await agent.execShell('echo "test"', {
+        env: ['VAR1=override', 'VAR2=new']
+      });
+
+      const spawnOptions = mockSpawn.mock.calls[0][2];
+      expect(spawnOptions.env.VAR1).toBe('override');
+      expect(spawnOptions.env.VAR2).toBe('new');
+    });
+
+    it('options.env 为空时应该使用 defaultEnv', async () => {
+      setTaskName('ShellEnvFallbackTest');
+      setAgentType('claude');
+
+      const agent = new StepWise('Agent1', undefined, ['FALLBACK_VAR=fallback_value']);
+
+      await agent.execShell('echo "test"', { timeout: 10000 });
+
+      const spawnOptions = mockSpawn.mock.calls[0][2];
+      expect(spawnOptions.env.FALLBACK_VAR).toBe('fallback_value');
+    });
+
+    it('多个环境变量应该正确传递', async () => {
+      setTaskName('ShellEnvMultipleTest');
+      setAgentType('claude');
+
+      const agent = new StepWise('Agent1', undefined, ['VAR1=value1', 'VAR2=value2']);
+
+      await agent.execShell('echo "test"');
+
+      const spawnOptions = mockSpawn.mock.calls[0][2];
+      expect(spawnOptions.env.VAR1).toBe('value1');
+      expect(spawnOptions.env.VAR2).toBe('value2');
+    });
+
+    it('环境变量应该与 process.env 合并', async () => {
+      setTaskName('ShellEnvMergeTest');
+      setAgentType('claude');
+
+      const agent = new StepWise('Agent1', undefined, ['CUSTOM_VAR=custom_value']);
+
+      await agent.execShell('echo "test"');
+
+      const spawnOptions = mockSpawn.mock.calls[0][2];
+      // 应该包含自定义变量
+      expect(spawnOptions.env.CUSTOM_VAR).toBe('custom_value');
+      // 应该保留 process.env 中的变量
+      expect(spawnOptions.env.PATH).toBeDefined();
+    });
+
+    it('环境变量值包含等号应该正确处理', async () => {
+      setTaskName('ShellEnvEqualSignTest');
+      setAgentType('claude');
+
+      const agent = new StepWise('Agent1', undefined, ['KEY=value=with=equals']);
+
+      await agent.execShell('echo "test"');
+
+      const spawnOptions = mockSpawn.mock.calls[0][2];
+      expect(spawnOptions.env.KEY).toBe('value=with=equals');
+    });
+
+    it('无效环境变量格式应该打印警告', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      setTaskName('ShellEnvInvalidTest');
+      setAgentType('claude');
+
+      const agent = new StepWise('Agent1', undefined, ['INVALID_NO_EQUALS', '=VALUE_NO_KEY']);
+
+      await agent.execShell('echo "test"');
+
+      // 应该打印警告（两个无效格式）
+      expect(warnSpy).toHaveBeenCalledTimes(2);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('忽略无效环境变量格式')
+      );
+
+      warnSpy.mockRestore();
+    });
+  });
 });
