@@ -468,6 +468,9 @@ async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean,
   const existingWorktrees: Array<{ config: WorkerConfig; path: string }> = [];
 
   if (!isResume) {
+    // 先清理无效的 worktree 引用，避免分支被占用导致删除失败
+    execSync('git worktree prune', { cwd, stdio: 'pipe' });
+
     for (const config of workerConfigs) {
       const worktreePath = path.join(parentDir, `${cwdName}_${config.branchName}`);
 
