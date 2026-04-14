@@ -710,13 +710,6 @@ export class StepWise {
 
     if (!task) return;
 
-    const typeName = TASK_TYPE_NAMES[taskType];
-    const logDirName = `${taskIndex}_${typeName}`;
-    const logDir = path.join(this.agentDir, LOGS_DIR, logDirName);
-    if (fs.existsSync(logDir)) {
-      fs.rmSync(logDir, { recursive: true, force: true });
-    }
-
     if (taskType === 'collect' || taskType === 'process_collect' || taskType === 'check') {
       if (task.outputFileName) {
         const outputPath = this.getCollectOutputPath(taskIndex, taskType, task.outputFileName);
