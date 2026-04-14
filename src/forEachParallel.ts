@@ -124,6 +124,31 @@ function scanResumeStates(taskDir: string, itemsLength: number): Map<number, Tas
 }
 
 /**
+ * 检查 forEachParallel 是否已开始执行
+ * 通过检查任务目录下是否有任务子目录来判断
+ * @param taskDir 任务目录路径
+ * @returns 是否已开始执行
+ */
+function hasForEachParallelStarted(taskDir: string): boolean {
+  if (!fs.existsSync(taskDir)) {
+    return false;
+  }
+
+  const entries = fs.readdirSync(taskDir, { withFileTypes: true });
+  // 匹配格式: {index}_{workerId}_{timestamp}
+  const pattern = /^(\d+)_.+_\d{8}_\d{6}_\d{3}$/;
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (pattern.test(entry.name)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * 用户确认交互
  * @param prompt 提示信息
  * @returns 用户是否确认（true/false）
@@ -282,7 +307,7 @@ export async function forEachParallel<T>(
   }
 
   // 1. 确保所有 worktree 已创建
-  const workspacePaths = await ensureWorktrees(workerConfigs, isResume);
+  const workspacePaths = await ensureWorktrees(workerConfigs, isResume, taskDir);
 
   // 2. 恢复模式：扫描已有任务状态
   const resumeStates = isResume ? scanResumeStates(taskDir, items.length) : undefined;
@@ -425,7 +450,7 @@ export async function forEachParallel<T>(
 /**
  * 确保所有 worktree 已创建
  */
-async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean): Promise<string[]> {
+async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean, taskDir: string): Promise<string[]> {
   const cwd = process.cwd();
   const parentDir = path.dirname(cwd);
   const cwdName = path.basename(cwd);
@@ -486,14 +511,24 @@ async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean)
   // 4. 创建所有 worktree（始终基于当前 HEAD 创建新分支）
   const workspacePaths: string[] = [];
 
+  // 判断 forEachParallel 是否已开始执行
+  const hasStarted = isResume && hasForEachParallelStarted(taskDir);
+
   for (const config of workerConfigs) {
     const worktreePath = path.join(parentDir, `${cwdName}_${config.branchName}`);
+    const isValidWorktree = fs.existsSync(worktreePath) && isValidGitWorktree(worktreePath);
 
-    if (isResume && fs.existsSync(worktreePath)) {
-      // Resume 模式：worktree 已存在，直接使用
-      console.log(`[forEachParallel] Resume 模式，使用已存在的 worktree: ${worktreePath}`);
-      workspacePaths.push(worktreePath);
-      continue;
+    if (isResume) {
+      if (hasStarted && isValidWorktree) {
+        // forEachParallel 已执行且有有效 worktree，直接复用
+        console.log(`[forEachParallel] Resume 模式，复用已存在的 worktree: ${worktreePath}`);
+        workspacePaths.push(worktreePath);
+        continue;
+      } else {
+        // forEachParallel 未执行或 worktree 无效，清理残留后重新创建
+        console.log(`[forEachParallel] Resume 模式，清理残留的分支: ${config.branchName}`);
+        cleanWorktree(worktreePath, config.branchName, cwd);
+      }
     }
 
     // 创建 worktree（始终创建新分支，基于当前 HEAD）
