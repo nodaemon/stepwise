@@ -202,7 +202,11 @@ function cleanWorktree(
 ): void {
   console.log(`[forEachParallel] 清理 worktree: ${worktreePath}`);
 
-  // 1. 检查是否是有效的 git worktree
+  // 1. 先清理无效的 worktree 引用（无论目录是否存在）
+  //    这确保分支不被占用，可以正常删除
+  execSync('git worktree prune', { cwd, stdio: 'pipe' });
+
+  // 2. 检查是否是有效的 git worktree
   const isValidWorktree = fs.existsSync(worktreePath) && isValidGitWorktree(worktreePath);
 
   if (isValidWorktree) {
@@ -211,19 +215,18 @@ function cleanWorktree(
       execSync(`git worktree remove --force "${worktreePath}"`, { cwd, stdio: 'inherit' });
       console.log(`[forEachParallel] worktree 已删除`);
     } catch {
-      // 如果 git worktree remove 失败，清理无效引用后手动删除目录
-      console.log(`[forEachParallel] git worktree remove 失败，清理引用后手动删除`);
-      execSync('git worktree prune', { cwd, stdio: 'pipe' });
+      // 如果 git worktree remove 失败，手动删除目录
+      console.log(`[forEachParallel] git worktree remove 失败，手动删除目录`);
     }
   }
 
-  // 2. 删除残留目录（如果存在）
+  // 3. 删除残留目录（如果存在）
   if (fs.existsSync(worktreePath)) {
     console.log(`[forEachParallel] 删除目录: ${worktreePath}`);
     fs.rmSync(worktreePath, { recursive: true, force: true });
   }
 
-  // 3. 删除本地分支（无论是否已推送远端）
+  // 4. 删除本地分支（无论是否已推送远端）
   //    这确保新创建的分支基于主工作目录的最新状态
   try {
     execSync(`git branch -D "${branchName}"`, { cwd, stdio: 'pipe' });
