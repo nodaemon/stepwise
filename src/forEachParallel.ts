@@ -143,93 +143,67 @@ async function confirmAction(prompt: string): Promise<boolean> {
 }
 
 /**
- * 检查分支是否已推送到远端
- * @param branchName 分支名称
- * @param cwd 当前工作目录（主仓库）
- * @returns 是否已推送远端
+ * 检查目录是否是有效的 git worktree
+ * @param worktreePath worktree 目录路径
+ * @returns 是否是有效的 git 仓库
  */
-function isBranchPushedToRemote(branchName: string, cwd: string): boolean {
+function isValidGitWorktree(worktreePath: string): boolean {
   try {
-    // 检查远端是否存在该分支
-    const remoteBranches = execSync('git ls-remote --heads origin', { cwd, encoding: 'utf-8' });
-    return remoteBranches.includes(`refs/heads/${branchName}`);
+    execSync('git rev-parse --git-dir', { cwd: worktreePath, stdio: 'pipe' });
+    return true;
   } catch {
-    // 无法获取远端信息，假设未推送（保守处理）
     return false;
   }
 }
 
 /**
- * 获取主仓库的当前分支（作为 reset 的基准）
- * @param cwd 当前工作目录（主仓库）
- * @returns 当前分支名
- */
-function getMainBranch(cwd: string): string {
-  try {
-    return execSync('git symbolic-ref --short HEAD', { cwd, encoding: 'utf-8' }).trim();
-  } catch {
-    // 如果无法获取当前分支（比如 detached HEAD），尝试获取 master 或 main
-    try {
-      execSync('git rev-parse --verify master', { cwd, stdio: 'pipe' });
-      return 'master';
-    } catch {
-      try {
-        execSync('git rev-parse --verify main', { cwd, stdio: 'pipe' });
-        return 'main';
-      } catch {
-        return 'HEAD'; // 最后的兜底方案
-      }
-    }
-  }
-}
-
-/**
- * 清理已存在的 worktree 和处理分支
+ * 清理已存在的 worktree 和本地分支
  *
  * 处理逻辑：
- * 1. 如果分支已推送远端，在 worktree 目录中 reset + clean（不影响主仓库）
- * 2. 删除 worktree（强制删除）
- * 3. 如果分支仅本地，删除分支
- * 4. 删除残留目录（如果存在）
+ * 1. 检查目录是否是有效的 git worktree
+ * 2. 如果是有效 worktree，使用 git worktree remove 删除
+ * 3. 删除残留目录（如果存在）
+ * 4. 删除本地分支（无论是否已推送远端）
+ *    这确保新创建的分支基于主工作目录的最新状态
  *
  * @param worktreePath worktree 目录路径
  * @param branchName 分支名称
  * @param cwd 主仓库目录
- * @param pushedToRemote 是否已推送远端
  */
 function cleanWorktree(
   worktreePath: string,
   branchName: string,
-  cwd: string,
-  pushedToRemote: boolean
+  cwd: string
 ): void {
   console.log(`[forEachParallel] 清理 worktree: ${worktreePath}`);
 
-  // 1. 如果分支已推送远端，先在 worktree 目录中 reset + clean
-  if (pushedToRemote && fs.existsSync(worktreePath)) {
-    const mainBranch = getMainBranch(cwd);
-    console.log(`[forEachParallel] 分支 "${branchName}" 已推送远端，在 worktree 中 reset`);
-    // 在 worktree 目录中执行 reset（不影响主仓库）
-    execSync(`git reset --hard "${mainBranch}"`, { cwd: worktreePath, stdio: 'inherit' });
-    // 清理未跟踪文件和被忽略的文件，确保目录干净
-    execSync(`git clean -dfx`, { cwd: worktreePath, stdio: 'inherit' });
+  // 1. 检查是否是有效的 git worktree
+  const isValidWorktree = fs.existsSync(worktreePath) && isValidGitWorktree(worktreePath);
+
+  if (isValidWorktree) {
+    // 是有效的 worktree，使用 git worktree remove 删除
+    try {
+      execSync(`git worktree remove --force "${worktreePath}"`, { cwd, stdio: 'inherit' });
+      console.log(`[forEachParallel] worktree 已删除`);
+    } catch {
+      // 如果 git worktree remove 失败，可能是 worktree 记录已丢失
+      console.log(`[forEachParallel] git worktree remove 失败，尝试手动删除目录`);
+    }
   }
 
-  // 2. 删除 worktree（强制）
-  execSync(`git worktree remove --force "${worktreePath}"`, { cwd, stdio: 'inherit' });
-  console.log(`[forEachParallel] worktree 已删除`);
-
-  // 3. 处理分支（仅本地分支才删除）
-  if (!pushedToRemote) {
-    console.log(`[forEachParallel] 分支 "${branchName}" 仅存在于本地，删除分支`);
-    execSync(`git branch -D "${branchName}"`, { cwd, stdio: 'pipe' });
-    console.log(`[forEachParallel] 分支 "${branchName}" 已删除`);
-  }
-
-  // 4. 删除残留目录（如果 worktree remove 没能清理干净）
+  // 2. 删除残留目录（如果存在）
   if (fs.existsSync(worktreePath)) {
-    console.log(`[forEachParallel] 删除残留目录: ${worktreePath}`);
+    console.log(`[forEachParallel] 删除目录: ${worktreePath}`);
     fs.rmSync(worktreePath, { recursive: true, force: true });
+  }
+
+  // 3. 删除本地分支（无论是否已推送远端）
+  //    这确保新创建的分支基于主工作目录的最新状态
+  try {
+    execSync(`git branch -D "${branchName}"`, { cwd, stdio: 'pipe' });
+    console.log(`[forEachParallel] 本地分支 "${branchName}" 已删除`);
+  } catch {
+    // 分支可能已不存在，忽略错误
   }
 }
 
@@ -464,7 +438,7 @@ async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean)
   }
 
   // 1. 先扫描哪些 worktree 目录已存在（非 Resume 模式）
-  const existingWorktrees: Array<{ config: WorkerConfig; path: string; pushedToRemote: boolean }> = [];
+  const existingWorktrees: Array<{ config: WorkerConfig; path: string }> = [];
 
   if (!isResume) {
     for (const config of workerConfigs) {
@@ -472,8 +446,7 @@ async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean)
       if (fs.existsSync(worktreePath)) {
         existingWorktrees.push({
           config,
-          path: worktreePath,
-          pushedToRemote: isBranchPushedToRemote(config.branchName, cwd)
+          path: worktreePath
         });
       }
     }
@@ -484,20 +457,13 @@ async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean)
     console.log('');
     console.log('================================================================================');
     console.log('[forEachParallel] 发现以下已存在的 worktree 目录：');
-    const mainBranch = getMainBranch(cwd);
 
     for (const item of existingWorktrees) {
       console.log(`  - ${item.path}`);
-      if (item.pushedToRemote) {
-        console.log(`    分支 "${item.config.branchName}" 已推送远端，执行操作：`);
-        console.log(`      1. git reset --hard ${mainBranch}（在 worktree 中重置工作区）`);
-        console.log(`      2. git clean -dfx（清理所有未跟踪文件）`);
-        console.log(`      3. 删除 worktree 目录`);
-      } else {
-        console.log(`    分支 "${item.config.branchName}" 仅本地，执行操作：`);
-        console.log(`      1. 删除 worktree 目录`);
-        console.log(`      2. 删除本地分支`);
-      }
+      console.log(`    分支 "${item.config.branchName}"，执行操作：`);
+      console.log(`      1. 删除 worktree 目录`);
+      console.log(`      2. 删除本地分支`);
+      console.log(`      3. 基于当前 HEAD 创建新分支`);
     }
 
     console.log('================================================================================');
@@ -513,11 +479,11 @@ async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean)
 
     // 3. 执行清理（遇到错误直接退出）
     for (const item of existingWorktrees) {
-      cleanWorktree(item.path, item.config.branchName, cwd, item.pushedToRemote);
+      cleanWorktree(item.path, item.config.branchName, cwd);
     }
   }
 
-  // 4. 创建所有 worktree
+  // 4. 创建所有 worktree（始终基于当前 HEAD 创建新分支）
   const workspacePaths: string[] = [];
 
   for (const config of workerConfigs) {
@@ -530,36 +496,10 @@ async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean)
       continue;
     }
 
-    // 创建 worktree
+    // 创建 worktree（始终创建新分支，基于当前 HEAD）
     console.log(`[forEachParallel] 创建 worktree: ${worktreePath}`);
-
-    // 检查分支是否存在
-    let branchExists = false;
-    try {
-      execSync(`git rev-parse --verify "${config.branchName}"`, { cwd, stdio: 'pipe' });
-      branchExists = true;
-    } catch {
-      branchExists = false;
-    }
-
-    if (branchExists) {
-      // 分支已存在，检查是否已被其他 worktree 使用
-      const worktreeList = execSync('git worktree list', { cwd, encoding: 'utf-8' });
-      if (worktreeList.includes(config.branchName)) {
-        // 分支已被其他 worktree 使用
-        throw new Error(
-          `[forEachParallel] 分支 "${config.branchName}" 已被其他 worktree 使用\n` +
-          `请先清理: git worktree list\n` +
-          `然后: git worktree remove <path>`
-        );
-      }
-      // 分支存在但未被 worktree 使用，创建 worktree
-      execSync(`git worktree add "${worktreePath}" "${config.branchName}"`, { cwd, stdio: 'inherit' });
-    } else {
-      // 分支不存在，创建新分支并创建 worktree
-      console.log(`[forEachParallel] 创建分支: ${config.branchName}`);
-      execSync(`git worktree add -b "${config.branchName}" "${worktreePath}"`, { cwd, stdio: 'inherit' });
-    }
+    console.log(`[forEachParallel] 创建分支: ${config.branchName}（基于当前 HEAD）`);
+    execSync(`git worktree add -b "${config.branchName}" "${worktreePath}"`, { cwd, stdio: 'inherit' });
 
     workspacePaths.push(worktreePath);
   }
