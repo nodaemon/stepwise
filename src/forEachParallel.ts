@@ -211,8 +211,9 @@ function cleanWorktree(
       execSync(`git worktree remove --force "${worktreePath}"`, { cwd, stdio: 'inherit' });
       console.log(`[forEachParallel] worktree 已删除`);
     } catch {
-      // 如果 git worktree remove 失败，可能是 worktree 记录已丢失
-      console.log(`[forEachParallel] git worktree remove 失败，尝试手动删除目录`);
+      // 如果 git worktree remove 失败，清理无效引用后手动删除目录
+      console.log(`[forEachParallel] git worktree remove 失败，清理引用后手动删除`);
+      execSync('git worktree prune', { cwd, stdio: 'pipe' });
     }
   }
 
@@ -463,11 +464,21 @@ async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean,
   }
 
   // 1. 先扫描哪些 worktree 目录已存在（非 Resume 模式）
+  // 同时清理残留分支（目录不存在但分支存在的情况）
   const existingWorktrees: Array<{ config: WorkerConfig; path: string }> = [];
 
   if (!isResume) {
     for (const config of workerConfigs) {
       const worktreePath = path.join(parentDir, `${cwdName}_${config.branchName}`);
+
+      // 清理残留分支（即使目录不存在）
+      try {
+        execSync(`git branch -D "${config.branchName}"`, { cwd, stdio: 'pipe' });
+        console.log(`[forEachParallel] 清理残留分支: ${config.branchName}`);
+      } catch {
+        // 分支不存在，忽略
+      }
+
       if (fs.existsSync(worktreePath)) {
         existingWorktrees.push({
           config,
