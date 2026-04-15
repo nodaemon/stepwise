@@ -506,15 +506,40 @@ export class StepWise {
 
     if (resumePath && this.progress) {
       this.executionIndex++;
-      const task = this.progress.tasks.find(t => t.taskIndex === this.executionIndex);
 
-      if (task) {
-        if (task.taskType !== taskType) {
-          console.warn(`[StepWise] 警告: 任务 ${this.executionIndex} 类型不匹配 - 历史: ${task.taskType}, 当前: ${taskType}`);
-        }
+      // 1. 精确匹配：查找同 taskIndex 同 taskType 的 in_progress 任务
+      // 恢复中断的任务时，需要精确匹配类型
+      const inProgressTask = this.progress.tasks.find(
+        t => t.taskIndex === this.executionIndex && t.taskType === taskType && t.status === 'in_progress'
+      );
+
+      if (inProgressTask) {
         return this.executionIndex;
       }
 
+      // 2. 精确匹配：查找同 taskIndex 同 taskType 的 completed 任务
+      // 跳过已完成的任务时，需要精确匹配类型
+      const completedTask = this.progress.tasks.find(
+        t => t.taskIndex === this.executionIndex && t.taskType === taskType && t.status === 'completed'
+      );
+
+      if (completedTask) {
+        return this.executionIndex;
+      }
+
+      // 3. 检查是否存在同 taskIndex 但不同 taskType 的任务（循环结构导致）
+      const mismatchTask = this.progress.tasks.find(
+        t => t.taskIndex === this.executionIndex && t.taskType !== taskType
+      );
+
+      if (mismatchTask) {
+        // 循环结构中同一 taskIndex 对应不同 taskType 是正常现象
+        // 例如：第一次循环 taskIndex=7 是 check，第二次循环 taskIndex=7 是 task
+        // 此时需要创建新的任务记录（7_task），不影响已有的 7_check
+        console.warn(`[StepWise] 任务 ${this.executionIndex} 类型不匹配 - 历史: ${mismatchTask.taskType}, 当前: ${taskType}`);
+      }
+
+      // 4. 创建新任务记录
       this.taskCounter = this.executionIndex;
       this.progress.taskCounter = this.executionIndex;
       this.progress.lastUpdated = Date.now();
@@ -682,9 +707,9 @@ export class StepWise {
   private isTaskCompleted(taskIndex: number, taskType: TaskType): boolean {
     if (!this.progress) return false;
     const task = this.progress.tasks.find(
-      (t) => t.taskIndex === taskIndex
+      (t) => t.taskIndex === taskIndex && t.taskType === taskType
     );
-    return task?.taskType === taskType && task?.status === 'completed';
+    return task?.status === 'completed';
   }
 
   /**
@@ -693,9 +718,9 @@ export class StepWise {
   private isTaskInProgress(taskIndex: number, taskType: TaskType): boolean {
     if (!this.progress) return false;
     const task = this.progress.tasks.find(
-      (t) => t.taskIndex === taskIndex
+      (t) => t.taskIndex === taskIndex && t.taskType === taskType
     );
-    return task?.taskType === taskType && task?.status === 'in_progress';
+    return task?.status === 'in_progress';
   }
 
   /**
@@ -705,7 +730,7 @@ export class StepWise {
     if (!this.progress) return;
 
     const task = this.progress.tasks.find(
-      (t) => t.taskIndex === taskIndex
+      (t) => t.taskIndex === taskIndex && t.taskType === taskType
     );
 
     if (!task) return;
@@ -752,8 +777,12 @@ export class StepWise {
   /**
    * 获取任务的 sessionId（不管状态）
    */
-  private getTaskSessionId(taskIndex: number): string | undefined {
+  private getTaskSessionId(taskIndex: number, taskType?: TaskType): string | undefined {
     if (!this.progress) return undefined;
+    if (taskType) {
+      const task = this.progress.tasks.find(t => t.taskIndex === taskIndex && t.taskType === taskType);
+      return task?.sessionId;
+    }
     const task = this.progress.tasks.find(t => t.taskIndex === taskIndex);
     return task?.sessionId;
   }
@@ -1045,7 +1074,7 @@ export class StepWise {
     // 检查是否有 in_progress 的任务需要重新执行
     if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
       // 恢复 sessionId，确保重新执行时能复用原来的 session
-      const sessionId = this.getTaskSessionId(taskIndex);
+      const sessionId = this.getTaskSessionId(taskIndex, taskType);
       if (sessionId) {
         this.currentSessionId = sessionId;
       }
@@ -1124,7 +1153,6 @@ export class StepWise {
     // 检查是否需要恢复
     if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
-      // 重要：恢复 sessionId 到 currentSessionId，确保后续任务能复用
       if (sessionId) {
         this.currentSessionId = sessionId;
       }
@@ -1144,7 +1172,7 @@ export class StepWise {
     // 检查是否有 in_progress 的任务需要重新执行
     if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
       // 恢复 sessionId，确保重新执行时能复用原来的 session
-      const sessionId = this.getTaskSessionId(taskIndex);
+      const sessionId = this.getTaskSessionId(taskIndex, taskType);
       if (sessionId) {
         this.currentSessionId = sessionId;
       }
@@ -1277,7 +1305,7 @@ export class StepWise {
     // 检查是否有 in_progress 的任务需要重新执行
     if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
       // 恢复 sessionId，确保重新执行时能复用原来的 session
-      const sessionId = this.getTaskSessionId(taskIndex);
+      const sessionId = this.getTaskSessionId(taskIndex, taskType);
       if (sessionId) {
         this.currentSessionId = sessionId;
       }
@@ -1401,7 +1429,7 @@ export class StepWise {
     // 检查是否有 in_progress 的任务需要重新执行
     if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
       // 恢复 sessionId，确保重新执行时能复用原来的 session
-      const sessionId = this.getTaskSessionId(taskIndex);
+      const sessionId = this.getTaskSessionId(taskIndex, taskType);
       if (sessionId) {
         this.currentSessionId = sessionId;
       }
