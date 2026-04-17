@@ -795,7 +795,7 @@ if (fs.existsSync(reportPath)) {
 | items | T[] | 要处理的数组 |
 | workerConfigs | WorkerConfig[] | Worker 配置数组 |
 | handler | (ctx: WorkerContext\<T\>) => Promise\<void\> | 处理函数 |
-| options | ForEachParallelOptions | 选项（预留扩展） |
+| options | ForEachParallelOptions | 并发处理选项，详见 ForEachParallelOptions 章节 |
 
 **行为**
 
@@ -838,6 +838,39 @@ await forEachParallel(items, workerConfigs, async (ctx) => {
   await ctx.stepWise.execPrompt("调用 API 处理任务", {
     data: ctx.item,
   });
+});
+```
+
+---
+
+### ForEachParallelOptions
+
+并发处理选项。
+
+```typescript
+interface ForEachParallelOptions {
+  /**
+   * 当发现已存在的 worktree 时，自动执行清理操作而无需用户确认
+   * - true: 跳过用户确认，直接清理
+   * - false 或 undefined: 提示用户确认（默认行为）
+   * @default false
+   */
+  autoConfirmCleanup?: boolean;
+}
+```
+
+**使用示例**
+
+```typescript
+// 默认行为（需要用户确认）
+await forEachParallel(items, workerConfigs, handler);
+
+// 自动确认清理（无需用户交互）
+await forEachParallel(items, workerConfigs, handler, { autoConfirmCleanup: true });
+
+// 在 CI/CD 环境中使用
+await forEachParallel(items, workerConfigs, handler, {
+  autoConfirmCleanup: process.env.CI === 'true'
 });
 ```
 

@@ -795,7 +795,7 @@ Processes array elements in parallel, automatically creating git worktrees for i
 | items | T[] | Array to process |
 | workerConfigs | WorkerConfig[] | Worker configuration array |
 | handler | (ctx: WorkerContext\<T\>) => Promise\<void\> | Handler function |
-| options | ForEachParallelOptions | Options (reserved for extension) |
+| options | ForEachParallelOptions | Parallel processing options, see ForEachParallelOptions section for details |
 
 **Behavior**
 
@@ -838,6 +838,39 @@ await forEachParallel(items, workerConfigs, async (ctx) => {
   await ctx.stepWise.execPrompt("Call API to process task", {
     data: ctx.item,
   });
+});
+```
+
+---
+
+### ForEachParallelOptions
+
+Parallel processing options.
+
+```typescript
+interface ForEachParallelOptions {
+  /**
+   * When existing worktrees are found, automatically execute cleanup without user confirmation
+   * - true: Skip user confirmation and proceed with cleanup directly
+   * - false or undefined: Prompt user for confirmation (default behavior)
+   * @default false
+   */
+  autoConfirmCleanup?: boolean;
+}
+```
+
+**Example with autoConfirmCleanup**
+
+```typescript
+// Default behavior (requires user confirmation)
+await forEachParallel(items, workerConfigs, handler);
+
+// Auto-confirm cleanup (no user interaction needed)
+await forEachParallel(items, workerConfigs, handler, { autoConfirmCleanup: true });
+
+// Use in CI/CD environment
+await forEachParallel(items, workerConfigs, handler, {
+  autoConfirmCleanup: process.env.CI === 'true'
 });
 ```
 

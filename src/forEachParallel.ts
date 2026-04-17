@@ -27,10 +27,16 @@ export interface WorkerConfig {
 }
 
 /**
- * 并发处理选项（预留扩展）
+ * 并发处理选项
  */
 export interface ForEachParallelOptions {
-  // 预留扩展
+  /**
+   * 当发现已存在的 worktree 时，自动执行清理操作而无需用户确认
+   * - true: 跳过用户确认，直接清理
+   * - false 或 undefined: 提示用户确认（默认行为）
+   * @default false
+   */
+  autoConfirmCleanup?: boolean;
 }
 
 /**
@@ -311,7 +317,7 @@ export async function forEachParallel<T>(
   }
 
   // 1. 确保所有 worktree 已创建
-  const workspacePaths = await ensureWorktrees(workerConfigs, isResume, taskDir);
+  const workspacePaths = await ensureWorktrees(workerConfigs, isResume, taskDir, options);
 
   // 2. 恢复模式：扫描已有任务状态
   const resumeStates = isResume ? scanResumeStates(taskDir, items.length) : undefined;
@@ -454,7 +460,7 @@ export async function forEachParallel<T>(
 /**
  * 确保所有 worktree 已创建
  */
-async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean, taskDir: string): Promise<string[]> {
+async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean, taskDir: string, options?: ForEachParallelOptions): Promise<string[]> {
   const cwd = process.cwd();
   const parentDir = path.dirname(cwd);
   const cwdName = path.basename(cwd);
@@ -510,7 +516,16 @@ async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean,
 
     console.log('================================================================================');
 
-    const confirmed = await confirmAction('是否执行以上清理操作？[y/N]: ');
+    // 检查是否自动确认
+    const shouldAutoConfirm = options?.autoConfirmCleanup === true;
+
+    let confirmed: boolean;
+    if (shouldAutoConfirm) {
+      console.log('[forEachParallel] 自动确认清理模式，跳过用户确认');
+      confirmed = true;
+    } else {
+      confirmed = await confirmAction('是否执行以上清理操作？[y/N]: ');
+    }
 
     if (!confirmed) {
       throw new Error(
