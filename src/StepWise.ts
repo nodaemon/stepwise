@@ -119,6 +119,28 @@ export class StepWise {
   }
 
   /**
+   * 将全局路径从 process.cwd() 基准重映射到 this.defaultCwd 基准
+   * 用于 forEachParallel 并行 worker 场景，使全局 allowRead/allowWrite 路径
+   * 指向 worktree 目录而非主仓目录
+   */
+  private remapGlobalPaths(globalPaths: string[]): string[] {
+    const mainCwd = process.cwd();
+    const myCwd = this.defaultCwd;
+
+    if (!myCwd || myCwd === mainCwd) return globalPaths;
+
+    return globalPaths.map(p => {
+      if (p === mainCwd) {
+        return myCwd;
+      }
+      if (p.startsWith(mainCwd + '/')) {
+        return myCwd + p.slice(mainCwd.length);
+      }
+      return p;
+    });
+  }
+
+  /**
    * 合并全局和步骤级别的路径配置，生成文件访问限制提示词
    * 如果没有限制则返回 null
    *
@@ -138,9 +160,9 @@ export class StepWise {
       ? normalizePaths(stepAllowWrite, effectiveCwd)
       : undefined;
 
-    // 全局配置为空数组时视为未设置
-    const effectiveGlobalRead = globalRead.length > 0 ? globalRead : undefined;
-    const effectiveGlobalWrite = globalWrite.length > 0 ? globalWrite : undefined;
+    // 全局配置为空数组时视为未设置；非空时重映射到 worktree 基准
+    const effectiveGlobalRead = globalRead.length > 0 ? this.remapGlobalPaths(globalRead) : undefined;
+    const effectiveGlobalWrite = globalWrite.length > 0 ? this.remapGlobalPaths(globalWrite) : undefined;
 
     // 合并：步骤指定 → 步骤覆盖全局；未指定 → 继承全局
     const mergedRead = mergePaths(effectiveGlobalRead, normalizedStepRead);
