@@ -408,7 +408,7 @@ interface ExecOptions {
   cwd?: string;              // 工作目录，默认当前进程目录
   newSession?: boolean;      // 是否使用新会话，默认 false（复用上一个会话）
   data?: Record<string, any>; // 变量替换数据
-  checkPrompt?: string;      // 主任务完成后执行的检查提示词
+  postCheckPrompt?: string;  // 主任务完成后执行的检查提示词
   env?: string[];            // 额外的环境变量数组，格式为 "KEY=VALUE"
   validateOptions?: ValidateOptions; // JSON 输出校验选项
   allowRead?: string[];      // 允许读取的目录路径列表，支持相对路径和 ~ 展开
@@ -986,7 +986,7 @@ interface ExecOptions {
   cwd?: string;              // 工作目录
   newSession?: boolean;      // 是否使用新会话（默认: false）
   data?: Record<string, any>; // 变量替换数据
-  checkPrompt?: string;      // 主任务完成后执行的检查提示词
+  postCheckPrompt?: string;  // 主任务完成后执行的检查提示词
   env?: string[];            // 额外的环境变量数组，格式为 "KEY=VALUE"
   validateOptions?: ValidateOptions; // JSON 输出校验选项
   allowRead?: string[];      // 允许读取的目录路径列表，支持相对路径和 ~ 展开

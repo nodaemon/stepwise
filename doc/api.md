@@ -408,7 +408,7 @@ interface ExecOptions {
   cwd?: string;              // Working directory, defaults to current process directory
   newSession?: boolean;      // Whether to use a new session, defaults to false
   data?: Record<string, any>; // Data for variable substitution
-  checkPrompt?: string;      // Check prompt to execute after main task completes
+  postCheckPrompt?: string;  // Check prompt to execute after main task completes
   env?: string[];            // Additional environment variables, format: "KEY=VALUE"
   validateOptions?: ValidateOptions; // JSON output validation options
   allowRead?: string[];      // Allowed readable directories, supports relative paths and ~ expansion
@@ -986,7 +986,7 @@ interface ExecOptions {
   cwd?: string;              // Working directory
   newSession?: boolean;      // Whether to use a new session (default: false)
   data?: Record<string, any>; // Data for variable substitution
-  checkPrompt?: string;      // Check prompt to execute after main task completes
+  postCheckPrompt?: string;  // Check prompt to execute after main task completes
   env?: string[];            // Additional environment variables, format: "KEY=VALUE"
   validateOptions?: ValidateOptions; // JSON output validation options
   allowRead?: string[];      // Allowed readable directories, supports relative paths and ~ expansion
