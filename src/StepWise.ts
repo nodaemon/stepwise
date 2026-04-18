@@ -121,6 +121,8 @@ export class StepWise {
   /**
    * 合并全局和步骤级别的路径配置，生成文件访问限制提示词
    * 如果没有限制则返回 null
+   *
+   * 注意：框架内部目录（agentDir）始终被允许写入，这是框架运行的必要条件
    */
   private buildMergedFileAccessPrompt(stepAllowRead?: string[], stepAllowWrite?: string[]): string | null {
     // 从全局状态读取
@@ -144,7 +146,16 @@ export class StepWise {
     const mergedRead = mergePaths(effectiveGlobalRead, normalizedStepRead);
     const mergedWrite = mergePaths(effectiveGlobalWrite, normalizedStepWrite);
 
-    return buildFileAccessPrompt(mergedRead, mergedWrite);
+    // 框架内部目录自动白名单（collect/report/check 等都在此目录下）
+    // 这是框架运行的必要条件，不受用户配置限制
+    const frameworkDirs = [this.agentDir];
+
+    // 合并用户配置和框架白名单（去重）
+    const finalWrite = mergedWrite !== undefined
+      ? [...mergedWrite, ...frameworkDirs.filter(d => !mergedWrite.includes(d))]
+      : frameworkDirs;
+
+    return buildFileAccessPrompt(mergedRead, finalWrite);
   }
 
   /**
