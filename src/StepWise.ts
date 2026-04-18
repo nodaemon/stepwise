@@ -37,7 +37,10 @@ import {
   buildFullPrompt,
   replaceVariables,
   buildSummarizePrompt,
-  buildFileMissingPrompt
+  buildFileMissingPrompt,
+  normalizePaths,
+  mergePaths,
+  buildFileAccessPrompt
 } from './utils/promptBuilder';
 import {
   EXEC_INFO_DIR,
@@ -55,7 +58,9 @@ import {
   _isDebugMode,
   _shouldSkipSummarize,
   _registerName,
-  _getTaskDir
+  _getTaskDir,
+  _getAllowRead,
+  _getAllowWrite
 } from './globalState';
 import { trackPerformance } from './utils/performanceDecorator';
 import { PerformanceTracker } from './utils/performanceTracker';
@@ -111,6 +116,46 @@ export class StepWise {
 
     // 打印 StepWise 启动信息
     console.log(`StepWise [${name}] 已就绪`);
+  }
+
+  /**
+   * 合并全局和步骤级别的路径配置，生成文件访问限制提示词
+   * 如果没有限制则返回 null
+   */
+  private buildMergedFileAccessPrompt(stepAllowRead?: string[], stepAllowWrite?: string[]): string | null {
+    // 从全局状态读取
+    const globalRead = _getAllowRead();
+    const globalWrite = _getAllowWrite();
+
+    // 规范化步骤级别路径
+    const effectiveCwd = this.defaultCwd;
+    const normalizedStepRead = stepAllowRead !== undefined
+      ? normalizePaths(stepAllowRead, effectiveCwd)
+      : undefined;
+    const normalizedStepWrite = stepAllowWrite !== undefined
+      ? normalizePaths(stepAllowWrite, effectiveCwd)
+      : undefined;
+
+    // 全局配置为空数组时视为未设置
+    const effectiveGlobalRead = globalRead.length > 0 ? globalRead : undefined;
+    const effectiveGlobalWrite = globalWrite.length > 0 ? globalWrite : undefined;
+
+    // 合并：步骤指定 → 步骤覆盖全局；未指定 → 继承全局
+    const mergedRead = mergePaths(effectiveGlobalRead, normalizedStepRead);
+    const mergedWrite = mergePaths(effectiveGlobalWrite, normalizedStepWrite);
+
+    return buildFileAccessPrompt(mergedRead, mergedWrite);
+  }
+
+  /**
+   * 注入文件访问限制提示词到已有 prompt 中
+   * 如果没有限制则原样返回
+   */
+  private injectFileAccessPrompt(prompt: string, options?: ExecOptions): string {
+    const accessPrompt = this.buildMergedFileAccessPrompt(options?.allowRead, options?.allowWrite);
+    return accessPrompt
+      ? `${accessPrompt}\n\n---\n\n${prompt}`
+      : prompt;
   }
 
   /**
@@ -1054,6 +1099,9 @@ export class StepWise {
     // 处理变量替换
     const processedPrompt = this.processPrompt(prompt, options);
 
+    // 注入文件访问限制提示词
+    const promptWithAccess = this.injectFileAccessPrompt(processedPrompt, options);
+
     // 检查是否需要恢复
     if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
@@ -1089,12 +1137,12 @@ export class StepWise {
     this.logger?.logTaskStart(taskIndex, taskType, sessionId);
 
     if (taskLogDir) {
-      this.logger?.writeTaskLog(taskLogDir, 'prompt.txt', processedPrompt);
+      this.logger?.writeTaskLog(taskLogDir, 'prompt.txt', promptWithAccess);
     }
 
     this.recordTaskStart(taskIndex, `${taskIndex}_task`, sessionId, taskType);
 
-    const result = await this.executor.execute(processedPrompt, {
+    const result = await this.executor.execute(promptWithAccess, {
       cwd: effectiveCwd,
       env: effectiveEnv,
       sessionId: sessionId,
@@ -1150,6 +1198,9 @@ export class StepWise {
     // 处理变量替换
     const processedPrompt = this.processPrompt(prompt, options);
 
+    // 注入文件访问限制提示词
+    const promptWithAccess = this.injectFileAccessPrompt(processedPrompt, options);
+
     // 检查是否需要恢复
     if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
@@ -1191,7 +1242,7 @@ export class StepWise {
       debugMode
     );
 
-    const fullPrompt = buildFullPrompt(processedPrompt, extraPrompt);
+    const fullPrompt = buildFullPrompt(promptWithAccess, extraPrompt);
 
     this.logger?.logTaskStart(taskIndex, taskType, sessionId);
 
@@ -1272,6 +1323,9 @@ export class StepWise {
     // 处理变量替换
     const processedPrompt = this.processPrompt(prompt, options);
 
+    // 注入文件访问限制提示词
+    const promptWithAccess = this.injectFileAccessPrompt(processedPrompt, options);
+
     // 检查是否需要恢复
     if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
@@ -1319,8 +1373,8 @@ export class StepWise {
     const useResume = this.shouldUseResume(taskIndex, options?.newSession);
 
     // 构建完整提示词
-    const extraPrompt = buildPostCheckPrompt(outputPath, processedPrompt, effectiveCwd);
-    const fullPrompt = buildFullPrompt(processedPrompt, extraPrompt);
+    const extraPrompt = buildPostCheckPrompt(outputPath, promptWithAccess, effectiveCwd);
+    const fullPrompt = buildFullPrompt(promptWithAccess, extraPrompt);
 
     this.logger?.logTaskStart(taskIndex, taskType, sessionId);
 
@@ -1406,6 +1460,9 @@ export class StepWise {
     // 处理变量替换
     const processedPrompt = this.processPrompt(prompt, options);
 
+    // 注入文件访问限制提示词
+    const promptWithAccess = this.injectFileAccessPrompt(processedPrompt, options);
+
     // 检查是否需要恢复
     if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
@@ -1448,7 +1505,7 @@ export class StepWise {
       debugMode
     );
 
-    const fullPrompt = buildFullPrompt(processedPrompt, extraPrompt);
+    const fullPrompt = buildFullPrompt(promptWithAccess, extraPrompt);
 
     this.logger?.logTaskStart(taskIndex, taskType, sessionId);
 

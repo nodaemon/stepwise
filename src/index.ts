@@ -13,6 +13,8 @@ export {
   saveCollectData,
   loadCollectData,
   setAgentType,
+  setAllowRead,
+  setAllowWrite,
   getTaskDir,
   getReportPath
 } from './globalState';

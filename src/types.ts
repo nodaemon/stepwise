@@ -49,6 +49,16 @@ export interface ExecOptions {
    * 用于 execCollectPrompt、execCheckPrompt、execReport 等接口
    */
   validateOptions?: ValidateOptions;
+  /**
+   * 允许读取的目录路径列表。设置后 agent 只能读取这些目录内的文件。
+   * 支持相对路径和 ~ 展开。与全局设置合并时，步骤级别覆盖全局。
+   */
+  allowRead?: string[];
+  /**
+   * 允许写入的目录路径列表。设置后 agent 只能写入这些目录内的文件。
+   * 支持相对路径和 ~ 展开。与全局设置合并时，步骤级别覆盖全局。
+   */
+  allowWrite?: string[];
 }
 
 /**

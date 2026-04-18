@@ -14,6 +14,8 @@ This document provides detailed API reference for StepWise.
   - [saveCollectData](#savecollectdatadata-recordstring-any-filename-string-void)
   - [loadCollectData](#loadcollectdatafilename-string-recordstring-any)
   - [setAgentType](#setagenttypetype-agenttype-void)
+  - [setAllowRead](#setallowreadpaths-string-void)
+  - [setAllowWrite](#setallowwritepaths-string-void)
   - [getTaskDir](#gettaskdir-string)
   - [getReportPath](#getreportpathfilename-string-string)
 - [StepWise Class](#stepwise-class)
@@ -222,6 +224,52 @@ setTaskName('MyTask');
 
 ---
 
+### setAllowRead(paths: string[]): void
+
+Sets global allowed readable directories. All StepWise instances and all steps are restricted to reading only from these directories.
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| paths | string[] | Allowed readable directory paths. Supports relative paths and `~` expansion. |
+
+**Example**
+
+```typescript
+import { setTaskName, setAllowRead } from 'stepwise';
+
+setTaskName('MyTask');
+
+// Only allow reading from project source and docs
+setAllowRead(['/project/src', '/project/docs', '~/shared/config']);
+```
+
+---
+
+### setAllowWrite(paths: string[]): void
+
+Sets global allowed writable directories. All StepWise instances and all steps are restricted to writing only to these directories.
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| paths | string[] | Allowed writable directory paths. Supports relative paths and `~` expansion. |
+
+**Example**
+
+```typescript
+import { setTaskName, setAllowWrite } from 'stepwise';
+
+setTaskName('MyTask');
+
+// Only allow writing to workspace
+setAllowWrite(['/workspace']);
+```
+
+---
+
 ### getTaskDir(): string
 
 Gets the task directory path (Task level).
@@ -363,6 +411,8 @@ interface ExecOptions {
   checkPrompt?: string;      // Check prompt to execute after main task completes
   env?: string[];            // Additional environment variables, format: "KEY=VALUE"
   validateOptions?: ValidateOptions; // JSON output validation options
+  allowRead?: string[];      // Allowed readable directories, supports relative paths and ~ expansion
+  allowWrite?: string[];     // Allowed writable directories, supports relative paths and ~ expansion
 }
 ```
 
@@ -939,7 +989,38 @@ interface ExecOptions {
   checkPrompt?: string;      // Check prompt to execute after main task completes
   env?: string[];            // Additional environment variables, format: "KEY=VALUE"
   validateOptions?: ValidateOptions; // JSON output validation options
+  allowRead?: string[];      // Allowed readable directories, supports relative paths and ~ expansion
+  allowWrite?: string[];     // Allowed writable directories, supports relative paths and ~ expansion
 }
+```
+
+**File Access Restriction**
+
+`allowRead` and `allowWrite` restrict the AI agent's file access scope via prompt constraints.
+
+- Not set (default): no restriction
+- Set: agent can only access the specified directories
+
+**Merge Rules**: Global-level (set via `setAllowRead()` / `setAllowWrite()`) and step-level (set via `ExecOptions`) are merged per-dimension:
+- Step-level specified → overrides global
+- Step-level not set → inherits global
+
+**Path Normalization**: Supports relative paths (resolved against cwd), `~` (expanded to home directory), `..` and `./` (auto-resolved). Duplicates are removed.
+
+**Usage Example**
+
+```typescript
+import { setTaskName, setAllowWrite, StepWise } from 'stepwise';
+
+setTaskName('MyTask');
+
+// Global: all agents can only write to workspace
+setAllowWrite(['/path/to/workspace']);
+
+// Step-level: override global allowWrite for this step
+await stepWise.execPrompt(prompt, {
+  allowWrite: ['/path/to/workspace/src']
+});
 ```
 
 ---

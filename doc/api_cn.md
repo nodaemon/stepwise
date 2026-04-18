@@ -14,6 +14,8 @@
   - [saveCollectData](#savecollectdatadata-recordstring-any-filename-string-void)
   - [loadCollectData](#loadcollectdatafilename-string-recordstring-any)
   - [setAgentType](#setagenttypetype-agenttype-void)
+  - [setAllowRead](#setallowreadpaths-string-void)
+  - [setAllowWrite](#setallowwritepaths-string-void)
   - [getTaskDir](#gettaskdir-string)
   - [getReportPath](#getreportpathfilename-string-string)
 - [StepWise 类](#stepwise-类)
@@ -222,6 +224,52 @@ setTaskName('MyTask');
 
 ---
 
+### setAllowRead(paths: string[]): void
+
+设置全局允许读取的目录路径列表。所有 StepWise 实例和所有步骤都会受到此限制。
+
+**参数**
+
+| 参数 | 类型 | 描述 |
+|------|------|------|
+| paths | string[] | 允许读取的目录路径列表。支持相对路径和 `~` 展开。 |
+
+**示例**
+
+```typescript
+import { setTaskName, setAllowRead } from 'stepwise';
+
+setTaskName('MyTask');
+
+// 只允许读取项目源码和文档目录
+setAllowRead(['/project/src', '/project/docs', '~/shared/config']);
+```
+
+---
+
+### setAllowWrite(paths: string[]): void
+
+设置全局允许写入的目录路径列表。所有 StepWise 实例和所有步骤都会受到此限制。
+
+**参数**
+
+| 参数 | 类型 | 描述 |
+|------|------|------|
+| paths | string[] | 允许写入的目录路径列表。支持相对路径和 `~` 展开。 |
+
+**示例**
+
+```typescript
+import { setTaskName, setAllowWrite } from 'stepwise';
+
+setTaskName('MyTask');
+
+// 只允许写入工作区目录
+setAllowWrite(['/workspace']);
+```
+
+---
+
 ### getTaskDir(): string
 
 获取任务目录路径（Task 级别）。
@@ -363,6 +411,8 @@ interface ExecOptions {
   checkPrompt?: string;      // 主任务完成后执行的检查提示词
   env?: string[];            // 额外的环境变量数组，格式为 "KEY=VALUE"
   validateOptions?: ValidateOptions; // JSON 输出校验选项
+  allowRead?: string[];      // 允许读取的目录路径列表，支持相对路径和 ~ 展开
+  allowWrite?: string[];     // 允许写入的目录路径列表，支持相对路径和 ~ 展开
 }
 ```
 
@@ -939,7 +989,38 @@ interface ExecOptions {
   checkPrompt?: string;      // 主任务完成后执行的检查提示词
   env?: string[];            // 额外的环境变量数组，格式为 "KEY=VALUE"
   validateOptions?: ValidateOptions; // JSON 输出校验选项
+  allowRead?: string[];      // 允许读取的目录路径列表，支持相对路径和 ~ 展开
+  allowWrite?: string[];     // 允许写入的目录路径列表，支持相对路径和 ~ 展开
 }
+```
+
+**文件访问限制**
+
+`allowRead` 和 `allowWrite` 通过提示词约束限制 AI agent 的文件访问范围。
+
+- 不设置（默认）：无限制
+- 设置后：agent 只能访问指定目录
+
+**合并规则**：全局级别（通过 `setAllowRead()` / `setAllowWrite()` 设置）与步骤级别（通过 `ExecOptions` 设置）按维度合并：
+- 步骤级别指定了某维度 → 步骤覆盖全局
+- 步骤级别未指定 → 继承全局
+
+**路径规范化**：支持相对路径（基于 cwd 解析）、`~`（展开为主目录）、`..` 和 `./`（自动解析）。重复路径会自动去重。
+
+**使用示例**
+
+```typescript
+import { setTaskName, setAllowWrite, StepWise } from 'stepwise';
+
+setTaskName('MyTask');
+
+// 全局：所有 agent 只能写入 workspace
+setAllowWrite(['/path/to/workspace']);
+
+// 步骤级别：覆盖全局的 allowWrite
+await stepWise.execPrompt(prompt, {
+  allowWrite: ['/path/to/workspace/src']
+});
 ```
 
 ---

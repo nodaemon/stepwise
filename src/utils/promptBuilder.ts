@@ -1,3 +1,6 @@
+import * as path from 'path';
+import * as os from 'os';
+import * as fs from 'fs';
 import { OutputFormat, PropertyDef } from '../types';
 import { buildJsonSchema, getFirstRequiredField } from './schemaUtils';
 
@@ -323,4 +326,110 @@ export function buildSummarizePrompt(skillsDir: string): string {
 如果 \`${skillsDir}\` 目录下已存在类似的 Skill 文件，请更新现有文件而不是创建新的。更新时合并新的经验和步骤。
 
 请现在开始回顾会话内容，如果没有值得总结的内容请直接说明，否则生成 Skill 文件。`;
+}
+
+/**
+ * 规范化路径数组
+ * 仅手动处理 ~（os.homedir()），其余交给 path.resolve()
+ * 设置时校验：不合法路径仅警告跳过，不抛异常
+ */
+export function normalizePaths(paths: string[], cwd?: string): string[] {
+  if (!paths || paths.length === 0) return [];
+
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  for (let p of paths) {
+    if (!p || p.trim() === '') continue;
+
+    // 仅 ~ 需要手动处理（shell 语法，path.resolve 不识别）
+    if (p.startsWith('~')) {
+      p = path.join(os.homedir(), p.slice(1));
+    }
+
+    // path.resolve 一步处理：相对路径、..、./ → 绝对路径
+    const resolved = path.resolve(cwd || process.cwd(), p);
+
+    // 存在时解析符号链接，不存在时直接使用
+    const normalized = fs.existsSync(resolved)
+      ? fs.realpathSync(resolved)
+      : resolved;
+
+    // 校验绝对路径
+    if (!path.isAbsolute(normalized)) {
+      console.warn(`[StepWise] 路径校验失败: "${p}" → "${normalized}"，已跳过`);
+      continue;
+    }
+
+    // 去重
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      result.push(normalized);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * 合并全局和步骤级别的路径配置
+ * 步骤指定 → 覆盖全局；未指定 → 继承全局
+ */
+export function mergePaths(
+  global?: string[],
+  step?: string[]
+): string[] | undefined {
+  if (step !== undefined) return step;
+  return global;
+}
+
+/**
+ * 构建文件访问限制的提示词（中文）
+ * 只有配置了限制时才生成提示词
+ */
+export function buildFileAccessPrompt(
+  allowRead?: string[],
+  allowWrite?: string[]
+): string | null {
+  if (allowRead === undefined && allowWrite === undefined) return null;
+
+  const lines: string[] = [];
+  lines.push('[严格文件访问策略 - 必须遵守]');
+  lines.push('');
+
+  if (allowRead !== undefined && allowRead.length > 0) {
+    lines.push('允许读取的目录（只能读取以下路径中的文件）:');
+    for (const dir of allowRead) {
+      lines.push(`  - ${dir}`);
+    }
+    lines.push('');
+  }
+
+  if (allowWrite !== undefined && allowWrite.length > 0) {
+    lines.push('允许写入的目录（只能写入/创建/修改以下路径中的文件）:');
+    for (const dir of allowWrite) {
+      lines.push(`  - ${dir}`);
+    }
+    lines.push('');
+  }
+
+  lines.push('重要约束:');
+  if (allowRead !== undefined) {
+    if (allowRead.length > 0) {
+      lines.push('- 禁止读取上述目录以外的任何文件');
+    } else {
+      lines.push('- 禁止读取任何文件（读取权限被完全限制）');
+    }
+  }
+  if (allowWrite !== undefined) {
+    if (allowWrite.length > 0) {
+      lines.push('- 禁止在上述目录以外写入、创建、修改或删除任何文件');
+      lines.push('- 包括所有文件操作：编辑文件、创建新文件、移动文件、以及通过 shell 命令写入文件等');
+    } else {
+      lines.push('- 禁止写入、创建、修改或删除任何文件（写入权限被完全限制）');
+    }
+  }
+  lines.push('- 如果你需要访问这些目录以外的文件，请说明原因但不要尝试操作');
+
+  return lines.join('\n');
 }

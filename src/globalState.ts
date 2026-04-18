@@ -7,6 +7,7 @@ import { appendJsonArray, loadJsonFile } from './utils/fileHelper';
 import { AgentType } from './types';
 import { PerformanceTracker } from './utils/performanceTracker';
 import { EXEC_INFO_DIR, REPORT_DIR } from './constants';
+import { normalizePaths } from './utils/promptBuilder';
 
 /** 全局状态 */
 interface GlobalState {
@@ -28,6 +29,10 @@ interface GlobalState {
   workerId: string;
   /** 任务目录路径（用于性能统计报告输出） */
   taskDir: string;
+  /** 全局允许读取的目录路径列表（已规范化） */
+  allowRead: string[];
+  /** 全局允许写入的目录路径列表（已规范化） */
+  allowWrite: string[];
 }
 
 /** 全局状态实例 */
@@ -40,7 +45,9 @@ const globalState: GlobalState = {
   registeredNames: new Set<string>(),
   hasPrintedStartup: false,
   workerId: '',
-  taskDir: ''
+  taskDir: '',
+  allowRead: [],
+  allowWrite: []
 };
 
 /**
@@ -228,6 +235,40 @@ export function _clearRegisteredNames(): void {
 }
 
 /**
+ * 设置全局允许读取的目录路径列表
+ * 对所有 StepWise 实例的所有步骤生效，步骤级别可通过 ExecOptions.allowRead 覆盖
+ * 路径在设置时规范化（展开 ~、解析相对路径、去重）
+ */
+export function setAllowRead(paths: string[]): void {
+  globalState.allowRead = normalizePaths(paths, process.cwd());
+}
+
+/**
+ * 设置全局允许写入的目录路径列表
+ * 对所有 StepWise 实例的所有步骤生效，步骤级别可通过 ExecOptions.allowWrite 覆盖
+ * 路径在设置时规范化（展开 ~、解析相对路径、去重）
+ */
+export function setAllowWrite(paths: string[]): void {
+  globalState.allowWrite = normalizePaths(paths, process.cwd());
+}
+
+/**
+ * 获取全局允许读取的目录路径列表
+ * @internal
+ */
+export function _getAllowRead(): string[] {
+  return globalState.allowRead;
+}
+
+/**
+ * 获取全局允许写入的目录路径列表
+ * @internal
+ */
+export function _getAllowWrite(): string[] {
+  return globalState.allowWrite;
+}
+
+/**
  * 重置全局状态（仅用于测试）
  * @internal
  */
@@ -241,6 +282,8 @@ export function _resetState(): void {
   globalState.hasPrintedStartup = false;
   globalState.workerId = '';
   globalState.taskDir = '';
+  globalState.allowRead = [];
+  globalState.allowWrite = [];
 }
 
 /**
