@@ -5,28 +5,6 @@ import { OutputFormat, PropertyDef } from '../types';
 import { buildJsonSchema, getFirstRequiredField } from './schemaUtils';
 
 /**
- * 根据字段类型生成示例值
- * @param type 字段类型
- * @returns JSON 格式的示例值字符串
- */
-function getExampleValue(type: string): string {
-  switch (type) {
-    case 'string':
-      return '"示例文本"';
-    case 'number':
-      return '123';
-    case 'boolean':
-      return 'true';
-    case 'object':
-      return '{}';
-    case 'array':
-      return '[]';
-    default:
-      return '""';
-  }
-}
-
-/**
  * 替换提示词中的变量
  * @param prompt 提示词模板
  * @param data 数据对象
@@ -63,22 +41,6 @@ function buildArrayOutputPrompt(
   const schema = buildJsonSchema(outputFormat);
   const dedupeKey = getFirstRequiredField(outputFormat);
 
-  // 生成示例
-  const exampleItem = Object.entries(outputFormat)
-    .map(([name, def]) => {
-      const exampleValue = getExampleValue(def.type);
-      return `    "${name}": ${exampleValue}`;
-    })
-    .join(',\n');
-
-  // 生成字段说明
-  const keyDescriptions = Object.entries(outputFormat)
-    .map(([name, def]) => {
-      const required = def.required !== false ? '(必填)' : '(可选)';
-      return `  "${name}": <${def.description || name}> ${required}`;
-    })
-    .join(',\n');
-
   const requirements: string[] = [
     '1. 必须输出 JSON 对象数组格式（见下方 JSON Schema）',
     '2. 如果文件已存在，读取现有数组，将新数据追加到数组末尾，然后写入完整的数组',
@@ -106,21 +68,6 @@ ${introText}，并写入到 ${outputFileName} 文件中：
 \`\`\`json
 ${JSON.stringify(schema, null, 2)}
 \`\`\`
-
-## 示例数据
-
-\`\`\`json
-[
-  {
-${exampleItem}
-  }
-]
-\`\`\`
-
-每个对象的字段说明：
-{
-${keyDescriptions}
-}
 
 ## 禁止的格式
 
