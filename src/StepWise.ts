@@ -168,14 +168,18 @@ export class StepWise {
     const mergedRead = mergePaths(effectiveGlobalRead, normalizedStepRead);
     const mergedWrite = mergePaths(effectiveGlobalWrite, normalizedStepWrite);
 
-    // 框架内部目录自动白名单（collect/report/check 等都在此目录下）
-    // 这是框架运行的必要条件，不受用户配置限制
+    // 用户未设置任何限制时，不注入文件访问提示词
+    if (mergedRead === undefined && mergedWrite === undefined) {
+      return null;
+    }
+
+    // 框架内部目录自动白名单（仅在用户已设置写限制时追加）
     const frameworkDirs = [this.agentDir];
 
     // 合并用户配置和框架白名单（去重）
     const finalWrite = mergedWrite !== undefined
       ? [...mergedWrite, ...frameworkDirs.filter(d => !mergedWrite.includes(d))]
-      : frameworkDirs;
+      : undefined;
 
     return buildFileAccessPrompt(mergedRead, finalWrite);
   }
