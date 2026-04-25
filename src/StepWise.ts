@@ -1834,10 +1834,21 @@ export class StepWise {
     // 记录任务完成
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration);
 
-    // 更新进度（记录 shell 命令以便断点恢复）
-    this.recordShellTaskComplete(taskIndex, `${taskIndex}_shell`, taskType, command, result.exitCode);
+    if (result.success) {
+      // 成功时记录完成状态
+      this.recordShellTaskComplete(taskIndex, `${taskIndex}_shell`, taskType, command);
+      return result;
+    }
 
-    return result;
+    // 失败时抛出异常，与其他 exec 方法保持一致
+    // error.txt 已记录 stderr，output.txt 已记录 stdout，不再生成冗余的 error_report.txt
+    throw new Error(
+      `Shell 命令执行失败: ${command}\n` +
+      `退出码: ${result.exitCode}\n` +
+      `stderr: ${result.stderr || '(空)'}\n` +
+      `stdout: ${result.stdout || '(空)'}\n` +
+      `工作目录: ${effectiveCwd || process.cwd()}`
+    );
   }
 
   /**
@@ -1847,14 +1858,12 @@ export class StepWise {
    * @param taskName - 任务名称
    * @param taskType - 任务类型
    * @param command - 执行的 shell 命令
-   * @param exitCode - 退出码
    */
   private recordShellTaskComplete(
     taskIndex: number,
     taskName: string,
     taskType: TaskType,
-    command: string,
-    exitCode: number
+    command: string
   ): void {
     if (!this.progress) return;
 

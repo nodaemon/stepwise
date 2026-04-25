@@ -159,11 +159,10 @@ describe('execShell 功能测试', () => {
       setAgentType('claude');
 
       const agent = new StepWise('Agent1');
-      const result = await agent.execShell('exit 1');
 
-      expect(result.success).toBe(false);
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('error message');
+      // 失败时会抛异常
+      await expect(agent.execShell('exit 1')).rejects.toThrow('Shell 命令执行失败');
+      await expect(agent.execShell('exit 1')).rejects.toThrow('退出码: 1');
     });
   });
 
