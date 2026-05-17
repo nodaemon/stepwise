@@ -736,9 +736,12 @@ export class StepWise {
       return hasPreviousCompleted || isCurrentTaskInProgress;
     }
 
-    // 使用 currentSessionId 而非 taskIndex > 1 判断是否需要 resume
-    // 因为 shell 等非 Claude 任务也会递增 taskIndex，但不会创建 Claude 会话
-    return !!this.currentSessionId;
+    // 检查是否存在之前已完成的 Claude 类型任务（sessionId 非空）
+    // shell 等非 Claude 任务的 sessionId 为空字符串，不会创建 Claude 会话
+    const hasCompletedClaudeTask = this.progress?.tasks.some(
+      t => t.taskIndex < taskIndex && t.status === 'completed' && t.sessionId !== ''
+    ) || false;
+    return hasCompletedClaudeTask;
   }
 
   /**
