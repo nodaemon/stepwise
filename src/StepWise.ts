@@ -736,7 +736,9 @@ export class StepWise {
       return hasPreviousCompleted || isCurrentTaskInProgress;
     }
 
-    return taskIndex > 1;
+    // 使用 currentSessionId 而非 taskIndex > 1 判断是否需要 resume
+    // 因为 shell 等非 Claude 任务也会递增 taskIndex，但不会创建 Claude 会话
+    return !!this.currentSessionId;
   }
 
   /**
