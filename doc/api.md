@@ -906,6 +906,12 @@ interface ForEachParallelOptions {
    * @default false
    */
   autoConfirmCleanup?: boolean;
+  /**
+   * Working directory, pointing to a git repository root directory.
+   * forEachParallel will create worktrees in this repository for parallel execution.
+   * @default process.cwd()
+   */
+  cwd?: string;
 }
 ```
 
@@ -921,6 +927,15 @@ await forEachParallel(items, workerConfigs, handler, { autoConfirmCleanup: true 
 // Use in CI/CD environment
 await forEachParallel(items, workerConfigs, handler, {
   autoConfirmCleanup: process.env.CI === 'true'
+});
+```
+
+**Example with cwd**
+
+```typescript
+// Specify a different git repo as working directory
+await forEachParallel(items, workerConfigs, handler, {
+  cwd: '/path/to/other-repo'
 });
 ```
 

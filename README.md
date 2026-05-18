@@ -114,6 +114,16 @@ await forEachParallel(apis, workerConfigs, async (ctx) => {
 // All branches merged automatically after completion
 ```
 
+```typescript
+// Specify a different git repo as working directory
+await forEachParallel(apis, workerConfigs, async (ctx) => {
+  await ctx.stepWise.execPrompt(
+    'Generate test for API: $name ($method $path)',
+    { data: ctx.item }
+  );
+}, { cwd: '/path/to/other-repo' });
+```
+
 ### Example 4: Branch Routing with execCheckPrompt
 
 Use `execCheckPrompt` as a routing node to branch to different agents:

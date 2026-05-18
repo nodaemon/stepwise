@@ -304,6 +304,15 @@ async function processWithEnv() {
 processWithEnv();
 ```
 
+**Parallel processing with custom working directory:**
+
+```typescript
+// Parallel processing with custom working directory
+await forEachParallel(items, workerConfigs, async (ctx) => {
+  await ctx.stepWise.execPrompt('Process task', { data: ctx.item });
+}, { cwd: '/path/to/other-repo' });
+```
+
 ---
 
 ## Task Recovery

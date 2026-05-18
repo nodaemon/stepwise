@@ -114,6 +114,16 @@ await forEachParallel(apis, workerConfigs, async (ctx) => {
 // 所有分支完成后自动合并
 ```
 
+```typescript
+// 指定不同的 git 仓库作为工作目录
+await forEachParallel(apis, workerConfigs, async (ctx) => {
+  await ctx.stepWise.execPrompt(
+    '为 API 生成测试: $name ($method $path)',
+    { data: ctx.item }
+  );
+}, { cwd: '/path/to/other-repo' });
+```
+
 ### 示例 4：使用 execCheckPrompt 进行分支路由
 
 `execCheckPrompt` 作为路由节点，根据条件判断结果分发到不同的 Agent：

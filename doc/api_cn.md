@@ -906,6 +906,12 @@ interface ForEachParallelOptions {
    * @default false
    */
   autoConfirmCleanup?: boolean;
+  /**
+   * 工作目录，指向 git 仓库根目录。
+   * forEachParallel 将在该目录对应的 git 仓库中创建 worktree 并并行执行。
+   * @default process.cwd()
+   */
+  cwd?: string;
 }
 ```
 
@@ -921,6 +927,15 @@ await forEachParallel(items, workerConfigs, handler, { autoConfirmCleanup: true 
 // 在 CI/CD 环境中使用
 await forEachParallel(items, workerConfigs, handler, {
   autoConfirmCleanup: process.env.CI === 'true'
+});
+```
+
+**cwd 示例**
+
+```typescript
+// 指定不同的 git 仓库作为工作目录
+await forEachParallel(items, workerConfigs, handler, {
+  cwd: '/path/to/other-repo'
 });
 ```
 
