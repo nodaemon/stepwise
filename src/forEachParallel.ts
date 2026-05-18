@@ -37,6 +37,12 @@ export interface ForEachParallelOptions {
    * @default false
    */
   autoConfirmCleanup?: boolean;
+  /**
+   * 工作目录，指向 git 仓库根目录
+   * forEachParallel 将在该目录对应的 git 仓库中创建 worktree 并并行执行
+   * @default process.cwd()
+   */
+  cwd?: string;
 }
 
 /**
@@ -307,6 +313,8 @@ export async function forEachParallel<T>(
     return;
   }
 
+  const effectiveCwd = options?.cwd || process.cwd();
+
   const isResume = !!_getResumePath();
   const taskDir = _getTaskDir();
 
@@ -317,7 +325,7 @@ export async function forEachParallel<T>(
   }
 
   // 1. 确保所有 worktree 已创建
-  const workspacePaths = await ensureWorktrees(workerConfigs, isResume, taskDir, options);
+  const workspacePaths = await ensureWorktrees(workerConfigs, isResume, taskDir, options, effectiveCwd);
 
   // 2. 恢复模式：扫描已有任务状态
   const resumeStates = isResume ? scanResumeStates(taskDir, items.length) : undefined;
@@ -330,7 +338,7 @@ export async function forEachParallel<T>(
   }
 
   // 4. 创建主 StepWise（用于最后 merge）
-  const mainStepWise = new StepWise('main');
+  const mainStepWise = new StepWise('main', effectiveCwd);
 
   // 5. 并发执行
   const recoveredIndices = new Set<number>();  // 记录阶段 A 已恢复的索引
@@ -460,8 +468,8 @@ export async function forEachParallel<T>(
 /**
  * 确保所有 worktree 已创建
  */
-async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean, taskDir: string, options?: ForEachParallelOptions): Promise<string[]> {
-  const cwd = process.cwd();
+async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean, taskDir: string, options?: ForEachParallelOptions, effectiveCwd?: string): Promise<string[]> {
+  const cwd = effectiveCwd || process.cwd();
   const parentDir = path.dirname(cwd);
   const cwdName = path.basename(cwd);
 
