@@ -30,6 +30,7 @@ const HOOK_OUTPUT_MAX_LENGTH = 300;
  * 截断字符串，超长时显示省略信息
  */
 function truncate(text: string, maxLength: number): string {
+  if (typeof text !== 'string') text = String(text ?? '');
   if (!text || text.length <= maxLength) {
     return text;
   }
