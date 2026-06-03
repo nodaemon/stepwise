@@ -288,6 +288,15 @@ opencode run --session <uuid> "your prompt"
 # OpenCode auto-detects new vs resume session
 ```
 
+> **OpenCode Permission Configuration**: When using OpenCode, you need to add `"permission": "allow"` to the `opencode.json` config file in the project root directory to skip interactive permission confirmations. For more details, see [OpenCode Permissions](https://opencode.ai/docs/permissions/).
+>
+> ```json
+> {
+>   "$schema": "https://opencode.ai/config.json",
+>   "permission": "allow"
+> }
+> ```
+
 Key mechanisms:
 
 1. **Session Reuse**: Each task step reuses the previous session, maintaining context

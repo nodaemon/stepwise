@@ -5,7 +5,6 @@
 
 import * as childProcess from 'child_process';
 import { BaseExecutor } from './base';
-import { OPENCODE_PERMISSION_ALL } from '../constants';
 
 /**
  * 检测当前是否为 Windows 系统
@@ -25,8 +24,9 @@ function isWindows(): boolean {
  * 1. 首次执行时不传 --session，让 OpenCode 创建新会话
  * 2. 执行成功后调用 `opencode session list` 获取最新的 sessionId
  *
- * 权限处理：
- * 通过环境变量 OPENCODE_PERMISSION 设置权限，跳过交互式确认
+ * 权限配置：
+ * 需要在项目根目录的 opencode.json 中配置 "permission": "allow"，
+ * 以跳过交互式权限确认。参见 https://opencode.ai/docs/zh-cn/permissions
  */
 export class OpenCodeExecutor extends BaseExecutor {
   /** 执行器类型标识 */
@@ -41,16 +41,6 @@ export class OpenCodeExecutor extends BaseExecutor {
    */
   protected getCommand(): string {
     return isWindows() ? 'opencode.cmd' : 'opencode';
-  }
-
-  /**
-   * 构建执行环境变量
-   * 设置权限配置，跳过所有权限确认
-   */
-  protected buildEnv(extraEnv?: string[]): NodeJS.ProcessEnv {
-    const env = super.buildEnv(extraEnv);
-    env.OPENCODE_PERMISSION = OPENCODE_PERMISSION_ALL;
-    return env;
   }
 
   /**
@@ -95,7 +85,7 @@ export class OpenCodeExecutor extends BaseExecutor {
       const args = ['session', 'list'];
 
       const child = childProcess.spawn(command, args, {
-        env: this.buildEnv(),
+        env: super.buildEnv(),
         shell: isWindows()
       });
 

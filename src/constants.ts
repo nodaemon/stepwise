@@ -50,9 +50,6 @@ export const CLAUDE_COMMAND = 'claude';
 /** OpenCode 命令 */
 export const OPENCODE_COMMAND = 'opencode';
 
-/** OpenCode 权限配置：允许所有操作，跳过权限确认 */
-export const OPENCODE_PERMISSION_ALL = '{"allow": ["*"]}';
-
 /** 任务类型 */
 export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell';
 

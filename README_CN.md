@@ -288,6 +288,15 @@ opencode run --session <uuid> "你的提示词"
 # OpenCode 自动判断新会话还是恢复会话
 ```
 
+> **OpenCode 权限配置**：使用 OpenCode 时，需要在项目根目录的 `opencode.json` 配置文件中添加 `"permission": "allow"`，以跳过交互式权限确认。详情参见 [OpenCode 权限文档](https://opencode.ai/docs/zh-cn/permissions/)。
+>
+> ```json
+> {
+>   "$schema": "https://opencode.ai/config.json",
+>   "permission": "allow"
+> }
+> ```
+
 核心机制：
 
 1. **Session 复用**：每个任务步骤复用上一个 Session，保持上下文
