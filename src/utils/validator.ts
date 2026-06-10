@@ -1,11 +1,12 @@
-import { OutputFormat } from '../types';
+import { OutputFormat, JsonSchemaDef } from '../types';
 import {
   buildJsonSchema,
   validateAgainstSchema,
   checkDuplicateKeys,
   getFirstRequiredField,
   SchemaValidationError,
-  SchemaValidationResult
+  SchemaValidationResult,
+  JsonSchema
 } from './schemaUtils';
 
 /** 校验结果 - 直接复用 SchemaValidationResult */
@@ -274,4 +275,149 @@ ${formatExample}
 4. 不要使用嵌套结构
 5. 修复后重新写入文件
 6. 使用 Read 工具验证修复结果`;
+}
+
+// ============ Schema 校验相关函数 ============
+
+/**
+ * 将 JsonSchemaDef 递归转换为 AJV 可用的 JsonSchema 格式
+ * @param schema JsonSchemaDef 定义
+ * @returns AJV 兼容的 JsonSchema 对象
+ */
+export function convertToAjvSchema(schema: JsonSchemaDef): JsonSchema {
+  const result: JsonSchema = {
+    type: schema.type,
+    ...(schema.description && { description: schema.description })
+  };
+
+  if (schema.type === 'object' && schema.properties) {
+    result.properties = {};
+    for (const [name, propDef] of Object.entries(schema.properties)) {
+      result.properties[name] = convertToAjvSchema(propDef);
+    }
+
+    // 处理 required：如果 schema.required 指定，使用它；否则所有字段默认必填
+    if (schema.required) {
+      result.required = schema.required;
+    } else {
+      // 默认所有字段为必填（与现有 OutputFormat 行为一致）
+      result.required = Object.keys(schema.properties);
+    }
+  }
+
+  if (schema.type === 'array' && schema.items) {
+    result.items = convertToAjvSchema(schema.items);
+  }
+
+  return result;
+}
+
+/**
+ * 校验 JSON 内容是否符合 JsonSchemaDef 定义
+ * @param content JSON 文件内容字符串
+ * @param schema JsonSchemaDef 定义
+ * @returns 校验结果
+ */
+export function validateJsonBySchema(
+  content: string,
+  schema: JsonSchemaDef
+): ValidationResult<unknown> {
+  // 1. JSON 解析
+  const parseResult = tryParseJson(content);
+  if (!parseResult.success) {
+    return createParseErrorResult(parseResult.error);
+  }
+
+  // 2. 使用 AJV 校验
+  const ajvSchema = convertToAjvSchema(schema);
+  return validateAgainstSchema(parseResult.data, ajvSchema);
+}
+
+/**
+ * 生成 Schema 校验失败的修复提示词
+ *
+ * 当 execPromptSchema 输出的 JSON 不符合 Schema 时，
+ * 生成包含完整 Schema 结构和正确格式示例的修复提示词
+ *
+ * @param errors 校验错误列表
+ * @param outputPath 需要修复的 JSON 文件路径
+ * @param schema 期望的 JsonSchemaDef 结构定义
+ * @returns 修复提示词字符串
+ */
+export function buildSchemaFixPrompt(
+  errors: SchemaValidationError[],
+  outputPath: string,
+  schema: JsonSchemaDef
+): string {
+  const errorDescriptions = errors.map(e => {
+    let line = `- 路径: "${e.path}"`;
+    line += `\n  错误: ${e.message}`;
+    line += `\n  类型: ${e.keyword}`;
+    if (e.data !== undefined) {
+      line += `\n  实际值: ${JSON.stringify(e.data)}`;
+    }
+    return line;
+  }).join('\n\n');
+
+  // 生成正确格式示例
+  const formatExample = generateSchemaExample(schema);
+
+  return `输出数据校验失败，请根据以下错误信息修复 JSON 文件：
+
+## 错误信息
+${errorDescriptions}
+
+## 期望的 Schema 结构
+\`\`\`json
+${JSON.stringify(schema, null, 2)}
+\`\`\`
+
+## 正确格式示例
+\`\`\`json
+${JSON.stringify(formatExample, null, 2)}
+\`\`\`
+
+## 修复要求
+1. 读取文件 ${outputPath} 查看当前内容
+2. 根据错误信息修复 JSON 格式
+3. 确保输出直接符合 Schema 结构（不要额外包裹）
+4. 修复后重新写入文件
+5. 使用 Read 工具验证修复结果`;
+}
+
+/**
+ * 生成 Schema 示例数据
+ * 用于 buildSchemaFixPrompt 和 buildSchemaPrompt 中的示例展示
+ */
+export function generateSchemaExample(schema: JsonSchemaDef): unknown {
+  if (schema.type === 'string') {
+    return schema.description || '示例字符串';
+  }
+
+  if (schema.type === 'number') {
+    return 0;
+  }
+
+  if (schema.type === 'boolean') {
+    return true;
+  }
+
+  if (schema.type === 'object') {
+    const obj: Record<string, unknown> = {};
+    if (schema.properties) {
+      for (const [name, propDef] of Object.entries(schema.properties)) {
+        obj[name] = generateSchemaExample(propDef);
+      }
+    }
+    return obj;
+  }
+
+  if (schema.type === 'array') {
+    if (schema.items) {
+      return [generateSchemaExample(schema.items)];
+    }
+    return [];
+  }
+
+  return null;
 }

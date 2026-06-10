@@ -269,4 +269,263 @@ describe('schemaUtils', () => {
       expect(formatted).toContain('(root)');
     });
   });
+
+  describe('convertToAjvSchema (from validator)', () => {
+    // Import from validator since convertToAjvSchema is there
+    const { convertToAjvSchema, validateJsonBySchema } = require('../src/utils/validator');
+
+    it('should convert flat object schema', () => {
+      const schema = {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string' as const },
+          count: { type: 'number' as const }
+        }
+      };
+
+      const ajvSchema = convertToAjvSchema(schema);
+
+      expect(ajvSchema.type).toBe('object');
+      expect(ajvSchema.properties).toBeDefined();
+      expect(ajvSchema.properties!.name.type).toBe('string');
+      expect(ajvSchema.properties!.count.type).toBe('number');
+      expect(ajvSchema.required).toEqual(['name', 'count']);
+    });
+
+    it('should convert nested object schema', () => {
+      const schema = {
+        type: 'object' as const,
+        properties: {
+          projectName: { type: 'string' as const },
+          statistics: {
+            type: 'object' as const,
+            properties: {
+              total: { type: 'number' as const },
+              breakdown: {
+                type: 'array' as const,
+                items: {
+                  type: 'object' as const,
+                  properties: {
+                    category: { type: 'string' as const },
+                    count: { type: 'number' as const }
+                  }
+                }
+              }
+            }
+          }
+        }
+      };
+
+      const ajvSchema = convertToAjvSchema(schema);
+
+      expect(ajvSchema.type).toBe('object');
+      expect(ajvSchema.properties!.statistics.type).toBe('object');
+      expect(ajvSchema.properties!.statistics.properties!.breakdown.type).toBe('array');
+      expect(ajvSchema.properties!.statistics.properties!.breakdown.items!.type).toBe('object');
+      expect(ajvSchema.properties!.statistics.properties!.breakdown.items!.properties!.category.type).toBe('string');
+    });
+
+    it('should convert array schema with complex items', () => {
+      const schema = {
+        type: 'array' as const,
+        items: {
+          type: 'object' as const,
+          properties: {
+            endpoint: { type: 'string' as const },
+            method: { type: 'string' as const }
+          }
+        }
+      };
+
+      const ajvSchema = convertToAjvSchema(schema);
+
+      expect(ajvSchema.type).toBe('array');
+      expect(ajvSchema.items!.type).toBe('object');
+      expect(ajvSchema.items!.properties!.endpoint.type).toBe('string');
+      expect(ajvSchema.items!.required).toEqual(['endpoint', 'method']);
+    });
+
+    it('should convert simple string array schema', () => {
+      const schema = {
+        type: 'array' as const,
+        items: { type: 'string' as const }
+      };
+
+      const ajvSchema = convertToAjvSchema(schema);
+
+      expect(ajvSchema.type).toBe('array');
+      expect(ajvSchema.items!.type).toBe('string');
+    });
+
+    it('should use explicit required when provided', () => {
+      const schema = {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string' as const },
+          optional: { type: 'string' as const }
+        },
+        required: ['name']
+      };
+
+      const ajvSchema = convertToAjvSchema(schema);
+
+      expect(ajvSchema.required).toEqual(['name']);
+    });
+
+    it('should default all fields to required when required not specified', () => {
+      const schema = {
+        type: 'object' as const,
+        properties: {
+          a: { type: 'string' as const },
+          b: { type: 'number' as const }
+        }
+      };
+
+      const ajvSchema = convertToAjvSchema(schema);
+
+      expect(ajvSchema.required).toEqual(['a', 'b']);
+    });
+  });
+
+  describe('validateJsonBySchema (from validator)', () => {
+    const { validateJsonBySchema } = require('../src/utils/validator');
+
+    it('should validate a flat object successfully', () => {
+      const schema = {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string' as const },
+          count: { type: 'number' as const }
+        }
+      };
+
+      const content = JSON.stringify({ name: 'test', count: 5 });
+      const result = validateJsonBySchema(content, schema);
+
+      expect(result.valid).toBe(true);
+      expect(result.data).toEqual({ name: 'test', count: 5 });
+    });
+
+    it('should validate a nested object successfully', () => {
+      const schema = {
+        type: 'object' as const,
+        properties: {
+          projectName: { type: 'string' as const },
+          statistics: {
+            type: 'object' as const,
+            properties: {
+              total: { type: 'number' as const }
+            }
+          }
+        }
+      };
+
+      const content = JSON.stringify({
+        projectName: 'stepwise',
+        statistics: { total: 45 }
+      });
+      const result = validateJsonBySchema(content, schema);
+
+      expect(result.valid).toBe(true);
+      expect(result.data).toEqual({
+        projectName: 'stepwise',
+        statistics: { total: 45 }
+      });
+    });
+
+    it('should validate an array successfully', () => {
+      const schema = {
+        type: 'array' as const,
+        items: {
+          type: 'object' as const,
+          properties: {
+            endpoint: { type: 'string' as const },
+            method: { type: 'string' as const }
+          }
+        }
+      };
+
+      const content = JSON.stringify([
+        { endpoint: '/api/users', method: 'GET' },
+        { endpoint: '/api/posts', method: 'POST' }
+      ]);
+      const result = validateJsonBySchema(content, schema);
+
+      expect(result.valid).toBe(true);
+      expect(result.data).toHaveLength(2);
+    });
+
+    it('should validate a simple string array', () => {
+      const schema = {
+        type: 'array' as const,
+        items: { type: 'string' as const }
+      };
+
+      const content = JSON.stringify(['item1', 'item2', 'item3']);
+      const result = validateJsonBySchema(content, schema);
+
+      expect(result.valid).toBe(true);
+      expect(result.data).toEqual(['item1', 'item2', 'item3']);
+    });
+
+    it('should fail validation when type mismatch', () => {
+      const schema = {
+        type: 'object' as const,
+        properties: {
+          count: { type: 'number' as const }
+        }
+      };
+
+      const content = JSON.stringify({ count: 'not a number' });
+      const result = validateJsonBySchema(content, schema);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+    });
+
+    it('should fail validation when required field missing', () => {
+      const schema = {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string' as const },
+          required: { type: 'string' as const }
+        },
+        required: ['name', 'required']
+      };
+
+      const content = JSON.stringify({ name: 'test' });
+      const result = validateJsonBySchema(content, schema);
+
+      expect(result.valid).toBe(false);
+    });
+
+    it('should fail validation on JSON parse error', () => {
+      const schema = {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string' as const }
+        }
+      };
+
+      const result = validateJsonBySchema('invalid json{{{', schema);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors[0].keyword).toBe('parse_error');
+    });
+
+    it('should fail validation when data wrapped in extra layer', () => {
+      const schema = {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string' as const }
+        }
+      };
+
+      // AI wraps the data in { "data": { ... } }
+      const content = JSON.stringify({ data: { name: 'test' } });
+      const result = validateJsonBySchema(content, schema);
+
+      expect(result.valid).toBe(false);
+    });
+  });
 });

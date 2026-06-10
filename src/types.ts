@@ -81,6 +81,35 @@ export interface PropertyDef {
  */
 export type OutputFormat = Record<string, PropertyDef>;
 
+// ============ Schema 驱动输出相关类型 ============
+
+/**
+ * JSON Schema 定义
+ * 支持任意嵌套结构的递归类型定义
+ * 用于 execPromptSchema 接口定义输出结构
+ */
+export interface JsonSchemaDef {
+  /** 字段类型 */
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  /** 字段描述（可选） */
+  description?: string;
+  /**
+   * type === 'object' 时的字段定义
+   * 每个字段又是一个 JsonSchemaDef，支持任意嵌套
+   */
+  properties?: Record<string, JsonSchemaDef>;
+  /**
+   * type === 'object' 时的必填字段列表
+   * 不指定时，所有字段默认为必填
+   */
+  required?: string[];
+  /**
+   * type === 'array' 时的数组元素结构定义
+   * items 本身又是一个 JsonSchemaDef，支持数组元素为复杂结构
+   */
+  items?: JsonSchemaDef;
+}
+
 /**
  * 执行结果
  */
@@ -116,6 +145,19 @@ export interface CheckResult extends ExecutionResult {
 }
 
 /**
+ * Schema 输出结果
+ * 用于 execPromptSchema 接口
+ * data 的具体类型由 JsonSchemaDef.type 决定
+ * - type: 'object' → data 为单个对象
+ * - type: 'array' → data 为数组
+ * - type: 'string'/'number'/'boolean' → data 为对应基础类型
+ */
+export interface SchemaResult extends ExecutionResult {
+  /** 输出数据，类型由 schema.type 决定 */
+  data: unknown;
+}
+
+/**
  * 任务状态枚举
  */
 export type TaskStatusType = 'pending' | 'in_progress' | 'completed';
@@ -123,7 +165,7 @@ export type TaskStatusType = 'pending' | 'in_progress' | 'completed';
 /**
  * 任务类型
  */
-export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell';
+export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell' | 'schema';
 
 /**
  * 任务状态

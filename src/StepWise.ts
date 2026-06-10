@@ -12,7 +12,10 @@ import {
   SummarizeOptions,
   SummarizeResult,
   ShellOptions,
-  ShellResult
+  ShellResult,
+  JsonSchemaDef,
+  SchemaResult,
+  ValidateOptions
 } from './types';
 import { generateUUID } from './utils/uuid';
 import { Logger } from './utils/logger';
@@ -27,12 +30,16 @@ import {
 import {
   validateJsonArray,
   validateJsonObject,
+  validateJsonBySchema,
   buildFixPrompt,
+  buildSchemaFixPrompt,
   ValidationResult
 } from './utils/validator';
+import { SchemaValidationError } from './utils/schemaUtils';
 import {
   buildCollectPrompt,
   buildReportPrompt,
+  buildSchemaPrompt,
   buildPostCheckPrompt,
   buildFullPrompt,
   replaceVariables,
@@ -983,6 +990,8 @@ export class StepWise {
       validate: (content: string) => ValidationResult<T>;
       /** 期望的 JSON 格式类型，用于生成修复提示词 */
       expectedFormat: 'array' | 'object';
+      /** 自定义修复提示词生成函数（可选），覆盖默认的 buildFixPrompt */
+      buildFixPromptFn?: (errors: SchemaValidationError[], outputPath: string) => string;
     }
   ): Promise<T | null> {
     // 解析校验配置
@@ -1054,7 +1063,9 @@ export class StepWise {
 
       // 步骤 6: 生成修复提示词并执行
       console.log(`[StepWise] 校验失败，第 ${attempt} 次重试...`);
-      const fixPrompt = buildFixPrompt(validationResult.errors, outputPath, validateConfig.expectedFormat);
+      const fixPrompt = validateConfig.buildFixPromptFn
+        ? validateConfig.buildFixPromptFn(validationResult.errors, outputPath)
+        : buildFixPrompt(validationResult.errors, outputPath, validateConfig.expectedFormat);
 
       await this.executor.execute(fixPrompt, {
         cwd: context.cwd,
@@ -1603,6 +1614,211 @@ export class StepWise {
       ...result,
       data: this.filterDebugData(data, debugMode)
     };
+  }
+
+  /**
+   * 执行 Schema 任务
+   * 按 JsonSchemaDef 定义输出结构化数据
+   *
+   * 与 execReport 不同：
+   * - 顶层结构灵活：可以是 object（单对象）或 array（数组），由 schema.type 决定
+   * - 支持任意嵌套：内部可嵌套 object 和 array
+   * - 不提供去重功能
+   * - 输出到 report/ 目录
+   */
+  @trackPerformance('prompt')
+  async execPromptSchema(
+    prompt: string,
+    schema: JsonSchemaDef,
+    outputFile: string,
+    options?: ExecOptions
+  ): Promise<SchemaResult> {
+    this.validatePrompt(prompt);
+    this.validateSchema(schema);
+    this.validateOutputFileName(outputFile, 'execPromptSchema');
+
+    const effectiveCwd = this.getEffectiveCwd(options?.cwd);
+    const effectiveEnv = this.getEffectiveEnv(options?.env);
+    const resumePath = _getResumePath();
+    const taskType: TaskType = 'schema';
+    const taskIndex = this.getNextTaskIndex(taskType);
+
+    // 处理变量替换
+    const processedPrompt = this.processPrompt(prompt, options);
+
+    // 注入文件访问限制提示词
+    const promptWithAccess = this.injectFileAccessPrompt(processedPrompt, options);
+
+    // 检查是否需要恢复
+    if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
+      const sessionId = this.getCompletedSessionId(taskIndex, taskType);
+      if (sessionId) {
+        this.currentSessionId = sessionId;
+      }
+      this.logger?.logTaskSkipped(taskIndex, taskType);
+      const outputPath = this.getReportOutputPath(outputFile);
+      const data = loadJsonFile<unknown>(outputPath);
+      return {
+        sessionId: sessionId || '',
+        output: '',
+        success: true,
+        timestamp: Date.now(),
+        duration: 0,
+        data: data ?? null
+      };
+    }
+
+    // 检查是否有 in_progress 的任务需要重新执行
+    if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
+      const sessionId = this.getTaskSessionId(taskIndex, taskType);
+      if (sessionId) {
+        this.currentSessionId = sessionId;
+      }
+      this.cleanupInProgressTask(taskIndex, taskType);
+    }
+
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv);
+    const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
+    this._currentTaskLogDir = taskLogDir;
+    const outputPath = this.getReportOutputPath(outputFile);
+    const useResume = this.shouldUseResume(taskIndex, options?.newSession);
+
+    // 构建完整提示词
+    const extraPrompt = buildSchemaPrompt(schema, outputPath, effectiveCwd);
+    const fullPrompt = buildFullPrompt(promptWithAccess, extraPrompt);
+
+    this.logger?.logTaskStart(taskIndex, taskType, sessionId);
+
+    if (taskLogDir) {
+      this.logger?.writeTaskLog(taskLogDir, 'prompt.txt', fullPrompt);
+      this.logger?.writeTaskLog(taskLogDir, 'schema.json', JSON.stringify(schema, null, 2));
+    }
+
+    this.recordTaskStart(taskIndex, `${taskIndex}_schema`, sessionId, taskType, outputFile);
+
+    const result = await this.executor.execute(fullPrompt, {
+      cwd: effectiveCwd,
+      env: effectiveEnv,
+      sessionId: sessionId,
+      useResume,
+      taskLogDir,
+      logger: this.logger!,
+      taskIndex,
+      taskType
+    });
+
+    this.writeTaskLogs(taskLogDir, result);
+
+    // 重要：更新 currentSessionId 为实际使用的 sessionId
+    if (result.success && result.sessionId !== sessionId) {
+      this.currentSessionId = result.sessionId;
+    }
+
+    // 执行 postCheckPrompt（如果指定）
+    if (result.success && options?.postCheckPrompt) {
+      await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, result.sessionId, taskLogDir, taskIndex);
+    }
+
+    // 校验输出数据
+    const data = await this.validateSchemaOutput(
+      outputPath,
+      schema,
+      { cwd: effectiveCwd, env: effectiveEnv, taskLogDir, taskIndex, taskType },
+      options?.validateOptions
+    );
+
+    if (data !== null) {
+      this.recordTaskComplete(taskIndex, `${taskIndex}_schema`, result.sessionId, taskType, outputFile);
+      this.logger?.logTaskComplete(taskIndex, taskType, true, result.duration);
+      return {
+        ...result,
+        data
+      };
+    }
+
+    // 校验失败
+    this.logger?.logTaskComplete(taskIndex, taskType, false, result.duration, 'Schema validation failed');
+    return {
+      ...result,
+      success: false,
+      data: null,
+      error: 'Schema validation failed'
+    };
+  }
+
+  /**
+   * 校验 Schema 输出数据
+   * 使用 readJsonWithValidation 的通用校验循环，
+   * 适配 validateJsonBySchema 和 buildSchemaFixPrompt
+   */
+  private async validateSchemaOutput(
+    outputPath: string,
+    schema: JsonSchemaDef,
+    context: {
+      cwd: string | undefined;
+      env: string[] | undefined;
+      taskLogDir: string;
+      taskIndex: number;
+      taskType: TaskType;
+    },
+    validateOptions?: ValidateOptions
+  ): Promise<unknown | null> {
+    return this.readJsonWithValidation<unknown>(
+      outputPath,
+      { validateOptions },
+      context,
+      {
+        validate: (content) => validateJsonBySchema(content, schema),
+        expectedFormat: schema.type === 'array' ? 'array' : 'object',
+        buildFixPromptFn: (errors, filePath) => buildSchemaFixPrompt(errors, filePath, schema)
+      }
+    );
+  }
+
+  /**
+   * 校验 Schema 参数
+   * 递归校验 JsonSchemaDef 的合法性
+   */
+  private validateSchema(schema: JsonSchemaDef): void {
+    if (!schema || !schema.type) {
+      throw new Error('[StepWise.execPromptSchema] schema 必须包含 type 属性');
+    }
+
+    const validTypes = ['string', 'number', 'boolean', 'object', 'array'];
+    if (!validTypes.includes(schema.type)) {
+      throw new Error(`[StepWise.execPromptSchema] schema.type 必须是 ${validTypes.join(' | ')}`);
+    }
+
+    if (schema.type === 'object') {
+      if (!schema.properties || Object.keys(schema.properties).length === 0) {
+        throw new Error('[StepWise.execPromptSchema] type="object" 时必须定义 properties');
+      }
+      // 递归校验 properties
+      for (const [name, propDef] of Object.entries(schema.properties)) {
+        try {
+          this.validateSchema(propDef);
+        } catch (error) {
+          if (error instanceof Error) {
+            throw new Error(`[StepWise.execPromptSchema] schema.properties.${name}: ${error.message}`);
+          }
+          throw error;
+        }
+      }
+    }
+
+    if (schema.type === 'array') {
+      if (!schema.items) {
+        throw new Error('[StepWise.execPromptSchema] type="array" 时必须定义 items');
+      }
+      try {
+        this.validateSchema(schema.items);
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new Error(`[StepWise.execPromptSchema] schema.items: ${error.message}`);
+        }
+        throw error;
+      }
+    }
   }
 
   /**

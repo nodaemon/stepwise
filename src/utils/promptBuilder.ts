@@ -1,8 +1,9 @@
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
-import { OutputFormat, PropertyDef } from '../types';
+import { OutputFormat, PropertyDef, JsonSchemaDef } from '../types';
 import { buildJsonSchema, getFirstRequiredField } from './schemaUtils';
+import { generateSchemaExample } from './validator';
 
 /**
  * 替换提示词中的变量
@@ -377,6 +378,115 @@ export function buildFileAccessPrompt(
     }
   }
   lines.push('- 如果你需要访问这些目录以外的文件，请说明原因但不要尝试操作');
+
+  return lines.join('\n');
+}
+
+// ============ Schema 输出提示词相关函数 ============
+
+/**
+ * 构建 Schema 输出任务的提示词
+ *
+ * @param schema JsonSchemaDef 定义
+ * @param outputFileName 输出文件路径（应为绝对路径）
+ * @param cwd Claude 命令执行的工作目录
+ * @returns Schema 输出提示词
+ */
+export function buildSchemaPrompt(
+  schema: JsonSchemaDef,
+  outputFileName: string,
+  cwd?: string
+): string {
+  const schemaDescription = generateSchemaDescription(schema);
+  const formatExample = generateSchemaExample(schema);
+
+  const requirements: string[] = [
+    '1. 输出必须严格符合下方定义的 JSON Schema 结构',
+    '2. 直接输出 Schema 定义的结构，不要额外包裹（如 { "data": xxx }）',
+    '3. 确保 JSON 格式正确',
+    '4. 请直接将数据写入文件，不需要在回复中展示完整数据',
+    '5. 写入完成后使用 Read 工具验证文件内容'
+  ];
+
+  const dirWarning = getDirWarning(cwd, outputFileName);
+  if (dirWarning) {
+    requirements.push(dirWarning);
+  }
+
+  // 根据 schema.type 添加特定说明
+  if (schema.type === 'object') {
+    requirements.push('6. 输出单个 JSON 对象，包含所有定义的字段');
+  } else if (schema.type === 'array') {
+    requirements.push('6. 输出 JSON 数组，每个元素符合 items 定义的结构');
+  }
+
+  // 生成禁止格式示例（根据 schema.type）
+  const forbiddenExamples = schema.type === 'object'
+    ? '- ❌ { "data": { ... } }\n- ❌ { "result": { ... } }'
+    : '- ❌ { "items": [...] }\n- ❌ { "results": [...] }';
+
+  return `
+请按照以下 Schema 结构输出数据，并写入到 ${outputFileName} 文件中：
+
+## 输出 Schema
+
+\`\`\`json
+${JSON.stringify(schema, null, 2)}
+\`\`\`
+
+## 结构说明
+
+${schemaDescription}
+
+## 正确格式示例
+
+\`\`\`json
+${JSON.stringify(formatExample, null, 2)}
+\`\`\`
+
+## 禁止的格式
+
+**特别注意：直接输出 Schema 定义的结构，不要额外包裹！**
+
+以下是错误的格式：
+${forbiddenExamples}
+- ❌ 带 markdown 代码块标记的文件内容
+
+**正确做法**：直接输出符合 Schema 的 JSON 结构
+
+## 要求
+
+${requirements.join('\n')}
+`;
+}
+
+/**
+ * 生成 Schema 结构的文本描述（递归）
+ */
+function generateSchemaDescription(schema: JsonSchemaDef, indent: string = ''): string {
+  const lines: string[] = [];
+
+  if (schema.description) {
+    lines.push(`${indent}描述: ${schema.description}`);
+  }
+
+  lines.push(`${indent}类型: ${schema.type}`);
+
+  if (schema.type === 'object' && schema.properties) {
+    lines.push(`${indent}字段:`);
+    for (const [name, propDef] of Object.entries(schema.properties)) {
+      const isRequired = schema.required?.includes(name) ?? true;
+      lines.push(`${indent}  - ${name} (${propDef.type})${isRequired ? ' [必填]' : ' [可选]'}`);
+      if (propDef.type === 'object' || propDef.type === 'array') {
+        lines.push(generateSchemaDescription(propDef, `${indent}    `));
+      }
+    }
+  }
+
+  if (schema.type === 'array' && schema.items) {
+    lines.push(`${indent}数组元素结构:`);
+    lines.push(generateSchemaDescription(schema.items, `${indent}  `));
+  }
 
   return lines.join('\n');
 }
