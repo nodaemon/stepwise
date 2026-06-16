@@ -108,6 +108,23 @@ export interface JsonSchemaDef {
    * items 本身又是一个 JsonSchemaDef，支持数组元素为复杂结构
    */
   items?: JsonSchemaDef;
+  /**
+   * 是否为递归树形结构（仅 type === 'object' 时有效）
+   * 标记后，该对象的某些字段可以自引用，形成树形嵌套
+   */
+  recursive?: boolean;
+  /**
+   * 递归字段名称列表（仅 recursive === true 时有效）
+   * 列出的字段必须是 type === 'array' 的属性，且不应定义 items
+   * 框架在 schema 展开时自动填充 items 为自引用结构
+   */
+  recursiveFields?: string[];
+  /**
+   * 递归最大深度（仅 recursive === true 时有效）
+   * 默认 3，范围 1~10
+   * 超过最大深度的节点为叶子节点，递归字段为空数组
+   */
+  maxDepth?: number;
 }
 
 /**

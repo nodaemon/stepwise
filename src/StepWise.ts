@@ -33,7 +33,9 @@ import {
   validateJsonBySchema,
   buildFixPrompt,
   buildSchemaFixPrompt,
-  ValidationResult
+  ValidationResult,
+  unrollRecursiveSchema,
+  validateRecursiveSchema
 } from './utils/validator';
 import { SchemaValidationError } from './utils/schemaUtils';
 import {
@@ -1634,6 +1636,7 @@ export class StepWise {
     options?: ExecOptions
   ): Promise<SchemaResult> {
     this.validatePrompt(prompt);
+    validateRecursiveSchema(schema);
     this.validateSchema(schema);
     this.validateOutputFileName(outputFile, 'execPromptSchema');
 
@@ -1778,8 +1781,10 @@ export class StepWise {
   /**
    * 校验 Schema 参数
    * 递归校验 JsonSchemaDef 的合法性
+   * @param schema 待校验 schema
+   * @param isRecursiveField 当前字段是否为递归字段（递归字段不需要 items）
    */
-  private validateSchema(schema: JsonSchemaDef): void {
+  private validateSchema(schema: JsonSchemaDef, isRecursiveField: boolean = false): void {
     if (!schema || !schema.type) {
       throw new Error('[StepWise.execPromptSchema] schema 必须包含 type 属性');
     }
@@ -1793,8 +1798,13 @@ export class StepWise {
       if (!schema.properties || Object.keys(schema.properties).length === 0) {
         throw new Error('[StepWise.execPromptSchema] type="object" 时必须定义 properties');
       }
-      // 递归校验 properties
+      // 递归校验 properties（排除递归字段，因为递归字段的 items 由框架自动填充）
+      const recursiveFields = schema.recursive ? (schema.recursiveFields || []) : [];
       for (const [name, propDef] of Object.entries(schema.properties)) {
+        // 递归字段跳过递归校验（validateRecursiveSchema 已单独校验其类型为 array 且无 items）
+        if (recursiveFields.includes(name)) {
+          continue;
+        }
         try {
           this.validateSchema(propDef);
         } catch (error) {
@@ -1807,16 +1817,19 @@ export class StepWise {
     }
 
     if (schema.type === 'array') {
-      if (!schema.items) {
+      // 递归字段不需要 items（框架在展开时自动填充）
+      if (!isRecursiveField && !schema.items) {
         throw new Error('[StepWise.execPromptSchema] type="array" 时必须定义 items');
       }
-      try {
-        this.validateSchema(schema.items);
-      } catch (error) {
-        if (error instanceof Error) {
-          throw new Error(`[StepWise.execPromptSchema] schema.items: ${error.message}`);
+      if (schema.items) {
+        try {
+          this.validateSchema(schema.items);
+        } catch (error) {
+          if (error instanceof Error) {
+            throw new Error(`[StepWise.execPromptSchema] schema.items: ${error.message}`);
+          }
+          throw error;
         }
-        throw error;
       }
     }
   }

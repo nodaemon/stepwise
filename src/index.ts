@@ -54,7 +54,9 @@ export {
   validateJsonBySchema,
   convertToAjvSchema,
   buildSchemaFixPrompt,
-  generateSchemaExample
+  generateSchemaExample,
+  unrollRecursiveSchema,
+  validateRecursiveSchema
 } from './utils/validator';
 
 // 导出测试用的内部函数

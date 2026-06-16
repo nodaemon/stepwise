@@ -408,16 +408,24 @@ export function buildSchemaPrompt(
     '5. 写入完成后使用 Read 工具验证文件内容'
   ];
 
+  // 递归树形结构特定要求
+  if (schema.recursive) {
+    const maxDepth = schema.maxDepth ?? 3;
+    const recursiveFields = schema.recursiveFields || [];
+    requirements.push(`6. 这是一个递归树形结构，最大深度为 ${maxDepth} 层`);
+    requirements.push(`7. 叶子节点（最深层）的递归字段（${recursiveFields.join(', ')}）必须为空数组`);
+  } else {
+    // 根据 schema.type 添加特定说明
+    if (schema.type === 'object') {
+      requirements.push('6. 输出单个 JSON 对象，包含所有定义的字段');
+    } else if (schema.type === 'array') {
+      requirements.push('6. 输出 JSON 数组，每个元素符合 items 定义的结构');
+    }
+  }
+
   const dirWarning = getDirWarning(cwd, outputFileName);
   if (dirWarning) {
     requirements.push(dirWarning);
-  }
-
-  // 根据 schema.type 添加特定说明
-  if (schema.type === 'object') {
-    requirements.push('6. 输出单个 JSON 对象，包含所有定义的字段');
-  } else if (schema.type === 'array') {
-    requirements.push('6. 输出 JSON 数组，每个元素符合 items 定义的结构');
   }
 
   // 生成禁止格式示例（根据 schema.type）
@@ -462,6 +470,7 @@ ${requirements.join('\n')}
 
 /**
  * 生成 Schema 结构的文本描述（递归）
+ * 当 schema 包含 recursive: true 时，标注递归字段
  */
 function generateSchemaDescription(schema: JsonSchemaDef, indent: string = ''): string {
   const lines: string[] = [];
@@ -472,12 +481,21 @@ function generateSchemaDescription(schema: JsonSchemaDef, indent: string = ''): 
 
   lines.push(`${indent}类型: ${schema.type}`);
 
+  if (schema.recursive) {
+    const maxDepth = schema.maxDepth ?? 3;
+    const fieldsStr = (schema.recursiveFields || []).join(', ');
+    lines.push(`${indent}⚡ 递归树形结构（最大深度 ${maxDepth} 层，递归字段: ${fieldsStr}）`);
+  }
+
   if (schema.type === 'object' && schema.properties) {
     lines.push(`${indent}字段:`);
+    const recursiveFields = schema.recursiveFields || [];
     for (const [name, propDef] of Object.entries(schema.properties)) {
       const isRequired = schema.required?.includes(name) ?? true;
-      lines.push(`${indent}  - ${name} (${propDef.type})${isRequired ? ' [必填]' : ' [可选]'}`);
-      if (propDef.type === 'object' || propDef.type === 'array') {
+      const isRecursive = recursiveFields.includes(name);
+      const recursiveTag = isRecursive ? ' 递归字段（树形结构）' : '';
+      lines.push(`${indent}  - ${name} (${propDef.type})${isRequired ? ' [必填]' : ' [可选]'}${recursiveTag}`);
+      if ((propDef.type === 'object' || propDef.type === 'array') && !isRecursive) {
         lines.push(generateSchemaDescription(propDef, `${indent}    `));
       }
     }

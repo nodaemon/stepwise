@@ -180,6 +180,119 @@ describe('execPromptSchema 功能测试', () => {
       // 实际验证在 promptBuilder 单测中完成
     });
   });
+
+  // ============ 递归 schema 校验测试 ============
+
+  describe('递归 schema 参数校验', () => {
+    beforeEach(() => {
+      setTaskName('RecursiveSchemaTest');
+    });
+
+    test('recursive schema 参数正确不应抛错', () => {
+      const agent = new StepWise('ValidRecursiveAgent');
+      const schema: JsonSchemaDef = {
+        type: 'object',
+        recursive: true,
+        recursiveFields: ['children'],
+        maxDepth: 3,
+        properties: {
+          name: { type: 'string' },
+          children: { type: 'array' }
+        }
+      };
+      // 不抛出错误即可（实际执行会被 mock）
+      expect(
+        agent.execPromptSchema('测试递归', schema, 'valid_recursive.json')
+      ).resolves.toBeDefined();
+    });
+
+    test('recursive=true + type=array 应抛错', () => {
+      const agent = new StepWise('InvalidRecursiveAgent');
+      expect(
+        agent.execPromptSchema('test', {
+          type: 'array',
+          recursive: true,
+          items: { type: 'object' }
+        } as any, 'output.json')
+      ).rejects.toThrow('recursive 仅在 type="object" 时有效');
+    });
+
+    test('recursiveFields 无 recursive 应抛错', () => {
+      const agent = new StepWise('InvalidFieldsAgent');
+      expect(
+        agent.execPromptSchema('test', {
+          type: 'object',
+          recursiveFields: ['children'],
+          properties: {
+            name: { type: 'string' },
+            children: { type: 'array' }
+          }
+        } as any, 'output.json')
+      ).rejects.toThrow('recursiveFields 需要 recursive=true');
+    });
+
+    test('maxDepth 无 recursive 应抛错', () => {
+      const agent = new StepWise('InvalidDepthAgent');
+      expect(
+        agent.execPromptSchema('test', {
+          type: 'object',
+          maxDepth: 5,
+          properties: {
+            name: { type: 'string' }
+          }
+        } as any, 'output.json')
+      ).rejects.toThrow('maxDepth 需要 recursive=true');
+    });
+
+    test('recursiveFields 字段为非 array 类型应抛错', () => {
+      const agent = new StepWise('InvalidFieldTypeAgent');
+      expect(
+        agent.execPromptSchema('test', {
+          type: 'object',
+          recursive: true,
+          recursiveFields: ['name'],
+          properties: {
+            name: { type: 'string' },
+            children: { type: 'array' }
+          }
+        } as any, 'output.json')
+      ).rejects.toThrow('必须是 type="array"');
+    });
+
+    test('recursiveFields 字段定义了 items 应抛错', () => {
+      const agent = new StepWise('InvalidItemsAgent');
+      expect(
+        agent.execPromptSchema('test', {
+          type: 'object',
+          recursive: true,
+          recursiveFields: ['children'],
+          properties: {
+            name: { type: 'string' },
+            children: {
+              type: 'array',
+              items: { type: 'string' }
+            }
+          }
+        } as any, 'output.json')
+      ).rejects.toThrow('不应定义 items');
+    });
+
+    test('maxDepth 超出范围应抛错', () => {
+      const agent = new StepWise('InvalidMaxDepthAgent');
+      expect(
+        agent.execPromptSchema('test', {
+          type: 'object',
+          recursive: true,
+          recursiveFields: ['children'],
+          maxDepth: 15,
+          properties: {
+            name: { type: 'string' },
+            children: { type: 'array' }
+          }
+        } as any, 'output.json')
+      ).rejects.toThrow('maxDepth 必须在 1~10 范围内');
+    });
+  });
 });
 
 // ============ 断点恢复测试 ============
