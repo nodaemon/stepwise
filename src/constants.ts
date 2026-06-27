@@ -51,7 +51,7 @@ export const CLAUDE_COMMAND = 'claude';
 export const OPENCODE_COMMAND = 'opencode';
 
 /** 任务类型 */
-export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell';
+export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell' | 'schema';
 
 /** 任务类型名称映射 */
 export const TASK_TYPE_NAMES: Record<TaskType, string> = {
@@ -62,5 +62,6 @@ export const TASK_TYPE_NAMES: Record<TaskType, string> = {
   report: 'report',
   check: 'check',
   summarize: 'summarize',
-  shell: 'shell'
+  shell: 'shell',
+  schema: 'schema'
 };

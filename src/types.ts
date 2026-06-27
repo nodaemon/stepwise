@@ -81,6 +81,52 @@ export interface PropertyDef {
  */
 export type OutputFormat = Record<string, PropertyDef>;
 
+// ============ Schema 驱动输出相关类型 ============
+
+/**
+ * JSON Schema 定义
+ * 支持任意嵌套结构的递归类型定义
+ * 用于 execPromptSchema 接口定义输出结构
+ */
+export interface JsonSchemaDef {
+  /** 字段类型 */
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  /** 字段描述（可选） */
+  description?: string;
+  /**
+   * type === 'object' 时的字段定义
+   * 每个字段又是一个 JsonSchemaDef，支持任意嵌套
+   */
+  properties?: Record<string, JsonSchemaDef>;
+  /**
+   * type === 'object' 时的必填字段列表
+   * 不指定时，所有字段默认为必填
+   */
+  required?: string[];
+  /**
+   * type === 'array' 时的数组元素结构定义
+   * items 本身又是一个 JsonSchemaDef，支持数组元素为复杂结构
+   */
+  items?: JsonSchemaDef;
+  /**
+   * 是否为递归树形结构（仅 type === 'object' 时有效）
+   * 标记后，该对象的某些字段可以自引用，形成树形嵌套
+   */
+  recursive?: boolean;
+  /**
+   * 递归字段名称列表（仅 recursive === true 时有效）
+   * 列出的字段必须是 type === 'array' 的属性，且不应定义 items
+   * 框架在 schema 展开时自动填充 items 为自引用结构
+   */
+  recursiveFields?: string[];
+  /**
+   * 递归最大深度（仅 recursive === true 时有效）
+   * 默认 3，范围 1~10
+   * 超过最大深度的节点为叶子节点，递归字段为空数组
+   */
+  maxDepth?: number;
+}
+
 /**
  * 执行结果
  */
@@ -116,6 +162,19 @@ export interface CheckResult extends ExecutionResult {
 }
 
 /**
+ * Schema 输出结果
+ * 用于 execPromptSchema 接口
+ * data 的具体类型由 JsonSchemaDef.type 决定
+ * - type: 'object' → data 为单个对象
+ * - type: 'array' → data 为数组
+ * - type: 'string'/'number'/'boolean' → data 为对应基础类型
+ */
+export interface SchemaResult extends ExecutionResult {
+  /** 输出数据，类型由 schema.type 决定 */
+  data: unknown;
+}
+
+/**
  * 任务状态枚举
  */
 export type TaskStatusType = 'pending' | 'in_progress' | 'completed';
@@ -123,7 +182,7 @@ export type TaskStatusType = 'pending' | 'in_progress' | 'completed';
 /**
  * 任务类型
  */
-export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell';
+export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell' | 'schema';
 
 /**
  * 任务状态

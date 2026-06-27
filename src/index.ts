@@ -49,6 +49,16 @@ export {
   formatValidationErrors
 } from './utils/schemaUtils';
 
+// Schema 校验工具函数（用于 execPromptSchema）
+export {
+  validateJsonBySchema,
+  convertToAjvSchema,
+  buildSchemaFixPrompt,
+  generateSchemaExample,
+  unrollRecursiveSchema,
+  validateRecursiveSchema
+} from './utils/validator';
+
 // 导出测试用的内部函数
 export {
   _resetState,
