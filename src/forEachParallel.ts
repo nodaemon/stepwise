@@ -43,6 +43,15 @@ export interface ForEachParallelOptions {
    * @default process.cwd()
    */
   cwd?: string;
+  /**
+   * 是否跳过最终的分支合并步骤（mergeWorkerBranches）
+   * - true: 跳过分支合并，仅合并报告文件
+   * - false 或 undefined: 执行完整的报告+分支合并（默认行为）
+   *
+   * 适用于只需要报告文件输出、不需要将 worktree 分支合并回主仓库的场景
+   * @default false
+   */
+  skipBranchMerge?: boolean;
 }
 
 /**
@@ -462,7 +471,12 @@ export async function forEachParallel<T>(
   await mergeWorkerReports(taskDir, workerConfigs);
 
   // 7. 串行执行 merge（任务完成后）
-  await mergeWorkerBranches(workerConfigs, mainStepWise);
+  if (options?.skipBranchMerge) {
+    console.log("[forEachParallel] 跳过分支合并（skipBranchMerge=true）");
+    console.log(`[forEachParallel] 报告已整合到: ${path.resolve(taskDir, 'report')}`);
+  } else {
+    await mergeWorkerBranches(workerConfigs, mainStepWise);
+  }
 }
 
 /**
