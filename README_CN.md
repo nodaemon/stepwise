@@ -284,7 +284,7 @@ claude --dangerously-skip-permissions --session-id <uuid> -p "你的提示词"
 claude --dangerously-skip-permissions --resume <session-id> -p "你的提示词"
 
 # OpenCode 示例
-opencode run --session <uuid> "你的提示词"
+opencode run --thinking --session <uuid> "你的提示词"
 # OpenCode 自动判断新会话还是恢复会话
 ```
 
