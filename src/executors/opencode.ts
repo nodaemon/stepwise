@@ -17,8 +17,8 @@ function isWindows(): boolean {
  * OpenCode 执行器
  *
  * 命令格式：
- * - 新会话: opencode run "prompt"
- * - 恢复会话: opencode run --session <session-id> "prompt"
+ * - 新会话: opencode run --thinking "prompt"
+ * - 恢复会话: opencode run --thinking --session <session-id> "prompt"
  *
  * Session ID 获取策略：
  * 1. 首次执行时不传 --session，让 OpenCode 创建新会话
@@ -63,6 +63,7 @@ export class OpenCodeExecutor extends BaseExecutor {
     const args: string[] = [];
 
     args.push('run');
+    args.push('--thinking');
 
     // 仅当是 OpenCode 格式时才传入 --session
     if (this.isOpenCodeSessionId(sessionId)) {
