@@ -263,7 +263,8 @@ export function formatNDJsonLine(line: string): NDJsonLineResult {
           lines.push('');
           break;
         default:
-          // 未知 subtype：静默忽略
+          // 未知 subtype：输出原始 JSON（兼容 OpenCode 等非 Claude 执行器）
+          lines.push(line);
           break;
       }
       break;
@@ -358,8 +359,20 @@ export function formatNDJsonLine(line: string): NDJsonLineResult {
       lines.push('');
       break;
 
-    // 静默忽略：control_request, control_response, control_cancel_request,
-    // stream_event, keep_alive, streamlined_text, streamlined_tool_use_summary
+    // 已知但无需格式化的类型：静默忽略
+    case 'control_request':
+    case 'control_response':
+    case 'control_cancel_request':
+    case 'stream_event':
+    case 'keep_alive':
+    case 'streamlined_text':
+    case 'streamlined_tool_use_summary':
+      break;
+
+    default:
+      // 未知 type（或非 Claude 执行器的 JSON 输出）：原样输出原始行
+      lines.push(line);
+      break;
   }
 
   return {

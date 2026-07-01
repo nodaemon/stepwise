@@ -324,6 +324,30 @@ export abstract class BaseExecutor implements AgentExecutor {
         }
       }
 
+      // 将一行内容写入 verbose_output.txt
+      // - Claude (NDJSON)：空行跳过，JSON 按 type 格式化
+      // - OpenCode (纯文本)：空行保留以维持可读性，非 JSON 行原样写入
+      const writeLineToVerbose = (line: string) => {
+        if (!verboseStream) return;
+
+        if (line.trim() === '') {
+          // 纯文本执行器保留空行；Claude 的 NDJSON 空行无意义，跳过
+          if (this.agentType !== 'claude') {
+            verboseStream.write('\n');
+          }
+          return;
+        }
+
+        const result = formatNDJsonLine(line);
+        if (result.formatted) {
+          verboseStream.write(result.formatted + '\n');
+        } else if (!result.isJsonParsed) {
+          // 非 JSON 行（OpenCode 等纯文本输出）：原样写入
+          verboseStream.write(line + '\n');
+        }
+        // else: JSON 解析成功但类型被显式忽略（keep_alive 等），跳过
+      };
+
       child.stdout?.on('data', (data) => {
         const chunk = data.toString();
         stdout += chunk;
@@ -335,30 +359,58 @@ export abstract class BaseExecutor implements AgentExecutor {
           // 最后一行可能不完整，保留在 buffer
           lineBuffer = lines.pop() || '';
           for (const line of lines) {
-            if (line.trim() === '') continue;
-            const result = formatNDJsonLine(line);
-            if (result.formatted) {
-              verboseStream.write(result.formatted + '\n');
-            } else if (!result.isJsonParsed) {
-              // 非 JSON 行（OpenCode 等纯文本输出）：原样写入
-              verboseStream.write(line + '\n');
-            }
-            // else: JSON 解析成功但类型被静默忽略（keep_alive 等），跳过
+            writeLineToVerbose(line);
           }
         }
       });
 
+      // stderr 也写入 verbose_output.txt（带前缀标记来源）
+      let stderrLineBuffer = '';
       child.stderr?.on('data', (data) => {
-        stderr += data.toString();
+        const chunk = data.toString();
+        stderr += chunk;
+
+        if (verboseStream) {
+          stderrLineBuffer += chunk;
+          const lines = stderrLineBuffer.split('\n');
+          stderrLineBuffer = lines.pop() || '';
+          for (const line of lines) {
+            if (line.trim() === '') {
+              // 保留 stderr 中的空行结构
+              if (this.agentType !== 'claude') {
+                verboseStream.write('\n');
+              }
+              continue;
+            }
+            // stderr 行标记为 [stderr]，便于区分来源
+            verboseStream.write(`[stderr] ${line}\n`);
+          }
+        }
       });
+
+      // 刷新 stdout 和 stderr 的剩余 buffer
+      const flushLineBuffers = () => {
+        if (!verboseStream) return;
+        // 刷新 stdout lineBuffer
+        if (lineBuffer.trim()) {
+          const result = formatNDJsonLine(lineBuffer);
+          if (result.formatted) {
+            verboseStream.write(result.formatted + '\n');
+          } else if (!result.isJsonParsed) {
+            verboseStream.write(lineBuffer + '\n');
+          }
+        }
+        // 刷新 stderr lineBuffer
+        if (stderrLineBuffer.trim()) {
+          verboseStream.write(`[stderr] ${stderrLineBuffer}\n`);
+        }
+      };
 
       child.on('error', (error) => {
         clearAllTimers();
         // 刷新剩余 buffer 并关闭流
         if (verboseStream) {
-          if (lineBuffer.trim()) {
-            verboseStream.write(lineBuffer + '\n');
-          }
+          flushLineBuffers();
           verboseStream.end();
           verboseStream = null; // 防止 close handler 重复关闭
         }
@@ -369,14 +421,7 @@ export abstract class BaseExecutor implements AgentExecutor {
         clearAllTimers();
         // 刷新剩余的不完整行
         if (verboseStream) {
-          if (lineBuffer.trim()) {
-            const result = formatNDJsonLine(lineBuffer);
-            if (result.formatted) {
-              verboseStream.write(result.formatted + '\n');
-            } else if (!result.isJsonParsed) {
-              verboseStream.write(lineBuffer + '\n');
-            }
-          }
+          flushLineBuffers();
           verboseStream.end();
         }
         resolve({
