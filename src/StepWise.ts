@@ -1782,9 +1782,8 @@ export class StepWise {
    * 校验 Schema 参数
    * 递归校验 JsonSchemaDef 的合法性
    * @param schema 待校验 schema
-   * @param isRecursiveField 当前字段是否为递归字段（递归字段不需要 items）
    */
-  private validateSchema(schema: JsonSchemaDef, isRecursiveField: boolean = false): void {
+  private validateSchema(schema: JsonSchemaDef): void {
     if (!schema || !schema.type) {
       throw new Error('[StepWise.execPromptSchema] schema 必须包含 type 属性');
     }
@@ -1817,8 +1816,7 @@ export class StepWise {
     }
 
     if (schema.type === 'array') {
-      // 递归字段不需要 items（框架在展开时自动填充）
-      if (!isRecursiveField && !schema.items) {
+      if (!schema.items) {
         throw new Error('[StepWise.execPromptSchema] type="array" 时必须定义 items');
       }
       if (schema.items) {
