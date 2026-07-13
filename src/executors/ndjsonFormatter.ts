@@ -262,6 +262,8 @@ export function formatNDJsonLine(line: string): NDJsonLineResult {
           lines.push(`[Compact] trigger=${parsed.compact_metadata?.trigger || ''}`);
           lines.push('');
           break;
+        case 'thinking_tokens':
+          break;
         default:
           // 未知 subtype：输出原始 JSON（兼容 OpenCode 等非 Claude 执行器）
           lines.push(line);
