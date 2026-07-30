@@ -441,6 +441,7 @@ async function manageData() {
   setTaskName('DataManagement');
 
   // 保存收集数据（全局函数）
+  // fileName 支持绝对路径（直接使用）或相对路径（相对 cwd 解析）
   const data = [{ name: 'item1' }, { name: 'item2' }];
   saveCollectData(data, 'my_data.json');
 

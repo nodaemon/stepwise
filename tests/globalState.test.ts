@@ -134,6 +134,44 @@ describe('GlobalState', () => {
 
       process.chdir(originalCwd);
     });
+
+    it('绝对路径应该正确保存和加载', () => {
+      const originalCwd = process.cwd();
+
+      // 切换到一个与目标文件无关的目录，验证绝对路径不依赖 cwd
+      const otherDir = path.join(__dirname, '.temp_other_cwd');
+      fs.mkdirSync(otherDir, { recursive: true });
+      process.chdir(otherDir);
+
+      const absFile = path.join(testDir, 'sub_abs', 'abs_data.json');
+      const testData: Record<string, any>[] = [{ id: 1, name: 'absolute' }];
+
+      saveCollectData(testData, absFile);
+      const loaded = loadCollectData(absFile);
+
+      expect(loaded).toHaveLength(1);
+      expect(loaded[0].name).toBe('absolute');
+      // 确认文件确实落在绝对路径位置，而非被拼接到 cwd 下
+      expect(fs.existsSync(absFile)).toBe(true);
+      // 若被错误地相对 cwd 拼接，会在 otherDir 下出现同名子路径
+      expect(fs.existsSync(path.join(otherDir, 'sub_abs', 'abs_data.json'))).toBe(false);
+
+      process.chdir(originalCwd);
+      if (fs.existsSync(otherDir)) {
+        fs.rmSync(otherDir, { recursive: true, force: true });
+      }
+    });
+
+    it('绝对路径加载不存在的文件应该返回空数组', () => {
+      const originalCwd = process.cwd();
+      process.chdir(testDir);
+
+      const absFile = path.join(testDir, 'not_exist_abs.json');
+      const loaded = loadCollectData(absFile);
+      expect(loaded).toEqual([]);
+
+      process.chdir(originalCwd);
+    });
   });
 
   describe('名字注册', () => {

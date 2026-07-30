@@ -147,34 +147,38 @@ setSkipSummarize();      // 跳过（默认）
 
 ### saveCollectData(data: Record<string, any>[], fileName?: string): void
 
-保存收集的数据到磁盘（存储在当前工作目录 cwd）。
+保存收集的数据到磁盘。
 
 **参数**
 
 | 参数 | 类型 | 默认值 | 描述 |
 |------|------|--------|------|
 | data | Record<string, any>[] | - | 要保存的数据数组 |
-| fileName | string | 'collect_data.json' | 文件名 |
+| fileName | string | 'collect_data.json' | 文件名或路径。绝对路径直接使用；相对路径/纯文件名相对当前工作目录 cwd 解析 |
 
 **示例**
 
 ```typescript
 import { saveCollectData } from 'stepwise';
 
+// 相对路径：相对 cwd 解析
 saveCollectData(result.data, 'my_data.json');
+
+// 绝对路径：直接使用
+saveCollectData(result.data, '/abs/path/my_data.json');
 ```
 
 ---
 
 ### loadCollectData(fileName?: string): Record<string, any>[]
 
-从磁盘加载收集的数据（从当前工作目录 cwd 读取）。
+从磁盘加载收集的数据。
 
 **参数**
 
 | 参数 | 类型 | 默认值 | 描述 |
 |------|------|--------|------|
-| fileName | string | 'collect_data.json' | 文件名 |
+| fileName | string | 'collect_data.json' | 文件名或路径。绝对路径直接读取；相对路径/纯文件名相对当前工作目录 cwd 解析 |
 
 **返回值**
 
@@ -187,7 +191,11 @@ saveCollectData(result.data, 'my_data.json');
 ```typescript
 import { loadCollectData } from 'stepwise';
 
+// 相对路径：相对 cwd 解析
 const data = loadCollectData('my_data.json');
+
+// 绝对路径：直接读取
+const data = loadCollectData('/abs/path/my_data.json');
 ```
 
 ---

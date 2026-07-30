@@ -155,18 +155,29 @@ export function setSkipSummarize(skip: boolean = true): void {
 }
 
 /**
- * 保存收集的数据到磁盘（存储在当前工作目录cwd）
+ * 解析收集数据文件路径
+ * - 绝对路径：原样使用，直接读写该位置
+ * - 相对路径/纯文件名：相对 process.cwd() 解析
+ */
+function resolveCollectFilePath(fileName: string): string {
+  return path.isAbsolute(fileName) ? fileName : path.join(process.cwd(), fileName);
+}
+
+/**
+ * 保存收集的数据到磁盘
+ * fileName 支持绝对路径（直接使用）或相对路径/纯文件名（相对当前工作目录 cwd）
  */
 export function saveCollectData(data: Record<string, any>[], fileName: string = 'collect_data.json'): void {
-  const outputPath = path.join(process.cwd(), fileName);
+  const outputPath = resolveCollectFilePath(fileName);
   appendJsonArray(outputPath, data);
 }
 
 /**
- * 从磁盘加载收集的数据（从当前工作目录cwd读取）
+ * 从磁盘加载收集的数据
+ * fileName 支持绝对路径（直接读取）或相对路径/纯文件名（相对当前工作目录 cwd）
  */
 export function loadCollectData(fileName: string = 'collect_data.json'): Record<string, any>[] {
-  const filePath = path.join(process.cwd(), fileName);
+  const filePath = resolveCollectFilePath(fileName);
   const data = loadJsonFile<Record<string, any>[]>(filePath);
   return data || [];
 }

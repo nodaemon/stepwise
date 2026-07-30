@@ -43,10 +43,10 @@ enableDebugMode(enabled?: boolean): void
 // 适用于不需要生成技能文件的场景
 setSkipSummarize(skip?: boolean): void
 
-// 保存收集的数据到磁盘（存储在当前工作目录cwd）
+// 保存收集的数据到磁盘（fileName 支持绝对路径直接使用，或相对 cwd 的相对路径/纯文件名）
 saveCollectData(data: Record<string, any>[], fileName?: string): void
 
-// 从磁盘加载收集的数据（从当前工作目录cwd读取）
+// 从磁盘加载收集的数据（fileName 支持绝对路径直接读取，或相对 cwd 的相对路径/纯文件名）
 loadCollectData(fileName?: string): Record<string, any>[]
 
 // 设置智能体类型，决定使用哪个智能体执行任务

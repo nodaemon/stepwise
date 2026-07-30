@@ -450,6 +450,7 @@ async function manageData() {
   setTaskName('DataManagement');
 
   // Save collection data (global function)
+  // fileName supports absolute paths (used as-is) or relative paths (resolved against cwd)
   const data = [{ name: 'item1' }, { name: 'item2' }];
   saveCollectData(data, 'my_data.json');
 

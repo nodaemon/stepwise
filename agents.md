@@ -94,10 +94,10 @@ enableDebugMode(enabled?: boolean): void
 // 设置是否跳过 summarize（反思生成 skill）
 setSkipSummarize(skip?: boolean): void
 
-// 保存收集的数据到磁盘
+// 保存收集的数据到磁盘（fileName 支持绝对路径或相对 cwd 的相对路径）
 saveCollectData(data: Record<string, any>[], fileName?: string): void
 
-// 从磁盘加载收集的数据
+// 从磁盘加载收集的数据（fileName 支持绝对路径或相对 cwd 的相对路径）
 loadCollectData(fileName?: string): Record<string, any>[]
 
 // 设置智能体类型

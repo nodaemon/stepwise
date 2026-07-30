@@ -147,34 +147,38 @@ setSkipSummarize();      // Skip (default)
 
 ### saveCollectData(data: Record<string, any>[], fileName?: string): void
 
-Saves collected data to disk (stored in current working directory).
+Saves collected data to disk.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | data | Record<string, any>[] | - | Data array to save |
-| fileName | string | 'collect_data.json' | File name |
+| fileName | string | 'collect_data.json' | File name or path. Absolute paths are used as-is; relative paths/plain file names are resolved against the current working directory (cwd). |
 
 **Example**
 
 ```typescript
 import { saveCollectData } from 'stepwise';
 
+// Relative path: resolved against cwd
 saveCollectData(result.data, 'my_data.json');
+
+// Absolute path: used as-is
+saveCollectData(result.data, '/abs/path/my_data.json');
 ```
 
 ---
 
 ### loadCollectData(fileName?: string): Record<string, any>[]
 
-Loads collected data from disk (reads from current working directory).
+Loads collected data from disk.
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| fileName | string | 'collect_data.json' | File name |
+| fileName | string | 'collect_data.json' | File name or path. Absolute paths are used as-is; relative paths/plain file names are resolved against the current working directory (cwd). |
 
 **Returns**
 
@@ -187,7 +191,11 @@ Loads collected data from disk (reads from current working directory).
 ```typescript
 import { loadCollectData } from 'stepwise';
 
+// Relative path: resolved against cwd
 const data = loadCollectData('my_data.json');
+
+// Absolute path: used as-is
+const data = loadCollectData('/abs/path/my_data.json');
 ```
 
 ---
