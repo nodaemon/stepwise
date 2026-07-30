@@ -11,46 +11,37 @@ import { ExecutionResult } from '../src/types';
 jest.mock('../src/utils/executor', () => {
   // 记录最后一次执行的 prompt
   let lastPrompt = '';
+  // 记录最后一次执行传入的 options（含 sessionId、useResume 等）
+  let lastExecOptions: any = null;
+
+  // 构建一个 mock executor：记录入参并返回成功结果
+  // 回显传入的 sessionId（模拟 Claude 原样创建会话的行为）
+  const makeMockExecute = () => async (prompt: string, options: any): Promise<ExecutionResult> => {
+    lastPrompt = prompt;
+    lastExecOptions = options ? { ...options } : null;
+    return {
+      sessionId: options?.sessionId || 'mock-session-id',
+      output: 'mock output',
+      success: true,
+      timestamp: Date.now(),
+      duration: 100
+    };
+  };
 
   return {
     ClaudeExecutor: jest.fn().mockImplementation(() => ({
-      execute: async (prompt: string): Promise<ExecutionResult> => {
-        lastPrompt = prompt;
-        return {
-          sessionId: 'mock-session-id',
-          output: 'mock output',
-          success: true,
-          timestamp: Date.now(),
-          duration: 100
-        };
-      }
+      execute: makeMockExecute()
     })),
     CodeAgentExecutor: jest.fn().mockImplementation(() => ({
-      execute: async (prompt: string): Promise<ExecutionResult> => {
-        lastPrompt = prompt;
-        return {
-          sessionId: 'mock-session-id',
-          output: 'mock output',
-          success: true,
-          timestamp: Date.now(),
-          duration: 100
-        };
-      }
+      execute: makeMockExecute()
     })),
     createExecutor: jest.fn().mockImplementation(() => ({
-      execute: async (prompt: string): Promise<ExecutionResult> => {
-        lastPrompt = prompt;
-        return {
-          sessionId: 'mock-session-id',
-          output: 'mock output',
-          success: true,
-          timestamp: Date.now(),
-          duration: 100
-        };
-      }
+      execute: makeMockExecute()
     })),
     getLastPrompt: () => lastPrompt,
-    resetLastPrompt: () => { lastPrompt = ''; }
+    resetLastPrompt: () => { lastPrompt = ''; },
+    getLastExecOptions: () => lastExecOptions,
+    resetLastExecOptions: () => { lastExecOptions = null; }
   };
 });
 
@@ -86,7 +77,10 @@ describe('StepWise execPrompt 接口测试', () => {
       const result = await agent.execPrompt('Test prompt');
 
       expect(result.success).toBe(true);
-      expect(result.sessionId).toBe('mock-session-id');
+      // mock executor 回显传入的 sessionId（模拟 Claude 原样创建会话）
+      // 首个任务由框架生成 UUID，故返回的 sessionId 为非空字符串
+      expect(typeof result.sessionId).toBe('string');
+      expect(result.sessionId.length).toBeGreaterThan(0);
     });
 
     it('空 prompt 应该抛出错误', async () => {
@@ -160,6 +154,82 @@ describe('StepWise execPrompt 接口测试', () => {
       const result2 = await agent.execPrompt('Second task', { newSession: false });
 
       expect(result2.success).toBe(true);
+    });
+  });
+
+  describe('ExecOptions.sessionId', () => {
+    // 从 mock 模块获取记录入参的 helper
+    const executorModule: any = require('../src/utils/executor');
+
+    beforeEach(() => {
+      executorModule.resetLastExecOptions();
+    });
+
+    it('指定 sessionId 时 executor 应收到该 sessionId 且 useResume=true', async () => {
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      const customSessionId = 'my-custom-session-id-1234';
+      const result = await agent.execPrompt('Test task', { sessionId: customSessionId });
+
+      expect(result.success).toBe(true);
+      // 返回的 sessionId 应为指定的值
+      expect(result.sessionId).toBe(customSessionId);
+      // executor 收到的 sessionId 即为指定值，且强制 useResume
+      const opts = executorModule.getLastExecOptions();
+      expect(opts.sessionId).toBe(customSessionId);
+      expect(opts.useResume).toBe(true);
+    });
+
+    it('不指定 sessionId 时 useResume 由 shouldUseResume 自动判断（首个任务为 false）', async () => {
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('First task');
+
+      const opts = executorModule.getLastExecOptions();
+      // 首个任务，无历史已完成任务，不应走 resume
+      expect(opts.useResume).toBe(false);
+      // sessionId 为框架生成的非空 UUID（非空即够）
+      expect(typeof opts.sessionId).toBe('string');
+      expect(opts.sessionId.length).toBeGreaterThan(0);
+    });
+
+    it('sessionId 与 newSession:true 同时指定应抛出错误', async () => {
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await expect(
+        agent.execPrompt('Test task', { sessionId: 'abc-123', newSession: true })
+      ).rejects.toThrow('sessionId 与 newSession:true 不可同时指定');
+    });
+
+    it('sessionId 为空字符串应抛出错误', async () => {
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await expect(
+        agent.execPrompt('Test task', { sessionId: '' })
+      ).rejects.toThrow('sessionId 不能为空字符串');
+    });
+
+    it('连续两次指定相同 sessionId 应都使用该值', async () => {
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      const customSessionId = 'shared-session-id-9999';
+
+      await agent.execPrompt('First task', { sessionId: customSessionId });
+      const opts1 = executorModule.getLastExecOptions();
+      expect(opts1.sessionId).toBe(customSessionId);
+      expect(opts1.useResume).toBe(true);
+
+      // 第二次调用仍指定同一 sessionId（模拟跨实例/跨进程复用）
+      executorModule.resetLastExecOptions();
+      await agent.execPrompt('Second task', { sessionId: customSessionId });
+      const opts2 = executorModule.getLastExecOptions();
+      expect(opts2.sessionId).toBe(customSessionId);
+      expect(opts2.useResume).toBe(true);
     });
   });
 

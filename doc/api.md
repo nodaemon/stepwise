@@ -412,6 +412,7 @@ Executes a normal task.
 interface ExecOptions {
   cwd?: string;              // Working directory, defaults to current process directory
   newSession?: boolean;      // Whether to use a new session, defaults to false
+  sessionId?: string;        // Specify an existing session ID to reuse (forces resume mode)
   data?: Record<string, any>; // Data for variable substitution
   postCheckPrompt?: string;  // Check prompt to execute after main task completes
   env?: string[];            // Additional environment variables, format: "KEY=VALUE"
@@ -1006,6 +1007,7 @@ Execution options.
 interface ExecOptions {
   cwd?: string;              // Working directory
   newSession?: boolean;      // Whether to use a new session (default: false)
+  sessionId?: string;        // Specify an existing session ID to reuse (forces resume mode)
   data?: Record<string, any>; // Data for variable substitution
   postCheckPrompt?: string;  // Check prompt to execute after main task completes
   env?: string[];            // Additional environment variables, format: "KEY=VALUE"
@@ -1014,6 +1016,15 @@ interface ExecOptions {
   allowWrite?: string[];     // Allowed writable directories, supports relative paths and ~ expansion
 }
 ```
+
+**Session ID**
+
+`sessionId` lets you explicitly reuse a known session ID instead of the framework generating one or reusing the previous task's ID. This is useful when resuming a session across StepWise instances or processes.
+
+- When specified, the agent runs in resume mode (`--resume <sessionId>`) — treated as resuming an existing session
+- Mutually exclusive with `newSession: true` (throws an error if both are set)
+- Cannot be an empty string
+- When not specified, behavior is unchanged (reuse previous session or generate a new one per `newSession`)
 
 **File Access Restriction**
 

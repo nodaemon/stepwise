@@ -194,6 +194,7 @@ interface ExecOptions {
   cwd?: string;
   data?: Record<string, any>
   newSession?: boolean;  // true: 创建新 session; false/未指定: 复用上一个 session（默认）
+  sessionId?: string;   // 指定已有会话 ID 直接复用（强制 resume 模式）；与 newSession:true 互斥
   checkPrompt?: string;
   env?: string[];        // 额外的环境变量数组，格式为 "KEY=VALUE"
   validateOptions?: ValidateOptions; // JSON 输出校验选项

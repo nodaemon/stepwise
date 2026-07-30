@@ -403,10 +403,40 @@ export class StepWise {
   }
 
   /**
+   * 校验 sessionId 选项的合法性
+   * - sessionId 与 newSession:true 互斥（前者复用已有会话，后者创建新会话）
+   * - sessionId 不能为空字符串
+   */
+  private validateSessionIdOption(options?: ExecOptions): void {
+    if (options?.sessionId && options.newSession) {
+      throw new Error('[StepWise] sessionId 与 newSession:true 不可同时指定：sessionId 用于复用已有会话，newSession 用于创建新会话，语义冲突');
+    }
+    if (options?.sessionId !== undefined && options.sessionId.trim() === '') {
+      throw new Error('[StepWise] sessionId 不能为空字符串');
+    }
+  }
+
+  /**
    * 获取或创建 session id（带自动总结）
    * 如果 newSession=true 且存在 currentSessionId，先总结前一个 session
+   *
+   * @param newSession 是否创建新会话
+   * @param cwd 工作目录（用于总结时的日志目录计算）
+   * @param env 环境变量（用于总结执行）
+   * @param sessionId 调用者显式指定的会话 ID（可选）
+   *   - 指定后直接使用该 ID，跳过新 UUID 生成；互斥已保证 newSession 非 true
    */
-  private async getOrCreateSessionIdWithSummarize(newSession?: boolean, cwd?: string, env?: string[]): Promise<string> {
+  private async getOrCreateSessionIdWithSummarize(
+    newSession?: boolean,
+    cwd?: string,
+    env?: string[],
+    sessionId?: string
+  ): Promise<string> {
+    // 指定 sessionId 时：直接使用，不生成新 UUID，也不触发总结（复用已有会话）
+    if (sessionId) {
+      this.currentSessionId = sessionId;
+      return sessionId;
+    }
     if (newSession && this.currentSessionId && !_isDebugMode() && !_shouldSkipSummarize()) {
       // 找到当前 session 的最后一个任务
       const lastTask = this.getLastTaskOfSession(this.currentSessionId);
@@ -1144,6 +1174,7 @@ export class StepWise {
   @trackPerformance('prompt')
   async execPrompt(prompt: string, options?: ExecOptions): Promise<ExecutionResult> {
     this.validatePrompt(prompt);
+    this.validateSessionIdOption(options);
 
     const effectiveCwd = this.getEffectiveCwd(options?.cwd);
     const effectiveEnv = this.getEffectiveEnv(options?.env);
@@ -1158,7 +1189,8 @@ export class StepWise {
     const promptWithAccess = this.injectFileAccessPrompt(processedPrompt, options);
 
     // 检查是否需要恢复
-    if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
+    // 注意：调用者显式指定 sessionId 时跳过历史 sessionId 恢复（指定 sessionId 属于显式接管会话，非断点续传）
+    if (resumePath && !options?.sessionId && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
       // 重要：恢复 sessionId 到 currentSessionId，确保后续任务能复用
       if (sessionId) {
@@ -1175,7 +1207,7 @@ export class StepWise {
     }
 
     // 检查是否有 in_progress 的任务需要重新执行
-    if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
+    if (resumePath && !options?.sessionId && this.isTaskInProgress(taskIndex, taskType)) {
       // 恢复 sessionId，确保重新执行时能复用原来的 session
       const sessionId = this.getTaskSessionId(taskIndex, taskType);
       if (sessionId) {
@@ -1184,10 +1216,11 @@ export class StepWise {
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
-    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv, options?.sessionId);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     this._currentTaskLogDir = taskLogDir;
-    const useResume = this.shouldUseResume(taskIndex, options?.newSession);
+    // 指定 sessionId 即视为恢复已存在会话，强制 useResume；否则按 newSession + 历史任务判断
+    const useResume = options?.sessionId ? true : this.shouldUseResume(taskIndex, options?.newSession);
 
     this.logger?.logTaskStart(taskIndex, taskType, sessionId);
 
@@ -1239,6 +1272,7 @@ export class StepWise {
   ): Promise<CollectResult> {
     this.validatePrompt(prompt);
     this.validateOutputFormat(outputFormat, 'execCollectPrompt');
+    this.validateSessionIdOption(options);
 
     const effectiveCwd = this.getEffectiveCwd(options?.cwd);
     const effectiveEnv = this.getEffectiveEnv(options?.env);
@@ -1257,7 +1291,8 @@ export class StepWise {
     const promptWithAccess = this.injectFileAccessPrompt(processedPrompt, options);
 
     // 检查是否需要恢复
-    if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
+    // 注意：调用者显式指定 sessionId 时跳过历史 sessionId 恢复（指定 sessionId 属于显式接管会话，非断点续传）
+    if (resumePath && !options?.sessionId && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
       if (sessionId) {
         this.currentSessionId = sessionId;
@@ -1276,7 +1311,7 @@ export class StepWise {
     }
 
     // 检查是否有 in_progress 的任务需要重新执行
-    if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
+    if (resumePath && !options?.sessionId && this.isTaskInProgress(taskIndex, taskType)) {
       // 恢复 sessionId，确保重新执行时能复用原来的 session
       const sessionId = this.getTaskSessionId(taskIndex, taskType);
       if (sessionId) {
@@ -1285,11 +1320,12 @@ export class StepWise {
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
-    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv, options?.sessionId);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     this._currentTaskLogDir = taskLogDir;
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
-    const useResume = this.shouldUseResume(taskIndex, options?.newSession);
+    // 指定 sessionId 即视为恢复已存在会话，强制 useResume；否则按 newSession + 历史任务判断
+    const useResume = options?.sessionId ? true : this.shouldUseResume(taskIndex, options?.newSession);
 
     // 构建完整提示词
     const extraPrompt = this.applyDebugModeHint(
@@ -1365,6 +1401,7 @@ export class StepWise {
     options?: ExecOptions
   ): Promise<CheckResult> {
     this.validatePrompt(prompt);
+    this.validateSessionIdOption(options);
 
     const effectiveCwd = this.getEffectiveCwd(options?.cwd);
     const effectiveEnv = this.getEffectiveEnv(options?.env);
@@ -1382,7 +1419,8 @@ export class StepWise {
     const promptWithAccess = this.injectFileAccessPrompt(processedPrompt, options);
 
     // 检查是否需要恢复
-    if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
+    // 注意：调用者显式指定 sessionId 时跳过历史 sessionId 恢复（指定 sessionId 属于显式接管会话，非断点续传）
+    if (resumePath && !options?.sessionId && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
       // 恢复 sessionId，确保后续任务能复用
       if (sessionId) {
@@ -1412,7 +1450,7 @@ export class StepWise {
     }
 
     // 检查是否有 in_progress 的任务需要重新执行
-    if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
+    if (resumePath && !options?.sessionId && this.isTaskInProgress(taskIndex, taskType)) {
       // 恢复 sessionId，确保重新执行时能复用原来的 session
       const sessionId = this.getTaskSessionId(taskIndex, taskType);
       if (sessionId) {
@@ -1421,11 +1459,12 @@ export class StepWise {
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
-    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv, options?.sessionId);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     this._currentTaskLogDir = taskLogDir;
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
-    const useResume = this.shouldUseResume(taskIndex, options?.newSession);
+    // 指定 sessionId 即视为恢复已存在会话，强制 useResume；否则按 newSession + 历史任务判断
+    const useResume = options?.sessionId ? true : this.shouldUseResume(taskIndex, options?.newSession);
 
     // 构建完整提示词
     const extraPrompt = buildPostCheckPrompt(outputPath, promptWithAccess, effectiveCwd);
@@ -1504,6 +1543,7 @@ export class StepWise {
     this.validatePrompt(prompt);
     this.validateOutputFormat(outputFormat, 'execReport');
     this.validateOutputFileName(outputFileName, 'execReport');
+    this.validateSessionIdOption(options);
 
     const effectiveCwd = this.getEffectiveCwd(options?.cwd);
     const effectiveEnv = this.getEffectiveEnv(options?.env);
@@ -1519,7 +1559,8 @@ export class StepWise {
     const promptWithAccess = this.injectFileAccessPrompt(processedPrompt, options);
 
     // 检查是否需要恢复
-    if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
+    // 注意：调用者显式指定 sessionId 时跳过历史 sessionId 恢复（指定 sessionId 属于显式接管会话，非断点续传）
+    if (resumePath && !options?.sessionId && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
       // 重要：恢复 sessionId 到 currentSessionId，确保后续任务能复用
       if (sessionId) {
@@ -1539,7 +1580,7 @@ export class StepWise {
     }
 
     // 检查是否有 in_progress 的任务需要重新执行
-    if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
+    if (resumePath && !options?.sessionId && this.isTaskInProgress(taskIndex, taskType)) {
       // 恢复 sessionId，确保重新执行时能复用原来的 session
       const sessionId = this.getTaskSessionId(taskIndex, taskType);
       if (sessionId) {
@@ -1548,11 +1589,12 @@ export class StepWise {
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
-    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv, options?.sessionId);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     this._currentTaskLogDir = taskLogDir;
     const outputPath = this.getReportOutputPath(outputFileName);
-    const useResume = this.shouldUseResume(taskIndex, options?.newSession);
+    // 指定 sessionId 即视为恢复已存在会话，强制 useResume；否则按 newSession + 历史任务判断
+    const useResume = options?.sessionId ? true : this.shouldUseResume(taskIndex, options?.newSession);
 
     // 构建完整提示词
     const extraPrompt = this.applyDebugModeHint(
@@ -1639,6 +1681,7 @@ export class StepWise {
     validateRecursiveSchema(schema);
     this.validateSchema(schema);
     this.validateOutputFileName(outputFile, 'execPromptSchema');
+    this.validateSessionIdOption(options);
 
     const effectiveCwd = this.getEffectiveCwd(options?.cwd);
     const effectiveEnv = this.getEffectiveEnv(options?.env);
@@ -1653,7 +1696,8 @@ export class StepWise {
     const promptWithAccess = this.injectFileAccessPrompt(processedPrompt, options);
 
     // 检查是否需要恢复
-    if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
+    // 注意：调用者显式指定 sessionId 时跳过历史 sessionId 恢复（指定 sessionId 属于显式接管会话，非断点续传）
+    if (resumePath && !options?.sessionId && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
       if (sessionId) {
         this.currentSessionId = sessionId;
@@ -1672,7 +1716,7 @@ export class StepWise {
     }
 
     // 检查是否有 in_progress 的任务需要重新执行
-    if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
+    if (resumePath && !options?.sessionId && this.isTaskInProgress(taskIndex, taskType)) {
       const sessionId = this.getTaskSessionId(taskIndex, taskType);
       if (sessionId) {
         this.currentSessionId = sessionId;
@@ -1680,11 +1724,12 @@ export class StepWise {
       this.cleanupInProgressTask(taskIndex, taskType);
     }
 
-    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv, options?.sessionId);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     this._currentTaskLogDir = taskLogDir;
     const outputPath = this.getReportOutputPath(outputFile);
-    const useResume = this.shouldUseResume(taskIndex, options?.newSession);
+    // 指定 sessionId 即视为恢复已存在会话，强制 useResume；否则按 newSession + 历史任务判断
+    const useResume = options?.sessionId ? true : this.shouldUseResume(taskIndex, options?.newSession);
 
     // 构建完整提示词
     const extraPrompt = buildSchemaPrompt(schema, outputPath, effectiveCwd);

@@ -31,6 +31,14 @@ export interface ExecOptions {
    */
   newSession?: boolean;
   /**
+   * 指定会话 ID（可选）
+   * - 指定后直接使用该 sessionId 执行，而非复用上一个任务的 session id
+   * - 指定 sessionId 即视为恢复已存在的会话，强制使用 resume 模式（--resume）
+   * - 与 newSession: true 互斥，同时指定会抛出错误
+   * - 适用场景：跨 StepWise 实例或跨进程复用某个已知会话
+   */
+  sessionId?: string;
+  /**
    * 数据对象，用于替换 prompt 中的变量
    * 例如：{ name: "test", desc: "description" } 会将 prompt 中的 $name 替换为 "test"，$desc 替换为 "description"
    */
