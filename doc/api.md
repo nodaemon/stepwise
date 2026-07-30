@@ -200,13 +200,14 @@ Sets the agent type, determining which agent will execute tasks.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| type | AgentType | Agent type: `'claude'` or `'opencode'` |
+| type | AgentType | Agent type: `'claude'`, `'opencode'`, or `'codeagent'` |
 
 **Behavior**
 
 - Should be called before `setTaskName()`
 - All agents within a task use the same agent type
 - Defaults to `'claude'` (Claude Code agent)
+- `'codeagent'` uses the same command-line arguments and output format as `'claude'`; only the executable name (`codeagent`) differs
 
 **Example**
 
@@ -215,6 +216,10 @@ import { setTaskName, setAgentType } from 'stepwise';
 
 // Use OpenCode agent
 setAgentType('opencode');
+setTaskName('MyTask');
+
+// Or use the CodeAgent agent (same args as claude, different executable)
+setAgentType('codeagent');
 setTaskName('MyTask');
 
 // Or use the default Claude Code agent
@@ -984,11 +989,12 @@ interface WorkerContext<T> {
 Agent type.
 
 ```typescript
-type AgentType = 'claude' | 'opencode';
+type AgentType = 'claude' | 'opencode' | 'codeagent';
 ```
 
 - `'claude'`: Use Claude Code agent (default)
 - `'opencode'`: Use OpenCode agent
+- `'codeagent'`: Use CodeAgent agent (command-line args identical to claude, only the executable name differs)
 
 ---
 

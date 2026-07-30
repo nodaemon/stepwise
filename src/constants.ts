@@ -50,6 +50,11 @@ export const CLAUDE_COMMAND = 'claude';
 /** OpenCode 命令 */
 export const OPENCODE_COMMAND = 'opencode';
 
+// ============ CodeAgent 相关常量 ============
+
+/** CodeAgent 命令（参数与 claude 一致，仅可执行程序名不同） */
+export const CODEAGENT_COMMAND = 'codeagent';
+
 /** 任务类型 */
 export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell' | 'schema';
 

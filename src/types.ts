@@ -2,8 +2,9 @@
  * 智能体类型
  * - 'claude': 使用 Claude Code 智能体
  * - 'opencode': 使用 OpenCode 智能体（自动降级机制）
+ * - 'codeagent': 使用 CodeAgent 智能体（命令参数与 claude 一致，仅可执行程序名不同）
  */
-export type AgentType = 'claude' | 'opencode';
+export type AgentType = 'claude' | 'opencode' | 'codeagent';
 
 /**
  * JSON 输出校验选项

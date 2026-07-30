@@ -33,7 +33,7 @@ StepWise enables AI coding assistants (Claude Code, OpenCode, etc.) to complete 
 
 ### Example 0: Choose AI Coding Assistant
 
-Supports Claude Code and OpenCode, defaults to Claude Code:
+Supports Claude Code, OpenCode, and CodeAgent, defaults to Claude Code:
 
 ```typescript
 import { setAgentType, setTaskName, StepWise } from 'stepwise';
@@ -41,6 +41,7 @@ import { setAgentType, setTaskName, StepWise } from 'stepwise';
 // Set AI coding assistant type (optional, default: 'claude')
 setAgentType('claude');   // Use Claude Code (default)
 // setAgentType('opencode');  // Use OpenCode
+// setAgentType('codeagent'); // Use CodeAgent (same args as claude, different executable)
 
 setTaskName('MyTask');
 const agent = new StepWise('MainAgent');
@@ -199,7 +200,7 @@ await agent.execPrompt('Step 3: Process item $name', { data: { name: 'item1' } }
 | Method | Usage | Description |
 |--------|-------|-------------|
 | `setTaskName` | Set task name | Required, identifies task directory |
-| `setAgentType` | Set AI coding assistant | Optional, default `'claude'`, options: `'opencode'` |
+| `setAgentType` | Set AI coding assistant | Optional, default `'claude'`, options: `'opencode'`, `'codeagent'` |
 | `setResumePath` | Set resume path | Resume task from interruption point |
 | `enableDebugMode` | Enable debug mode | Quick validation, collect only 1 item |
 | `setSkipSummarize` | Skip auto-summarize | Disable auto-summarize when creating new session |
@@ -282,6 +283,10 @@ StepWise works with AI coding assistants through their headless mode with sessio
 # Claude Code example
 claude --dangerously-skip-permissions --session-id <uuid> -p "your prompt"
 claude --dangerously-skip-permissions --resume <session-id> -p "your prompt"
+
+# CodeAgent example (command-line args identical to Claude Code, only the executable name differs)
+codeagent --dangerously-skip-permissions --session-id <uuid> -p "your prompt"
+codeagent --dangerously-skip-permissions --resume <session-id> -p "your prompt"
 
 # OpenCode example
 opencode run --thinking --session <uuid> "your prompt"

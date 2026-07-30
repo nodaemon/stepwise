@@ -25,11 +25,11 @@ interface RateLimitInfo {
 
 /**
  * 执行器抽象基类
- * 提供 Claude 和 OpenCode 执行器的公共功能
+ * 提供 Claude、OpenCode、CodeAgent 执行器的公共功能
  */
 export abstract class BaseExecutor implements AgentExecutor {
   /** 子类必须实现：返回执行器类型 */
-  abstract readonly agentType: 'claude' | 'opencode';
+  abstract readonly agentType: 'claude' | 'opencode' | 'codeagent';
 
   /** 子类必须实现：构建命令行参数 */
   protected abstract buildArgs(
@@ -41,6 +41,19 @@ export abstract class BaseExecutor implements AgentExecutor {
 
   /** 子类必须实现：返回 CLI 命令名称 */
   protected abstract getCommand(): string;
+
+  /**
+   * 是否输出 NDJSON（stream-json）格式
+   * - true（Claude、CodeAgent）：stdout 为逐行 JSON，空行无意义需跳过，
+   *   每行按 type 格式化后写入 verbose_output.txt
+   * - false（OpenCode 等纯文本执行器）：stdout 为纯文本，空行保留以维持可读性，
+   *   非 JSON 行原样写入
+   *
+   * 子类可重写以声明输出格式。基类默认 false（纯文本）。
+   */
+  protected usesNDJsonOutput(): boolean {
+    return false;
+  }
 
   /**
    * 构建执行环境变量
@@ -325,14 +338,14 @@ export abstract class BaseExecutor implements AgentExecutor {
       }
 
       // 将一行内容写入 verbose_output.txt
-      // - Claude (NDJSON)：空行跳过，JSON 按 type 格式化
-      // - OpenCode (纯文本)：空行保留以维持可读性，非 JSON 行原样写入
+      // - NDJSON 执行器（Claude、CodeAgent）：空行跳过，JSON 按 type 格式化
+      // - 纯文本执行器（OpenCode）：空行保留以维持可读性，非 JSON 行原样写入
       const writeLineToVerbose = (line: string) => {
         if (!verboseStream) return;
 
         if (line.trim() === '') {
-          // 纯文本执行器保留空行；Claude 的 NDJSON 空行无意义，跳过
-          if (this.agentType !== 'claude') {
+          // 纯文本执行器保留空行；NDJSON 空行无意义，跳过
+          if (!this.usesNDJsonOutput()) {
             verboseStream.write('\n');
           }
           return;
@@ -376,8 +389,8 @@ export abstract class BaseExecutor implements AgentExecutor {
           stderrLineBuffer = lines.pop() || '';
           for (const line of lines) {
             if (line.trim() === '') {
-              // 保留 stderr 中的空行结构
-              if (this.agentType !== 'claude') {
+              // 保留 stderr 中的空行结构（仅纯文本执行器）
+              if (!this.usesNDJsonOutput()) {
                 verboseStream.write('\n');
               }
               continue;

@@ -1,6 +1,6 @@
 # 执行器模块
 
-本模块实现了智能体执行器的抽象和具体实现，支持多种 AI 智能体（Claude、OpenCode 等）。
+本模块实现了智能体执行器的抽象和具体实现，支持多种 AI 智能体（Claude、OpenCode、CodeAgent 等）。
 
 ## 目录结构
 
@@ -9,7 +9,8 @@ src/executors/
 ├── index.ts      # 公共导出
 ├── types.ts      # 接口定义
 ├── base.ts       # 抽象基类
-├── claude.ts     # Claude 执行器实现
+├── claude.ts     # Claude 执行器实现（同时作为 CodeAgent 的基类）
+├── codeagent.ts  # CodeAgent 执行器实现（继承 ClaudeExecutor）
 └── opencode.ts   # OpenCode 执行器实现
 ```
 
@@ -18,20 +19,24 @@ src/executors/
 本模块采用**模板方法模式**（Template Method Pattern）：
 
 - `BaseExecutor`：抽象基类，定义执行流程和公共逻辑
-- `ClaudeExecutor` / `OpenCodeExecutor`：具体实现类，实现特定智能体的逻辑
+- `ClaudeExecutor` / `OpenCodeExecutor` / `CodeAgentExecutor`：具体实现类，实现特定智能体的逻辑
+- `CodeAgentExecutor` 继承 `ClaudeExecutor`：命令参数与 Claude 完全一致，仅可执行程序名不同，故直接复用 `buildArgs()`
 
 ### 类图
 
 ```
-         AgentExecutor (interface)
-                 │
-                 │ implements
-                 ▼
-           BaseExecutor (abstract)
-           ┌───────┴───────┐
-           │               │
-           ▼               ▼
-    ClaudeExecutor   OpenCodeExecutor
+              AgentExecutor (interface)
+                      │
+                      │ implements
+                      ▼
+                BaseExecutor (abstract)
+           ┌────────────┼────────────┐
+           │            │            │
+           ▼            ▼            ▼
+    ClaudeExecutor  OpenCodeExecutor  CodeAgentExecutor
+           ▲
+           │ extends
+           └─────────── (复用 buildArgs，仅覆盖 getCommand/agentType)
 ```
 
 ## 如何添加新的执行器
@@ -78,7 +83,7 @@ export class AiderExecutor extends BaseExecutor {
 在 `src/types.ts` 中更新 `AgentType` 类型：
 
 ```typescript
-export type AgentType = 'claude' | 'opencode' | 'aider';
+export type AgentType = 'claude' | 'opencode' | 'codeagent' | 'aider';
 ```
 
 ### 步骤 3：注册到工厂
@@ -91,6 +96,7 @@ import { AiderExecutor } from '../executors/aider';
 const executorFactories: Record<AgentType, () => AgentExecutor> = {
   claude: () => new ClaudeExecutor(),
   opencode: () => new OpenCodeExecutor(),
+  codeagent: () => new CodeAgentExecutor(),
   aider: () => new AiderExecutor(),  // 新增
 };
 ```
@@ -116,6 +122,7 @@ export { AiderExecutor } from './aider';
 | 方法 | 说明 |
 |------|------|
 | `buildEnv()` | 构建环境变量，默认返回 `process.env` |
+| `usesNDJsonOutput()` | 是否输出 NDJSON（stream-json）格式，默认 `false`。Claude、CodeAgent 返回 `true`（空行跳过、按 type 格式化）；OpenCode 等纯文本执行器为 `false`（空行保留） |
 | `getRateLimitPatterns()` | 速率限制检测正则表达式 |
 | `checkRateLimitError()` | 速率限制错误检测逻辑 |
 
@@ -126,6 +133,7 @@ export { AiderExecutor } from './aider';
 | CLI 工具 | 新会话参数 | 恢复会话参数 | 自动检测 |
 |---------|-----------|-------------|---------|
 | Claude | `--session-id <uuid>` | `--resume <uuid>` | 否 |
+| CodeAgent | `--session-id <uuid>` | `--resume <uuid>` | 否 |
 | OpenCode | `--session <uuid>` | `--session <uuid>` | 是 |
 
 在实现 `buildArgs()` 方法时，需要根据具体 CLI 工具的参数设计来处理 `isResume` 参数。

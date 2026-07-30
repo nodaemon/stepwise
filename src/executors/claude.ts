@@ -4,6 +4,7 @@
  */
 
 import { BaseExecutor } from './base';
+import { AgentType } from '../types';
 
 /**
  * Claude Code 执行器
@@ -11,16 +12,28 @@ import { BaseExecutor } from './base';
  * 命令格式：
  * - 新会话: claude --dangerously-skip-permissions --session-id <uuid> -p "prompt"
  * - 恢复会话: claude --dangerously-skip-permissions --resume <uuid> -p "prompt"
+ *
+ * 本类同时作为 CodeAgent 执行器的基类（CodeAgent 命令参数与 Claude 一致，
+ * 仅可执行程序名不同），故 agentType 使用联合类型 AgentType 而非字面量 'claude'，
+ * 以便子类覆盖为 'codeagent'。
  */
 export class ClaudeExecutor extends BaseExecutor {
   /** 执行器类型标识 */
-  readonly agentType = 'claude';
+  readonly agentType: AgentType = 'claude';
 
   /**
    * 返回 CLI 命令名称
    */
   protected getCommand(): string {
     return 'claude';
+  }
+
+  /**
+   * Claude 使用 stream-json（NDJSON）输出格式
+   * 空行无意义需跳过，每行按 type 格式化后写入 verbose_output.txt
+   */
+  protected usesNDJsonOutput(): boolean {
+    return true;
   }
 
   /**

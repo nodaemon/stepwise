@@ -25,6 +25,18 @@ jest.mock('../src/utils/executor', () => {
         };
       }
     })),
+    CodeAgentExecutor: jest.fn().mockImplementation(() => ({
+      execute: async (prompt: string): Promise<ExecutionResult> => {
+        lastPrompt = prompt;
+        return {
+          sessionId: 'mock-session-id',
+          output: 'mock output',
+          success: true,
+          timestamp: Date.now(),
+          duration: 100
+        };
+      }
+    })),
     createExecutor: jest.fn().mockImplementation(() => ({
       execute: async (prompt: string): Promise<ExecutionResult> => {
         lastPrompt = prompt;

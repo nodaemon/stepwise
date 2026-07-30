@@ -64,14 +64,14 @@ export interface ExecutorRawResult {
 
 /**
  * 智能体执行器接口
- * 所有智能体执行器（Claude、OpenCode）必须实现此接口
+ * 所有智能体执行器（Claude、OpenCode、CodeAgent）必须实现此接口
  */
 export interface AgentExecutor {
   /**
    * 执行器类型标识
    * 返回当前执行器对应的智能体类型
    */
-  readonly agentType: 'claude' | 'opencode';
+  readonly agentType: 'claude' | 'opencode' | 'codeagent';
 
   /**
    * 执行提示词任务

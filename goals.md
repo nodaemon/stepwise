@@ -50,7 +50,8 @@ saveCollectData(data: Record<string, any>[], fileName?: string): void
 loadCollectData(fileName?: string): Record<string, any>[]
 
 // 设置智能体类型，决定使用哪个智能体执行任务
-// type: 'claude' 使用 Claude Code 智能体（默认）, 'opencode' 使用 OpenCode 智能体
+// type: 'claude' 使用 Claude Code 智能体（默认）, 'opencode' 使用 OpenCode 智能体,
+//       'codeagent' 使用 CodeAgent 智能体（命令参数与 claude 一致，仅可执行程序名不同）
 // 应在 setTaskName() 之前调用
 setAgentType(type: AgentType): void
 ```
@@ -186,7 +187,7 @@ forEachParallel<T>(
 
 ```typescript
 // 智能体类型
-type AgentType = 'claude' | 'opencode';
+type AgentType = 'claude' | 'opencode' | 'codeagent';
 
 // 执行选项
 interface ExecOptions {

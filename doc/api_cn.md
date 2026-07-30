@@ -200,13 +200,14 @@ const data = loadCollectData('my_data.json');
 
 | 参数 | 类型 | 描述 |
 |------|------|------|
-| type | AgentType | 智能体类型：`'claude'` 或 `'opencode'` |
+| type | AgentType | 智能体类型：`'claude'`、`'opencode'` 或 `'codeagent'` |
 
 **行为**
 
 - 应在 `setTaskName()` 之前调用
 - 同一任务内所有 Agent 使用相同智能体类型
 - 默认使用 `'claude'`（Claude Code 智能体）
+- `'codeagent'` 的命令行参数和输出格式与 `'claude'` 完全一致，仅可执行程序名（`codeagent`）不同
 
 **示例**
 
@@ -215,6 +216,10 @@ import { setTaskName, setAgentType } from 'stepwise';
 
 // 使用 OpenCode 智能体
 setAgentType('opencode');
+setTaskName('MyTask');
+
+// 使用 CodeAgent 智能体（参数与 claude 一致，仅可执行程序名不同）
+setAgentType('codeagent');
 setTaskName('MyTask');
 
 // 或使用默认的 Claude Code 智能体
@@ -984,11 +989,12 @@ interface WorkerContext<T> {
 智能体类型。
 
 ```typescript
-type AgentType = 'claude' | 'opencode';
+type AgentType = 'claude' | 'opencode' | 'codeagent';
 ```
 
 - `'claude'`: 使用 Claude Code 智能体（默认）
 - `'opencode'`: 使用 OpenCode 智能体
+- `'codeagent'`: 使用 CodeAgent 智能体（命令行参数与 claude 一致，仅可执行程序名不同）
 
 ---
 

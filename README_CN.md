@@ -33,7 +33,7 @@ StepWise 通过任务步骤控制、数据校验、条件路由和断点恢复�
 
 ### 示例 0：选择 AI 编程助手
 
-支持 Claude Code 和 OpenCode，默认使用 Claude Code：
+支持 Claude Code、OpenCode 和 CodeAgent，默认使用 Claude Code：
 
 ```typescript
 import { setAgentType, setTaskName, StepWise } from 'stepwise';
@@ -41,6 +41,7 @@ import { setAgentType, setTaskName, StepWise } from 'stepwise';
 // 设置 AI 编程助手类型（可选，默认 'claude'）
 setAgentType('claude');   // 使用 Claude Code（默认）
 // setAgentType('opencode');  // 使用 OpenCode
+// setAgentType('codeagent'); // 使用 CodeAgent（命令参数与 claude 一致，仅可执行程序名不同）
 
 setTaskName('MyTask');
 const agent = new StepWise('MainAgent');
@@ -199,7 +200,7 @@ await agent.execPrompt('步骤 3: 处理项目 $name', { data: { name: 'item1' }
 | 方法 | 用途 | 说明 |
 |------|------|------|
 | `setTaskName` | 设置任务名称 | 必须，用于标识任务目录 |
-| `setAgentType` | 设置 AI 编程助手 | 可选，默认 `'claude'`，可选 `'opencode'` |
+| `setAgentType` | 设置 AI 编程助手 | 可选，默认 `'claude'`，可选 `'opencode'`、`'codeagent'` |
 | `setResumePath` | 设置恢复路径 | 从中断点恢复任务 |
 | `enableDebugMode` | 启用调试模式 | 快速验证流程，只收集 1 条数据 |
 | `setSkipSummarize` | 跳过自动总结 | 禁用创建新 session 时的自动总结 |
@@ -282,6 +283,10 @@ StepWise 通过 AI 编程助手的 headless 模式工作，支持 Session 复用
 # Claude Code 示例
 claude --dangerously-skip-permissions --session-id <uuid> -p "你的提示词"
 claude --dangerously-skip-permissions --resume <session-id> -p "你的提示词"
+
+# CodeAgent 示例（命令行参数与 Claude Code 完全一致，仅可执行程序名不同）
+codeagent --dangerously-skip-permissions --session-id <uuid> -p "你的提示词"
+codeagent --dangerously-skip-permissions --resume <session-id> -p "你的提示词"
 
 # OpenCode 示例
 opencode run --thinking --session <uuid> "你的提示词"

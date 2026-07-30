@@ -428,8 +428,11 @@ import { setTaskName, setAgentType, StepWise } from 'stepwise';
 
 async function main() {
   setTaskName('AgentTypeTask');
-  // Set agent type
+  // Set agent type (default: 'claude')
+  // 'codeagent' uses the same args as 'claude', only the executable name differs
   setAgentType('claude');
+  // setAgentType('opencode');
+  // setAgentType('codeagent');
 
   const agent = new StepWise('myAgent');
   await agent.execPrompt('Execute task');

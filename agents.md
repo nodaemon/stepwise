@@ -61,7 +61,8 @@ src/
 ├── constants.ts       # 常量定义
 ├── executors/         # 执行器目录
 │   ├── base.ts        # 基础执行器
-│   ├── claude.ts      # Claude Code 执行器
+│   ├── claude.ts      # Claude Code 执行器（同时作为 CodeAgent 基类）
+│   ├── codeagent.ts   # CodeAgent 执行器（继承 ClaudeExecutor）
 │   ├── opencode.ts    # OpenCode 执行器
 │   └── types.ts       # 执行器类型定义
 └── utils/             # 工具函数目录

@@ -419,8 +419,11 @@ import { setTaskName, setAgentType, StepWise } from 'stepwise';
 
 async function main() {
   setTaskName('AgentTypeTask');
-  // 设置智能体类型
+  // 设置智能体类型（默认 'claude'）
+  // 'codeagent' 命令参数与 'claude' 一致，仅可执行程序名不同
   setAgentType('claude');
+  // setAgentType('opencode');
+  // setAgentType('codeagent');
 
   const agent = new StepWise('myAgent');
   await agent.execPrompt('执行任务');
