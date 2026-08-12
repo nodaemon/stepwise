@@ -229,6 +229,8 @@ const r5 = await agent.execPrompt('尝试另一种实现思路', {
 
 > 仅当 `sessionId` 与 `newSession: true` **同时**指定时才触发 fork。单独传 `newSession: true` 会创建全新会话（并总结前一会话）；单独传 `sessionId` 会恢复该会话。
 
+> **fork 中断恢复**：fork 执行期间，派生的新 ID 一产生即写入 `progress.json`。即使该步中断，`setResumePath` 恢复时也会用派生 ID 续传，不再重新派生。注:OpenCode 的派生 ID 仅在执行结束后可得，其中断的 fork 步骤恢复时会重新派生。
+
 ---
 
 ## 核心特性

@@ -233,6 +233,8 @@ const r5 = await agent.execPrompt('Try an alternative implementation approach', 
 
 > Fork only takes effect when **both** `sessionId` and `newSession: true` are set. Passing `newSession: true` alone creates a fresh new session (and summarizes the previous one); passing `sessionId` alone resumes that session.
 
+> **Resuming a fork**: while a fork runs, the derived new ID is written to `progress.json` as soon as it's produced. So even if the fork step is interrupted, `setResumePath` resumes with the derived ID instead of deriving again. Note: OpenCode's derived ID is only available after execution ends, so an interrupted OpenCode fork will re-derive on resume.
+
 ---
 
 ## Core Features

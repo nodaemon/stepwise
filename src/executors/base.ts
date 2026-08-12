@@ -345,6 +345,8 @@ export abstract class BaseExecutor implements AgentExecutor {
       // 实时写入 verbose_output.txt
       let verboseStream: fs.WriteStream | null = null;
       let lineBuffer = '';
+      // fork 派生 ID 回调去重：每个子进程只回调首次解析到的 init session_id
+      let derivedSessionIdNotified = false;
 
       if (taskLogDir) {
         const verboseFile = path.join(taskLogDir, 'verbose_output.txt');
@@ -388,6 +390,13 @@ export abstract class BaseExecutor implements AgentExecutor {
           writeBlockWithTimestamp(line);
         }
         // else: JSON 解析成功但类型被显式忽略（keep_alive 等），跳过
+
+        // fork 模式：解析到 system/init 块的 session_id（派生的新 ID）时立即回调
+        // 使 StepWise 能在中断前把派生 ID 写入 progress，恢复时按派生 ID 续传
+        if (!derivedSessionIdNotified && result.sessionId && result.sessionId !== sessionId && options.onDerivedSessionId) {
+          derivedSessionIdNotified = true;
+          options.onDerivedSessionId(result.sessionId);
+        }
       };
 
       child.stdout?.on('data', (data) => {
@@ -440,6 +449,11 @@ export abstract class BaseExecutor implements AgentExecutor {
             writeBlockWithTimestamp(result.formatted);
           } else if (!result.isJsonParsed) {
             writeBlockWithTimestamp(lineBuffer);
+          }
+          // fork 派生 ID 回调（与 writeLineToVerbose 一致，处理残留 init 块）
+          if (!derivedSessionIdNotified && result.sessionId && result.sessionId !== sessionId && options.onDerivedSessionId) {
+            derivedSessionIdNotified = true;
+            options.onDerivedSessionId(result.sessionId);
           }
         }
         // 刷新 stderr lineBuffer

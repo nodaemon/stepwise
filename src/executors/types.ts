@@ -36,6 +36,15 @@ export interface AgentExecutorOptions {
    */
   fork?: boolean;
 
+  /**
+   * 派生 sessionId 回调（fork 模式专用）
+   * 子进程 stdout 解析到 system/init 块时，若其 session_id 不同于传入的 sessionId
+   * （即 fork 已派生出新 ID），立即回调通知 StepWise 把派生 ID 写入 progress，
+   * 使 fork 执行中断后仍可按派生 ID 恢复（而非重新派生）。
+   * 仅 Claude/CodeAgent 的 NDJSON init 块能在执行中途暴露派生 ID，OpenCode 无此能力。
+   */
+  onDerivedSessionId?: (sessionId: string) => void;
+
   /** 任务日志目录，用于保存执行日志 */
   taskLogDir?: string;
 

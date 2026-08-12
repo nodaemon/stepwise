@@ -733,6 +733,21 @@ export class StepWise {
   }
 
   /**
+   * 更新当前 in_progress 任务记录的 sessionId（fork 派生 ID 实时回写）
+   * fork 执行时子进程派生出新 session ID，立即调用此方法把派生 ID 写入 progress，
+   * 使 fork 步骤即使中断，恢复时也能按派生 ID 续传（而非重新派生）。
+   */
+  private updateInProgressSessionId(taskIndex: number, taskType: TaskType, derivedSessionId: string): void {
+    if (!this.progress) return;
+    const task = this.progress.tasks.find(t => t.taskIndex === taskIndex && t.taskType === taskType);
+    if (task && task.status === 'in_progress' && task.sessionId !== derivedSessionId) {
+      task.sessionId = derivedSessionId;
+      this.currentSessionId = derivedSessionId;
+      this.saveProgress();
+    }
+  }
+
+  /**
    * 记录任务开始
    */
   private recordTaskStart(
@@ -1225,20 +1240,27 @@ export class StepWise {
     }
 
     // 检查是否有 in_progress 的任务需要重新执行
+    // 历史 sessionId 优先：若 in_progress 记录已有派生 ID（fork 中断），用派生 ID 续传而非重新派生
+    let effectiveOptions = options;
     if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
-      // 恢复 sessionId，确保重新执行时能复用原来的 session
-      const sessionId = this.getTaskSessionId(taskIndex, taskType);
-      if (sessionId) {
-        this.currentSessionId = sessionId;
+      const resumedSessionId = this.getTaskSessionId(taskIndex, taskType);
+      if (resumedSessionId) {
+        this.currentSessionId = resumedSessionId;
       }
       this.cleanupInProgressTask(taskIndex, taskType);
+      // 命中历史：用历史 sessionId 覆盖，并取消 fork（派生已完成，现在是续传）
+      effectiveOptions = {
+        ...options,
+        sessionId: resumedSessionId || options?.sessionId,
+        newSession: false
+      };
     }
 
-    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv, options?.sessionId);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(effectiveOptions?.newSession, effectiveCwd, effectiveEnv, effectiveOptions?.sessionId);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     this._currentTaskLogDir = taskLogDir;
     // 解析 fork / useResume：指定 sessionId（含 fork）时强制 useResume，从 sessionId 派生新会话
-    const { fork, useResume } = this.resolveForkAndResume(options, taskIndex);
+    const { fork, useResume } = this.resolveForkAndResume(effectiveOptions, taskIndex);
 
     this.logger?.logTaskStart(taskIndex, taskType, sessionId);
 
@@ -1257,7 +1279,9 @@ export class StepWise {
       taskLogDir,
       logger: this.logger!,
       taskIndex,
-      taskType
+      taskType,
+      // fork 派生 ID 实时回写：解析到 init session_id 时立即更新 progress，中断后可按派生 ID 恢复
+      onDerivedSessionId: (derivedId) => this.updateInProgressSessionId(taskIndex, taskType, derivedId)
     });
 
     this.writeTaskLogs(taskLogDir, result);
@@ -1331,21 +1355,28 @@ export class StepWise {
     }
 
     // 检查是否有 in_progress 的任务需要重新执行
+    // 历史 sessionId 优先：若 in_progress 记录已有派生 ID（fork 中断），用派生 ID 续传而非重新派生
+    let effectiveOptions = options;
     if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
-      // 恢复 sessionId，确保重新执行时能复用原来的 session
-      const sessionId = this.getTaskSessionId(taskIndex, taskType);
-      if (sessionId) {
-        this.currentSessionId = sessionId;
+      const resumedSessionId = this.getTaskSessionId(taskIndex, taskType);
+      if (resumedSessionId) {
+        this.currentSessionId = resumedSessionId;
       }
       this.cleanupInProgressTask(taskIndex, taskType);
+      // 命中历史：用历史 sessionId 覆盖，并取消 fork（派生已完成，现在是续传）
+      effectiveOptions = {
+        ...options,
+        sessionId: resumedSessionId || options?.sessionId,
+        newSession: false
+      };
     }
 
-    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv, options?.sessionId);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(effectiveOptions?.newSession, effectiveCwd, effectiveEnv, effectiveOptions?.sessionId);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     this._currentTaskLogDir = taskLogDir;
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
     // 解析 fork / useResume：指定 sessionId（含 fork）时强制 useResume，从 sessionId 派生新会话
-    const { fork, useResume } = this.resolveForkAndResume(options, taskIndex);
+    const { fork, useResume } = this.resolveForkAndResume(effectiveOptions, taskIndex);
 
     // 构建完整提示词
     const extraPrompt = this.applyDebugModeHint(
@@ -1372,7 +1403,9 @@ export class StepWise {
       taskLogDir,
       logger: this.logger!,
       taskIndex,
-      taskType
+      taskType,
+      // fork 派生 ID 实时回写：解析到 init session_id 时立即更新 progress，中断后可按派生 ID 恢复
+      onDerivedSessionId: (derivedId) => this.updateInProgressSessionId(taskIndex, taskType, derivedId)
     });
 
     this.writeTaskLogs(taskLogDir, result);
@@ -1472,21 +1505,28 @@ export class StepWise {
     }
 
     // 检查是否有 in_progress 的任务需要重新执行
+    // 历史 sessionId 优先：若 in_progress 记录已有派生 ID（fork 中断），用派生 ID 续传而非重新派生
+    let effectiveOptions = options;
     if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
-      // 恢复 sessionId，确保重新执行时能复用原来的 session
-      const sessionId = this.getTaskSessionId(taskIndex, taskType);
-      if (sessionId) {
-        this.currentSessionId = sessionId;
+      const resumedSessionId = this.getTaskSessionId(taskIndex, taskType);
+      if (resumedSessionId) {
+        this.currentSessionId = resumedSessionId;
       }
       this.cleanupInProgressTask(taskIndex, taskType);
+      // 命中历史：用历史 sessionId 覆盖，并取消 fork（派生已完成，现在是续传）
+      effectiveOptions = {
+        ...options,
+        sessionId: resumedSessionId || options?.sessionId,
+        newSession: false
+      };
     }
 
-    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv, options?.sessionId);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(effectiveOptions?.newSession, effectiveCwd, effectiveEnv, effectiveOptions?.sessionId);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     this._currentTaskLogDir = taskLogDir;
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
     // 解析 fork / useResume：指定 sessionId（含 fork）时强制 useResume，从 sessionId 派生新会话
-    const { fork, useResume } = this.resolveForkAndResume(options, taskIndex);
+    const { fork, useResume } = this.resolveForkAndResume(effectiveOptions, taskIndex);
 
     // 构建完整提示词
     const extraPrompt = buildPostCheckPrompt(outputPath, promptWithAccess, effectiveCwd);
@@ -1509,7 +1549,9 @@ export class StepWise {
       taskLogDir,
       logger: this.logger!,
       taskIndex,
-      taskType
+      taskType,
+      // fork 派生 ID 实时回写：解析到 init session_id 时立即更新 progress，中断后可按派生 ID 恢复
+      onDerivedSessionId: (derivedId) => this.updateInProgressSessionId(taskIndex, taskType, derivedId)
     });
 
     this.writeTaskLogs(taskLogDir, result);
@@ -1604,21 +1646,28 @@ export class StepWise {
     }
 
     // 检查是否有 in_progress 的任务需要重新执行
+    // 历史 sessionId 优先：若 in_progress 记录已有派生 ID（fork 中断），用派生 ID 续传而非重新派生
+    let effectiveOptions = options;
     if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
-      // 恢复 sessionId，确保重新执行时能复用原来的 session
-      const sessionId = this.getTaskSessionId(taskIndex, taskType);
-      if (sessionId) {
-        this.currentSessionId = sessionId;
+      const resumedSessionId = this.getTaskSessionId(taskIndex, taskType);
+      if (resumedSessionId) {
+        this.currentSessionId = resumedSessionId;
       }
       this.cleanupInProgressTask(taskIndex, taskType);
+      // 命中历史：用历史 sessionId 覆盖，并取消 fork（派生已完成，现在是续传）
+      effectiveOptions = {
+        ...options,
+        sessionId: resumedSessionId || options?.sessionId,
+        newSession: false
+      };
     }
 
-    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv, options?.sessionId);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(effectiveOptions?.newSession, effectiveCwd, effectiveEnv, effectiveOptions?.sessionId);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     this._currentTaskLogDir = taskLogDir;
     const outputPath = this.getReportOutputPath(outputFileName);
     // 解析 fork / useResume：指定 sessionId（含 fork）时强制 useResume，从 sessionId 派生新会话
-    const { fork, useResume } = this.resolveForkAndResume(options, taskIndex);
+    const { fork, useResume } = this.resolveForkAndResume(effectiveOptions, taskIndex);
 
     // 构建完整提示词
     const extraPrompt = this.applyDebugModeHint(
@@ -1645,7 +1694,9 @@ export class StepWise {
       taskLogDir,
       logger: this.logger!,
       taskIndex,
-      taskType
+      taskType,
+      // fork 派生 ID 实时回写：解析到 init session_id 时立即更新 progress，中断后可按派生 ID 恢复
+      onDerivedSessionId: (derivedId) => this.updateInProgressSessionId(taskIndex, taskType, derivedId)
     });
 
     this.writeTaskLogs(taskLogDir, result);
@@ -1742,20 +1793,28 @@ export class StepWise {
     }
 
     // 检查是否有 in_progress 的任务需要重新执行
+    // 历史 sessionId 优先：若 in_progress 记录已有派生 ID（fork 中断），用派生 ID 续传而非重新派生
+    let effectiveOptions = options;
     if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
-      const sessionId = this.getTaskSessionId(taskIndex, taskType);
-      if (sessionId) {
-        this.currentSessionId = sessionId;
+      const resumedSessionId = this.getTaskSessionId(taskIndex, taskType);
+      if (resumedSessionId) {
+        this.currentSessionId = resumedSessionId;
       }
       this.cleanupInProgressTask(taskIndex, taskType);
+      // 命中历史：用历史 sessionId 覆盖，并取消 fork（派生已完成，现在是续传）
+      effectiveOptions = {
+        ...options,
+        sessionId: resumedSessionId || options?.sessionId,
+        newSession: false
+      };
     }
 
-    const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv, options?.sessionId);
+    const sessionId = await this.getOrCreateSessionIdWithSummarize(effectiveOptions?.newSession, effectiveCwd, effectiveEnv, effectiveOptions?.sessionId);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     this._currentTaskLogDir = taskLogDir;
     const outputPath = this.getReportOutputPath(outputFile);
     // 解析 fork / useResume：指定 sessionId（含 fork）时强制 useResume，从 sessionId 派生新会话
-    const { fork, useResume } = this.resolveForkAndResume(options, taskIndex);
+    const { fork, useResume } = this.resolveForkAndResume(effectiveOptions, taskIndex);
 
     // 构建完整提示词
     const extraPrompt = buildSchemaPrompt(schema, outputPath, effectiveCwd);
@@ -1779,7 +1838,9 @@ export class StepWise {
       taskLogDir,
       logger: this.logger!,
       taskIndex,
-      taskType
+      taskType,
+      // fork 派生 ID 实时回写：解析到 init session_id 时立即更新 progress，中断后可按派生 ID 恢复
+      onDerivedSessionId: (derivedId) => this.updateInProgressSessionId(taskIndex, taskType, derivedId)
     });
 
     this.writeTaskLogs(taskLogDir, result);

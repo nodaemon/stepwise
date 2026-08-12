@@ -1036,6 +1036,10 @@ interface ExecOptions {
 
 > **sessionId after fork**: fork derives a brand-new session ID. On success, the derived new ID is recorded in `progress.json` and `currentSessionId` (not the original sessionId).
 
+> **Resuming a fork after interruption**: while a fork runs, the derived new ID is written to `progress.json` as soon as it appears in the child process output (the `system/init` block). So even if the fork step is interrupted, `setResumePath` resumes with the derived ID (`--resume <derived-id>`) instead of deriving again. When the resume hits the step's `in_progress` record, the historical derived ID takes precedence over any `sessionId`+`newSession` passed again.
+>
+> **OpenCode limitation**: OpenCode's derived ID is only obtainable after execution completes (via `session list`), not mid-execution. So an interrupted OpenCode fork step will re-derive a new ID on resume (it cannot continue the original derived branch). Claude/CodeAgent are unaffected.
+
 **File Access Restriction**
 
 `allowRead` and `allowWrite` restrict the AI agent's file access scope via prompt constraints.

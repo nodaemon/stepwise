@@ -1036,6 +1036,10 @@ interface ExecOptions {
 
 > **fork 后的 sessionId**：fork 会派生一个新 session ID。执行成功后，派生出的新 ID 会被记录到 `progress.json` 和 `currentSessionId`（而非原 sessionId）。
 
+> **fork 中断恢复**：fork 执行期间，派生的新 ID 一旦从子进程输出（system/init 块）即被实时写入 `progress.json`。因此即使 fork 步骤中断，`setResumePath` 恢复时也会用派生 ID 续传（`--resume <派生ID>`），不会重新派生。恢复命中该步骤的 in_progress 记录时，历史派生 ID 优先于再次传入的 `sessionId`+`newSession`。
+>
+> **OpenCode 限制**：OpenCode 的派生 ID 仅在执行结束后通过 `session list` 可取，无法在执行中途获取。故 OpenCode 的 fork 步骤若中断，恢复时会重新派生新 ID（无法续传原派生分支）。Claude/CodeAgent 不受此限。
+
 **文件访问限制**
 
 `allowRead` 和 `allowWrite` 通过提示词约束限制 AI agent 的文件访问范围。
