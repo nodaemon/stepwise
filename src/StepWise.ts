@@ -1188,9 +1188,10 @@ export class StepWise {
     // 注入文件访问限制提示词
     const promptWithAccess = this.injectFileAccessPrompt(processedPrompt, options);
 
-    // 检查是否需要恢复
-    // 注意：调用者显式指定 sessionId 时跳过历史 sessionId 恢复（指定 sessionId 属于显式接管会话，非断点续传）
-    if (resumePath && !options?.sessionId && this.isTaskCompleted(taskIndex, taskType)) {
+    // 检查是否需要恢复（断点续传）
+    // 即使调用者显式指定了 sessionId，也按历史进度走断点恢复：历史 sessionId 优先，
+    // options.sessionId 仅在新任务（无历史记录）时用于创建会话
+    if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
       // 重要：恢复 sessionId 到 currentSessionId，确保后续任务能复用
       if (sessionId) {
@@ -1207,7 +1208,7 @@ export class StepWise {
     }
 
     // 检查是否有 in_progress 的任务需要重新执行
-    if (resumePath && !options?.sessionId && this.isTaskInProgress(taskIndex, taskType)) {
+    if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
       // 恢复 sessionId，确保重新执行时能复用原来的 session
       const sessionId = this.getTaskSessionId(taskIndex, taskType);
       if (sessionId) {
@@ -1290,9 +1291,10 @@ export class StepWise {
     // 注入文件访问限制提示词
     const promptWithAccess = this.injectFileAccessPrompt(processedPrompt, options);
 
-    // 检查是否需要恢复
-    // 注意：调用者显式指定 sessionId 时跳过历史 sessionId 恢复（指定 sessionId 属于显式接管会话，非断点续传）
-    if (resumePath && !options?.sessionId && this.isTaskCompleted(taskIndex, taskType)) {
+    // 检查是否需要恢复（断点续传）
+    // 即使调用者显式指定了 sessionId，也按历史进度走断点恢复：历史 sessionId 优先，
+    // options.sessionId 仅在新任务（无历史记录）时用于创建会话
+    if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
       if (sessionId) {
         this.currentSessionId = sessionId;
@@ -1311,7 +1313,7 @@ export class StepWise {
     }
 
     // 检查是否有 in_progress 的任务需要重新执行
-    if (resumePath && !options?.sessionId && this.isTaskInProgress(taskIndex, taskType)) {
+    if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
       // 恢复 sessionId，确保重新执行时能复用原来的 session
       const sessionId = this.getTaskSessionId(taskIndex, taskType);
       if (sessionId) {
@@ -1418,9 +1420,10 @@ export class StepWise {
     // 注入文件访问限制提示词
     const promptWithAccess = this.injectFileAccessPrompt(processedPrompt, options);
 
-    // 检查是否需要恢复
-    // 注意：调用者显式指定 sessionId 时跳过历史 sessionId 恢复（指定 sessionId 属于显式接管会话，非断点续传）
-    if (resumePath && !options?.sessionId && this.isTaskCompleted(taskIndex, taskType)) {
+    // 检查是否需要恢复（断点续传）
+    // 即使调用者显式指定了 sessionId，也按历史进度走断点恢复：历史 sessionId 优先，
+    // options.sessionId 仅在新任务（无历史记录）时用于创建会话
+    if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
       // 恢复 sessionId，确保后续任务能复用
       if (sessionId) {
@@ -1450,7 +1453,7 @@ export class StepWise {
     }
 
     // 检查是否有 in_progress 的任务需要重新执行
-    if (resumePath && !options?.sessionId && this.isTaskInProgress(taskIndex, taskType)) {
+    if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
       // 恢复 sessionId，确保重新执行时能复用原来的 session
       const sessionId = this.getTaskSessionId(taskIndex, taskType);
       if (sessionId) {
@@ -1558,9 +1561,10 @@ export class StepWise {
     // 注入文件访问限制提示词
     const promptWithAccess = this.injectFileAccessPrompt(processedPrompt, options);
 
-    // 检查是否需要恢复
-    // 注意：调用者显式指定 sessionId 时跳过历史 sessionId 恢复（指定 sessionId 属于显式接管会话，非断点续传）
-    if (resumePath && !options?.sessionId && this.isTaskCompleted(taskIndex, taskType)) {
+    // 检查是否需要恢复（断点续传）
+    // 即使调用者显式指定了 sessionId，也按历史进度走断点恢复：历史 sessionId 优先，
+    // options.sessionId 仅在新任务（无历史记录）时用于创建会话
+    if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
       // 重要：恢复 sessionId 到 currentSessionId，确保后续任务能复用
       if (sessionId) {
@@ -1580,7 +1584,7 @@ export class StepWise {
     }
 
     // 检查是否有 in_progress 的任务需要重新执行
-    if (resumePath && !options?.sessionId && this.isTaskInProgress(taskIndex, taskType)) {
+    if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
       // 恢复 sessionId，确保重新执行时能复用原来的 session
       const sessionId = this.getTaskSessionId(taskIndex, taskType);
       if (sessionId) {
@@ -1695,9 +1699,10 @@ export class StepWise {
     // 注入文件访问限制提示词
     const promptWithAccess = this.injectFileAccessPrompt(processedPrompt, options);
 
-    // 检查是否需要恢复
-    // 注意：调用者显式指定 sessionId 时跳过历史 sessionId 恢复（指定 sessionId 属于显式接管会话，非断点续传）
-    if (resumePath && !options?.sessionId && this.isTaskCompleted(taskIndex, taskType)) {
+    // 检查是否需要恢复（断点续传）
+    // 即使调用者显式指定了 sessionId，也按历史进度走断点恢复：历史 sessionId 优先，
+    // options.sessionId 仅在新任务（无历史记录）时用于创建会话
+    if (resumePath && this.isTaskCompleted(taskIndex, taskType)) {
       const sessionId = this.getCompletedSessionId(taskIndex, taskType);
       if (sessionId) {
         this.currentSessionId = sessionId;
@@ -1716,7 +1721,7 @@ export class StepWise {
     }
 
     // 检查是否有 in_progress 的任务需要重新执行
-    if (resumePath && !options?.sessionId && this.isTaskInProgress(taskIndex, taskType)) {
+    if (resumePath && this.isTaskInProgress(taskIndex, taskType)) {
       const sessionId = this.getTaskSessionId(taskIndex, taskType);
       if (sessionId) {
         this.currentSessionId = sessionId;
