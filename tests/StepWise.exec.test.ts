@@ -195,13 +195,20 @@ describe('StepWise execPrompt 接口测试', () => {
       expect(opts.sessionId.length).toBeGreaterThan(0);
     });
 
-    it('sessionId 与 newSession:true 同时指定应抛出错误', async () => {
+    it('sessionId 与 newSession:true 同时指定为 fork 语义，不抛错且传 fork=true', async () => {
       setTaskName('TestTask');
       const agent = new StepWise('Agent1');
 
-      await expect(
-        agent.execPrompt('Test task', { sessionId: 'abc-123', newSession: true })
-      ).rejects.toThrow('sessionId 与 newSession:true 不可同时指定');
+      const result = await agent.execPrompt('Test task', { sessionId: 'abc-123', newSession: true });
+
+      // 不抛错，执行成功
+      expect(result.success).toBe(true);
+      const opts = executorModule.getLastExecOptions();
+      // sessionId 与 useResume 保留
+      expect(opts.sessionId).toBe('abc-123');
+      expect(opts.useResume).toBe(true);
+      // fork 标志应传递给 executor
+      expect(opts.fork).toBe(true);
     });
 
     it('sessionId 为空字符串应抛出错误', async () => {

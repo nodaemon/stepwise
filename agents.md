@@ -165,7 +165,7 @@ StepWise.execPrompt(prompt: string, options?: ExecOptions): Promise<ExecutionRes
 **特性**:
 - 支持 `$变量名` 格式的变量替换
 - 支持 `newSession` 控制会话复用
-- 支持 `sessionId` 指定已有会话 ID 直接复用（强制 resume 模式，与 `newSession:true` 互斥）
+- 支持 `sessionId` 指定已有会话 ID 直接复用（强制 resume 模式）；与 `newSession:true` 同时指定时为 fork 语义（从该会话派生新分支）
 - 支持 `checkPrompt` 进行结果验证
 
 ### 功能6: 收集任务 (execCollectPrompt)

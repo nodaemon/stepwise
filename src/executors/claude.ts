@@ -43,13 +43,15 @@ export class ClaudeExecutor extends BaseExecutor {
    * @param sessionId 会话 ID
    * @param isResume 是否使用恢复模式
    * @param debugFile debug 日志文件路径（可选）
+   * @param fork 是否 fork 模式（从 sessionId 派生新会话，原会话保留）
    * @returns 命令行参数数组
    */
   protected buildArgs(
     prompt: string,
     sessionId: string,
     isResume: boolean,
-    debugFile?: string
+    debugFile?: string,
+    fork?: boolean
   ): string[] {
     const args: string[] = [];
 
@@ -68,6 +70,11 @@ export class ClaudeExecutor extends BaseExecutor {
     if (isResume) {
       // 恢复已有会话
       args.push('--resume', sessionId);
+      // fork 模式：在 resume 时派生新 session ID（原会话保留，新会话独立）
+      // --fork-session 必须配合 --resume 使用
+      if (fork) {
+        args.push('--fork-session');
+      }
     } else {
       // 创建新会话
       args.push('--session-id', sessionId);

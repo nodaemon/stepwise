@@ -420,7 +420,7 @@ Executes a normal task.
 interface ExecOptions {
   cwd?: string;              // Working directory, defaults to current process directory
   newSession?: boolean;      // Whether to use a new session, defaults to false
-  sessionId?: string;        // Specify an existing session ID to reuse (forces resume mode)
+  sessionId?: string;        // Specify an existing session ID to reuse (forces resume mode); with newSession:true this means fork
   data?: Record<string, any>; // Data for variable substitution
   postCheckPrompt?: string;  // Check prompt to execute after main task completes
   env?: string[];            // Additional environment variables, format: "KEY=VALUE"
@@ -1015,7 +1015,7 @@ Execution options.
 interface ExecOptions {
   cwd?: string;              // Working directory
   newSession?: boolean;      // Whether to use a new session (default: false)
-  sessionId?: string;        // Specify an existing session ID to reuse (forces resume mode)
+  sessionId?: string;        // Specify an existing session ID to reuse (forces resume mode); with newSession:true this means fork
   data?: Record<string, any>; // Data for variable substitution
   postCheckPrompt?: string;  // Check prompt to execute after main task completes
   env?: string[];            // Additional environment variables, format: "KEY=VALUE"
@@ -1030,9 +1030,11 @@ interface ExecOptions {
 `sessionId` lets you explicitly reuse a known session ID instead of the framework generating one or reusing the previous task's ID. This is useful when resuming a session across StepWise instances or processes.
 
 - When specified, the agent runs in resume mode (`--resume <sessionId>`) — treated as resuming an existing session
-- Mutually exclusive with `newSession: true` (throws an error if both are set)
+- When specified together with `newSession: true`, this is **fork semantics**: a new session is derived from the given sessionId (the original is preserved, the new one runs independently). Under the hood this uses `--resume <sessionId> --fork-session` (Claude/CodeAgent) or `--session <sessionId> --fork` (OpenCode)
 - Cannot be an empty string
 - When not specified, behavior is unchanged (reuse previous session or generate a new one per `newSession`)
+
+> **sessionId after fork**: fork derives a brand-new session ID. On success, the derived new ID is recorded in `progress.json` and `currentSessionId` (not the original sessionId).
 
 **File Access Restriction**
 

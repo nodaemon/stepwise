@@ -178,6 +178,31 @@ await agent.execCollectPrompt('Step 2: Collect data', fmt);  // Skipped
 await agent.execPrompt('Step 3: Process item $name', { data: { name: 'item1' } }); // Resume here
 ```
 
+### Example 7: Session Fork (Branch a Conversation)
+
+When you specify both `sessionId` and `newSession: true`, StepWise **forks** the session: it resumes from the given `sessionId` but derives a brand-new session ID, leaving the original session untouched. This lets you explore an alternative path without losing the original conversation.
+
+```typescript
+const agent = new StepWise('ForkAgent');
+
+// Reuse a specific existing session
+await agent.execPrompt('Implement feature A', { sessionId: 'orig-session-uuid' });
+
+// Later: fork from that session to explore an alternative approach
+// The original session is preserved; a new derived session runs this task
+await agent.execPrompt('Try a different implementation approach', {
+  sessionId: 'orig-session-uuid',
+  newSession: true   // ← fork semantics: branch off from orig-session-uuid
+});
+
+// Under the hood (Claude/CodeAgent):
+//   claude --resume orig-session-uuid --fork-session -p "..."
+// Under the hood (OpenCode):
+//   opencode run --thinking --session ses_xxx --fork "..."
+```
+
+> **Note**: `fork` only takes effect when both `sessionId` and `newSession: true` are set. Passing `newSession: true` alone creates a fresh new session (and summarizes the previous one); passing `sessionId` alone resumes that session. Fork derives a new session **from** the specified one. After a fork, the derived new session ID is recorded in `progress.json` and `currentSessionId`.
+
 ---
 
 ## Core Features
@@ -254,6 +279,7 @@ StepWise implements step control through task sequence numbers and progress pers
 1. **Task Sequence Number**: Each step has a unique number, auto-incremented
 2. **Progress Persistence**: Execution state saved to `progress.json`
 3. **Session Reuse**: Uses `--resume` mode to maintain context continuity
+4. **Session Fork**: Specifying both `sessionId` and `newSession: true` branches off a new session from the given one (`--fork-session` / `--fork`), preserving the original
 
 ### Data Validation Mechanism
 
@@ -283,14 +309,19 @@ StepWise works with AI coding assistants through their headless mode with sessio
 # Claude Code example
 claude --dangerously-skip-permissions --session-id <uuid> -p "your prompt"
 claude --dangerously-skip-permissions --resume <session-id> -p "your prompt"
+# Fork: resume from <session-id> but create a new branch session (original preserved)
+claude --dangerously-skip-permissions --resume <session-id> --fork-session -p "your prompt"
 
 # CodeAgent example (command-line args identical to Claude Code, only the executable name differs)
 codeagent --dangerously-skip-permissions --session-id <uuid> -p "your prompt"
 codeagent --dangerously-skip-permissions --resume <session-id> -p "your prompt"
+codeagent --dangerously-skip-permissions --resume <session-id> --fork-session -p "your prompt"
 
 # OpenCode example
 opencode run --thinking --session <uuid> "your prompt"
 # OpenCode auto-detects new vs resume session
+# Fork: branch off from <uuid> into a new session (original preserved)
+opencode run --thinking --session <uuid> --fork "your prompt"
 ```
 
 > **OpenCode Permission Configuration**: When using OpenCode, you need to add `"permission": "allow"` to the `opencode.json` config file in the project root directory to skip interactive permission confirmations. For more details, see [OpenCode Permissions](https://opencode.ai/docs/permissions/).

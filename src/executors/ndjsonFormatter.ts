@@ -17,6 +17,8 @@ export interface ParsedNDJsonResult {
   parsedSuccessfully: boolean;
   /** 解析过程中的警告/错误 */
   parseErrors: string[];
+  /** 从 system/init 块提取的 session_id（fork 模式下为派生的新 ID） */
+  sessionId: string | null;
 }
 
 /** 工具输入参数截断阈值 */
@@ -112,6 +114,7 @@ export function parseAndFormatNDJson(rawStdout: string): ParsedNDJsonResult {
   const transcriptLines: string[] = [];
   let finalResultText = '';
   let lastAssistantText = '';
+  let sessionId: string | null = null;
   let parsedAnyLine = false;
   const parseErrors: string[] = [];
 
@@ -138,6 +141,10 @@ export function parseAndFormatNDJson(rawStdout: string): ParsedNDJsonResult {
       lastAssistantText = result.assistantText;
       parsedAnyLine = true;
     }
+    // 记录首个 init 块的 session_id（fork 模式下为派生的新 ID）
+    if (result.sessionId && !sessionId) {
+      sessionId = result.sessionId;
+    }
   }
 
   return {
@@ -145,7 +152,8 @@ export function parseAndFormatNDJson(rawStdout: string): ParsedNDJsonResult {
     lastAssistantText,
     formattedTranscript: transcriptLines.join('\n'),
     parsedSuccessfully: parsedAnyLine,
-    parseErrors
+    parseErrors,
+    sessionId
   };
 }
 
@@ -159,6 +167,8 @@ export interface NDJsonLineResult {
   finalResultText: string | null;
   /** 如果是 assistant text 类型，提取的文本 */
   assistantText: string | null;
+  /** 从 system/init 块提取的 session_id（fork 模式下为派生的新 ID） */
+  sessionId: string | null;
   /** JSON 是否解析成功（用于区分"解析失败"和"解析成功但无需格式化"） */
   isJsonParsed: boolean;
 }
@@ -173,19 +183,20 @@ export interface NDJsonLineResult {
 export function formatNDJsonLine(line: string): NDJsonLineResult {
   const trimmed = line.trim();
   if (!trimmed) {
-    return { formatted: null, finalResultText: null, assistantText: null, isJsonParsed: false };
+    return { formatted: null, finalResultText: null, assistantText: null, sessionId: null, isJsonParsed: false };
   }
 
   let parsed: any;
   try {
     parsed = JSON.parse(trimmed);
   } catch {
-    return { formatted: null, finalResultText: null, assistantText: null, isJsonParsed: false };
+    return { formatted: null, finalResultText: null, assistantText: null, sessionId: null, isJsonParsed: false };
   }
 
   const lines: string[] = [];
   let finalResultText: string | null = null;
   let assistantText: string | null = null;
+  let sessionId: string | null = null;
 
   switch (parsed.type) {
     case 'system': {
@@ -194,7 +205,10 @@ export function formatNDJsonLine(line: string): NDJsonLineResult {
         case 'init':
           lines.push('--- Session Init ---');
           if (parsed.model) lines.push(`Model: ${parsed.model}`);
-          if (parsed.session_id) lines.push(`Session: ${parsed.session_id}`);
+          if (parsed.session_id) {
+            lines.push(`Session: ${parsed.session_id}`);
+            sessionId = parsed.session_id;  // 提取 session_id（fork 模式下为派生的新 ID）
+          }
           if (parsed.cwd) lines.push(`CWD: ${parsed.cwd}`);
           lines.push('');
           break;
@@ -381,6 +395,7 @@ export function formatNDJsonLine(line: string): NDJsonLineResult {
     formatted: lines.length > 0 ? lines.join('\n') : null,
     finalResultText,
     assistantText,
+    sessionId,
     isJsonParsed: true
   };
 }
