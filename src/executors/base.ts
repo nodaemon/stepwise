@@ -36,7 +36,8 @@ export abstract class BaseExecutor implements AgentExecutor {
     prompt: string,
     sessionId: string,
     isResume: boolean,
-    debugFile?: string
+    debugFile?: string,
+    fork?: boolean
   ): string[];
 
   /** 子类必须实现：返回 CLI 命令名称 */
@@ -147,21 +148,25 @@ export abstract class BaseExecutor implements AgentExecutor {
             continue;
           }
 
-          // 尝试获取 sessionId（OpenCode 通过 session list 获取）
-          const parsedSessionId = await this.getSessionIdAfterExecution();
-          if (parsedSessionId) {
-            sessionId = parsedSessionId;
-          }
-
           const duration = Date.now() - startTime;
 
           // 解析 NDJSON 提取最终结果文本（用于 output.txt）
           // verbose_output.txt 已由 runCommand() 实时写入
+          // 同时从 system/init 块提取 session_id：fork 模式下为派生的新 ID
           const parsed = parseAndFormatNDJson(result.stdout);
           const isNDJson = parsed.parsedSuccessfully && parsed.finalResultText;
           const outputText = isNDJson
             ? parsed.finalResultText
             : result.stdout;
+
+          // 尝试获取 sessionId（OpenCode 通过 session list 获取）
+          const parsedSessionId = await this.getSessionIdAfterExecution();
+          if (parsedSessionId) {
+            sessionId = parsedSessionId;
+          } else if (parsed.sessionId) {
+            // Claude/CodeAgent：从 NDJSON init 块提取（fork 后为新派生的 ID）
+            sessionId = parsed.sessionId;
+          }
 
           return {
             sessionId,
@@ -270,7 +275,7 @@ export abstract class BaseExecutor implements AgentExecutor {
     const debugFile = taskLogDir ? path.join(taskLogDir, 'debug.log') : undefined;
 
     // 构建命令参数（由子类实现）
-    const args = this.buildArgs(prompt, sessionId, options.useResume === true, debugFile);
+    const args = this.buildArgs(prompt, sessionId, options.useResume === true, debugFile, options.fork === true);
     const command = this.getCommand();
     const fullCommand = this.buildCommandString(command, args);
 

@@ -34,8 +34,9 @@ export interface ExecOptions {
    * 指定会话 ID（可选）
    * - 指定后直接使用该 sessionId 执行，而非复用上一个任务的 session id
    * - 指定 sessionId 即视为恢复已存在的会话，强制使用 resume 模式（--resume）
-   * - 与 newSession: true 互斥，同时指定会抛出错误
-   * - 适用场景：跨 StepWise 实例或跨进程复用某个已知会话
+   * - 与 newSession: true 同时指定时为 fork 语义：从该 sessionId 派生新会话（原会话保留），
+   *   底层用 --resume <sessionId> --fork-session（Claude/CodeAgent）或 --session <sessionId> --fork（OpenCode）
+   * - 适用场景：跨 StepWise 实例或跨进程复用某个已知会话，或从某个会话派生分支
    */
   sessionId?: string;
   /**

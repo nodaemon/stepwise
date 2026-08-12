@@ -403,14 +403,30 @@ export class StepWise {
   }
 
   /**
+   * 解析 fork 与 useResume 标志
+   * - fork：sessionId 与 newSession 同时指定时，从 sessionId 派生新会话（原会话保留）
+   * - useResume：指定 sessionId（含 fork）时强制 true（恢复/派生都需 --resume）；
+   *   否则按 newSession + 历史任务判断
+   *
+   * 抽取此方法以避免 5 个执行入口重复计算并漏改。
+   */
+  private resolveForkAndResume(
+    options: { sessionId?: string; newSession?: boolean } | undefined,
+    taskIndex: number
+  ): { fork: boolean; useResume: boolean } {
+    const fork = !!(options?.sessionId && options.newSession);
+    const useResume = options?.sessionId
+      ? true
+      : this.shouldUseResume(taskIndex, options?.newSession);
+    return { fork, useResume };
+  }
+
+  /**
    * 校验 sessionId 选项的合法性
-   * - sessionId 与 newSession:true 互斥（前者复用已有会话，后者创建新会话）
+   * - sessionId 与 newSession:true 同时指定时为 fork 语义（从 sessionId 派生新会话）
    * - sessionId 不能为空字符串
    */
   private validateSessionIdOption(options?: ExecOptions): void {
-    if (options?.sessionId && options.newSession) {
-      throw new Error('[StepWise] sessionId 与 newSession:true 不可同时指定：sessionId 用于复用已有会话，newSession 用于创建新会话，语义冲突');
-    }
     if (options?.sessionId !== undefined && options.sessionId.trim() === '') {
       throw new Error('[StepWise] sessionId 不能为空字符串');
     }
@@ -424,7 +440,8 @@ export class StepWise {
    * @param cwd 工作目录（用于总结时的日志目录计算）
    * @param env 环境变量（用于总结执行）
    * @param sessionId 调用者显式指定的会话 ID（可选）
-   *   - 指定后直接使用该 ID，跳过新 UUID 生成；互斥已保证 newSession 非 true
+   *   - 指定后直接使用该 ID，跳过新 UUID 生成，也不触发总结（复用已有会话）
+   *   - 与 newSession 同时指定时为 fork 语义，由入口处计算 fork 标志传入 executor
    */
   private async getOrCreateSessionIdWithSummarize(
     newSession?: boolean,
@@ -1219,8 +1236,8 @@ export class StepWise {
     const sessionId = await this.getOrCreateSessionIdWithSummarize(options?.newSession, effectiveCwd, effectiveEnv, options?.sessionId);
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     this._currentTaskLogDir = taskLogDir;
-    // 指定 sessionId 即视为恢复已存在会话，强制 useResume；否则按 newSession + 历史任务判断
-    const useResume = options?.sessionId ? true : this.shouldUseResume(taskIndex, options?.newSession);
+    // 解析 fork / useResume：指定 sessionId（含 fork）时强制 useResume，从 sessionId 派生新会话
+    const { fork, useResume } = this.resolveForkAndResume(options, taskIndex);
 
     this.logger?.logTaskStart(taskIndex, taskType, sessionId);
 
@@ -1235,6 +1252,7 @@ export class StepWise {
       env: effectiveEnv,
       sessionId: sessionId,
       useResume,
+      fork,
       taskLogDir,
       logger: this.logger!,
       taskIndex,
@@ -1324,8 +1342,8 @@ export class StepWise {
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     this._currentTaskLogDir = taskLogDir;
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
-    // 指定 sessionId 即视为恢复已存在会话，强制 useResume；否则按 newSession + 历史任务判断
-    const useResume = options?.sessionId ? true : this.shouldUseResume(taskIndex, options?.newSession);
+    // 解析 fork / useResume：指定 sessionId（含 fork）时强制 useResume，从 sessionId 派生新会话
+    const { fork, useResume } = this.resolveForkAndResume(options, taskIndex);
 
     // 构建完整提示词
     const extraPrompt = this.applyDebugModeHint(
@@ -1348,6 +1366,7 @@ export class StepWise {
       env: effectiveEnv,
       sessionId: sessionId,
       useResume,
+      fork,
       taskLogDir,
       logger: this.logger!,
       taskIndex,
@@ -1463,8 +1482,8 @@ export class StepWise {
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     this._currentTaskLogDir = taskLogDir;
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
-    // 指定 sessionId 即视为恢复已存在会话，强制 useResume；否则按 newSession + 历史任务判断
-    const useResume = options?.sessionId ? true : this.shouldUseResume(taskIndex, options?.newSession);
+    // 解析 fork / useResume：指定 sessionId（含 fork）时强制 useResume，从 sessionId 派生新会话
+    const { fork, useResume } = this.resolveForkAndResume(options, taskIndex);
 
     // 构建完整提示词
     const extraPrompt = buildPostCheckPrompt(outputPath, promptWithAccess, effectiveCwd);
@@ -1483,6 +1502,7 @@ export class StepWise {
       env: effectiveEnv,
       sessionId: sessionId,
       useResume,
+      fork,
       taskLogDir,
       logger: this.logger!,
       taskIndex,
@@ -1593,8 +1613,8 @@ export class StepWise {
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     this._currentTaskLogDir = taskLogDir;
     const outputPath = this.getReportOutputPath(outputFileName);
-    // 指定 sessionId 即视为恢复已存在会话，强制 useResume；否则按 newSession + 历史任务判断
-    const useResume = options?.sessionId ? true : this.shouldUseResume(taskIndex, options?.newSession);
+    // 解析 fork / useResume：指定 sessionId（含 fork）时强制 useResume，从 sessionId 派生新会话
+    const { fork, useResume } = this.resolveForkAndResume(options, taskIndex);
 
     // 构建完整提示词
     const extraPrompt = this.applyDebugModeHint(
@@ -1617,6 +1637,7 @@ export class StepWise {
       env: effectiveEnv,
       sessionId: sessionId,
       useResume,
+      fork,
       taskLogDir,
       logger: this.logger!,
       taskIndex,
@@ -1728,8 +1749,8 @@ export class StepWise {
     const taskLogDir = this.createTaskLogDir(taskIndex, taskType);
     this._currentTaskLogDir = taskLogDir;
     const outputPath = this.getReportOutputPath(outputFile);
-    // 指定 sessionId 即视为恢复已存在会话，强制 useResume；否则按 newSession + 历史任务判断
-    const useResume = options?.sessionId ? true : this.shouldUseResume(taskIndex, options?.newSession);
+    // 解析 fork / useResume：指定 sessionId（含 fork）时强制 useResume，从 sessionId 派生新会话
+    const { fork, useResume } = this.resolveForkAndResume(options, taskIndex);
 
     // 构建完整提示词
     const extraPrompt = buildSchemaPrompt(schema, outputPath, effectiveCwd);
@@ -1749,6 +1770,7 @@ export class StepWise {
       env: effectiveEnv,
       sessionId: sessionId,
       useResume,
+      fork,
       taskLogDir,
       logger: this.logger!,
       taskIndex,

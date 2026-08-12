@@ -178,6 +178,31 @@ await agent.execCollectPrompt('步骤 2: 收集数据', fmt);  // 跳过
 await agent.execPrompt('步骤 3: 处理项目 $name', { data: { name: 'item1' } }); // 从这里继续
 ```
 
+### 示例 7：会话分岔（Fork，从已有会话派生分支）
+
+当同时指定 `sessionId` 和 `newSession: true` 时，StepWise 会**分岔**会话：从指定 `sessionId` 恢复，但派生一个全新的 session ID，原会话保持不变。这样可以在不丢失原对话的情况下探索替代方案。
+
+```typescript
+const agent = new StepWise('ForkAgent');
+
+// 复用一个已有的指定会话
+await agent.execPrompt('实现功能 A', { sessionId: 'orig-session-uuid' });
+
+// 之后：从该会话分岔，探索另一种实现思路
+// 原会话保留；派生出的新会话执行本任务
+await agent.execPrompt('尝试另一种实现思路', {
+  sessionId: 'orig-session-uuid',
+  newSession: true   // ← fork 语义：从 orig-session-uuid 派生分支
+});
+
+// 实际执行的命令（Claude/CodeAgent）：
+//   claude --resume orig-session-uuid --fork-session -p "..."
+// 实际执行的命令（OpenCode）：
+//   opencode run --thinking --session ses_xxx --fork "..."
+```
+
+> **注意**：仅当 `sessionId` 与 `newSession: true` 同时指定时才触发 fork。单独传 `newSession: true` 会创建全新会话（并总结前一会话）；单独传 `sessionId` 会恢复该会话。fork 是**从**指定会话派生新会话。fork 后，派生出的新 session ID 会被记录到 `progress.json` 和 `currentSessionId`。
+
 ---
 
 ## 核心特性
@@ -254,6 +279,7 @@ StepWise 通过任务序号和进度持久化实现步骤控制：
 1. **任务序号**：每个步骤有唯一序号，自动递增
 2. **进度持久化**：执行状态保存到 `progress.json`
 3. **Session 复用**：使用 `--resume` 模式保持上下文连续性
+4. **Session 分岔**：同时指定 `sessionId` 与 `newSession: true` 时，从指定会话派生新分支（`--fork-session` / `--fork`），原会话保留
 
 ### 数据校验机制
 
@@ -283,14 +309,19 @@ StepWise 通过 AI 编程助手的 headless 模式工作，支持 Session 复用
 # Claude Code 示例
 claude --dangerously-skip-permissions --session-id <uuid> -p "你的提示词"
 claude --dangerously-skip-permissions --resume <session-id> -p "你的提示词"
+# 分岔：从 <session-id> 恢复但派生新会话（原会话保留）
+claude --dangerously-skip-permissions --resume <session-id> --fork-session -p "你的提示词"
 
 # CodeAgent 示例（命令行参数与 Claude Code 完全一致，仅可执行程序名不同）
 codeagent --dangerously-skip-permissions --session-id <uuid> -p "你的提示词"
 codeagent --dangerously-skip-permissions --resume <session-id> -p "你的提示词"
+codeagent --dangerously-skip-permissions --resume <session-id> --fork-session -p "你的提示词"
 
 # OpenCode 示例
 opencode run --thinking --session <uuid> "你的提示词"
 # OpenCode 自动判断新会话还是恢复会话
+# 分岔：从 <uuid> 派生新会话分支（原会话保留）
+opencode run --thinking --session <uuid> --fork "你的提示词"
 ```
 
 > **OpenCode 权限配置**：使用 OpenCode 时，需要在项目根目录的 `opencode.json` 配置文件中添加 `"permission": "allow"`，以跳过交互式权限确认。详情参见 [OpenCode 权限文档](https://opencode.ai/docs/zh-cn/permissions/)。

@@ -420,7 +420,7 @@ const agent4 = new StepWise(
 interface ExecOptions {
   cwd?: string;              // 工作目录，默认当前进程目录
   newSession?: boolean;      // 是否使用新会话，默认 false（复用上一个会话）
-  sessionId?: string;        // 指定已有会话 ID 直接复用（强制使用 resume 模式）
+  sessionId?: string;        // 指定已有会话 ID 直接复用（强制 resume 模式）；与 newSession:true 同时指定为 fork 语义
   data?: Record<string, any>; // 变量替换数据
   postCheckPrompt?: string;  // 主任务完成后执行的检查提示词
   env?: string[];            // 额外的环境变量数组，格式为 "KEY=VALUE"
@@ -1015,7 +1015,7 @@ type AgentType = 'claude' | 'opencode' | 'codeagent';
 interface ExecOptions {
   cwd?: string;              // 工作目录
   newSession?: boolean;      // 是否使用新会话（默认: false）
-  sessionId?: string;        // 指定已有会话 ID 直接复用（强制使用 resume 模式）
+  sessionId?: string;        // 指定已有会话 ID 直接复用（强制 resume 模式）；与 newSession:true 同时指定为 fork 语义
   data?: Record<string, any>; // 变量替换数据
   postCheckPrompt?: string;  // 主任务完成后执行的检查提示词
   env?: string[];            // 额外的环境变量数组，格式为 "KEY=VALUE"
@@ -1030,9 +1030,11 @@ interface ExecOptions {
 `sessionId` 允许显式复用一个已知的会话 ID，而非由框架生成或复用上一个任务的 ID。适用于跨 StepWise 实例或跨进程恢复某个会话的场景。
 
 - 指定后，agent 以 resume 模式执行（`--resume <sessionId>`），即视为恢复一个已存在的会话
-- 与 `newSession: true` 互斥，同时指定会抛出错误
+- 与 `newSession: true` 同时指定时为 **fork 语义**：从指定 sessionId 派生一个新会话（原会话保留，新会话独立），底层用 `--resume <sessionId> --fork-session`（Claude/CodeAgent）或 `--session <sessionId> --fork`（OpenCode）
 - 不能为空字符串
 - 不指定时行为不变（按 `newSession` 复用上一个会话或创建新会话）
+
+> **fork 后的 sessionId**：fork 会派生一个新 session ID。执行成功后，派生出的新 ID 会被记录到 `progress.json` 和 `currentSessionId`（而非原 sessionId）。
 
 **文件访问限制**
 

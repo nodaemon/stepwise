@@ -28,6 +28,14 @@ export interface AgentExecutorOptions {
    */
   useResume?: boolean;
 
+  /**
+   * fork 模式：从 sessionId 派生新会话（原会话保留，新会话独立继续）
+   * - Claude/CodeAgent：拼装 --resume <sessionId> --fork-session
+   * - OpenCode：拼装 --session <sessionId> --fork
+   * - 仅当 sessionId 与 newSession 同时指定时由 StepWise 置为 true
+   */
+  fork?: boolean;
+
   /** 任务日志目录，用于保存执行日志 */
   taskLogDir?: string;
 

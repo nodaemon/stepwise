@@ -53,21 +53,32 @@ export class OpenCodeExecutor extends BaseExecutor {
 
   /**
    * 构建命令行参数
+   *
+   * @param fork 是否 fork 模式（从 sessionId 派生新会话，原会话保留）
    */
   protected buildArgs(
     prompt: string,
     sessionId: string,
     isResume: boolean,
-    debugFile?: string
+    debugFile?: string,
+    fork?: boolean
   ): string[] {
     const args: string[] = [];
 
     args.push('run');
     args.push('--thinking');
 
-    // 仅当是 OpenCode 格式时才传入 --session
+    // 仅当是 OpenCode 格式（ses_ 前缀）时才传入 --session
     if (this.isOpenCodeSessionId(sessionId)) {
       args.push('--session', sessionId);
+      // fork 模式：在 continue 时派生新会话（原会话保留，新会话独立）
+      // --fork 必须配合 --session（或 --continue）使用
+      if (fork) {
+        args.push('--fork');
+      }
+    } else if (fork) {
+      // sessionId 非 ses_ 格式：--session 与 --fork 均无法附加，fork 将不生效
+      console.warn(`[OpenCode] sessionId "${sessionId}" 非 ses_ 格式，无法附加 --fork，fork 模式被忽略`);
     }
 
     args.push(prompt);
