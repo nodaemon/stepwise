@@ -27,6 +27,7 @@ import {
   saveJsonFile,
   loadJsonFile
 } from './utils/fileHelper';
+import { linkCrossCwdSession, isLocalSession } from './utils/sessionLinker';
 import {
   validateJsonArray,
   validateJsonObject,
@@ -98,10 +99,12 @@ export class StepWise {
   private defaultEnv?: string[];
   /** Worker 标识（用于 forEachParallel 并发处理） */
   private workerId?: string;
+  /** 主仓库 cwd（forEachParallel 场景用于跨 worktree session 软链；非并行时为空） */
+  private mainCwd?: string;
   /** 当前任务的日志目录（用于性能统计） */
   private _currentTaskLogDir: string = '';
 
-  constructor(name: string, defaultCwd?: string, defaultEnv?: string[], workerId?: string) {
+  constructor(name: string, defaultCwd?: string, defaultEnv?: string[], workerId?: string, mainCwd?: string) {
     // 检查 TaskName 是否设置
     const taskName = _getTaskName();
     if (!taskName) {
@@ -117,6 +120,7 @@ export class StepWise {
     this.defaultCwd = defaultCwd;
     this.defaultEnv = defaultEnv;
     this.workerId = workerId;
+    this.mainCwd = mainCwd;
     this.executor = createExecutor();
     this.shellExecutor = new ShellExecutor();
 
@@ -419,6 +423,44 @@ export class StepWise {
       ? true
       : this.shouldUseResume(taskIndex, options?.newSession);
     return { fork, useResume };
+  }
+
+  /**
+   * 并行 worktree 场景下的跨目录 session 处理
+   * Claude/CodeAgent session 按 cwd 隔离，worktree cwd 与主仓库不同 → 显式 sessionId 跨目录失败。
+   *
+   * 判断 sessionId 是否"本地"：worktree 自己的 projects 目录里已有该 sessionId 的实体文件（非软链）
+   * → 本地会话（worker 之前在本 worktree 创建/派生的），resume 同 cwd，无需任何跨目录处理。
+   * 否则视为来自主仓库或其他目录（跨目录）：
+   * - fork（只读原会话派生新会话）：软链主仓库 session 文件到 worktree projects 目录，安全
+   * - 纯 resume（共享写）：报错，并发写有风险
+   *
+   * 注意用实际使用的 sessionId（含 in_progress 恢复取的历史/派生 ID）判断，而非用户原始 options.sessionId。
+   * 非并行场景（无 workerId）不做任何处理。
+   */
+  private handleParallelCrossCwdSession(
+    fork: boolean,
+    effectiveCwd: string | undefined,
+    sessionId: string
+  ): void {
+    if (!this.workerId || !this.mainCwd || !effectiveCwd) return;  // 非并行场景或缺 cwd
+    if (!sessionId) return;  // 无 sessionId（默认场景），worktree 内自建
+
+    // 本地会话：worktree 自己的 projects 目录已有实体文件 → 同 cwd resume，无需处理
+    if (isLocalSession(effectiveCwd, sessionId)) return;
+
+    // 跨目录会话：
+    if (fork) {
+      // fork 只读原会话，软链主仓库 session 到 worktree 目录
+      linkCrossCwdSession(this.mainCwd, effectiveCwd, sessionId);
+    } else {
+      // 纯 resume 跨目录：共享写并发风险，报错
+      throw new Error(
+        `[StepWise] 并行 worktree 下不能直接复用其他目录的 session（sessionId=${sessionId}）。` +
+        `Claude session 按 cwd 隔离，worktree（${effectiveCwd}）与主仓库（${this.mainCwd}）不同目录无法 resume。` +
+        `请改用 fork（sessionId + newSession:true）派生新会话，或去掉 sessionId 让 worker 在本 worktree 内独立会话。`
+      );
+    }
   }
 
   /**
@@ -1262,6 +1304,9 @@ export class StepWise {
     // 解析 fork / useResume：指定 sessionId（含 fork）时强制 useResume，从 sessionId 派生新会话
     const { fork, useResume } = this.resolveForkAndResume(effectiveOptions, taskIndex);
 
+    // 并行 worktree 场景：跨目录 session 处理（fork 软链 / 纯 sessionId 报错）
+    this.handleParallelCrossCwdSession(fork, effectiveCwd, sessionId);
+
     this.logger?.logTaskStart(taskIndex, taskType, sessionId);
 
     if (taskLogDir) {
@@ -1377,6 +1422,9 @@ export class StepWise {
     const outputPath = this.getCollectOutputPath(taskIndex, taskType, outputFileName);
     // 解析 fork / useResume：指定 sessionId（含 fork）时强制 useResume，从 sessionId 派生新会话
     const { fork, useResume } = this.resolveForkAndResume(effectiveOptions, taskIndex);
+
+    // 并行 worktree 场景：跨目录 session 处理（fork 软链 / 纯 sessionId 报错）
+    this.handleParallelCrossCwdSession(fork, effectiveCwd, sessionId);
 
     // 构建完整提示词
     const extraPrompt = this.applyDebugModeHint(
@@ -1528,6 +1576,9 @@ export class StepWise {
     // 解析 fork / useResume：指定 sessionId（含 fork）时强制 useResume，从 sessionId 派生新会话
     const { fork, useResume } = this.resolveForkAndResume(effectiveOptions, taskIndex);
 
+    // 并行 worktree 场景：跨目录 session 处理（fork 软链 / 纯 sessionId 报错）
+    this.handleParallelCrossCwdSession(fork, effectiveCwd, sessionId);
+
     // 构建完整提示词
     const extraPrompt = buildPostCheckPrompt(outputPath, promptWithAccess, effectiveCwd);
     const fullPrompt = buildFullPrompt(promptWithAccess, extraPrompt);
@@ -1668,6 +1719,9 @@ export class StepWise {
     const outputPath = this.getReportOutputPath(outputFileName);
     // 解析 fork / useResume：指定 sessionId（含 fork）时强制 useResume，从 sessionId 派生新会话
     const { fork, useResume } = this.resolveForkAndResume(effectiveOptions, taskIndex);
+
+    // 并行 worktree 场景：跨目录 session 处理（fork 软链 / 纯 sessionId 报错）
+    this.handleParallelCrossCwdSession(fork, effectiveCwd, sessionId);
 
     // 构建完整提示词
     const extraPrompt = this.applyDebugModeHint(
@@ -1815,6 +1869,9 @@ export class StepWise {
     const outputPath = this.getReportOutputPath(outputFile);
     // 解析 fork / useResume：指定 sessionId（含 fork）时强制 useResume，从 sessionId 派生新会话
     const { fork, useResume } = this.resolveForkAndResume(effectiveOptions, taskIndex);
+
+    // 并行 worktree 场景：跨目录 session 处理（fork 软链 / 纯 sessionId 报错）
+    this.handleParallelCrossCwdSession(fork, effectiveCwd, sessionId);
 
     // 构建完整提示词
     const extraPrompt = buildSchemaPrompt(schema, outputPath, effectiveCwd);

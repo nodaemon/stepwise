@@ -364,7 +364,7 @@ export async function forEachParallel<T>(
         if (state.workerId === workerId && state.status === 'in_progress') {
           console.log(`[forEachParallel] Worker ${workerId} 恢复任务 ${index}`);
 
-          const stepWise = new StepWise(String(index), workspacePath, workerConfig.env, workerId);
+          const stepWise = new StepWise(String(index), workspacePath, workerConfig.env, workerId, effectiveCwd);
           const context: WorkerContext<T> = {
             item: items[index],
             index,
@@ -431,7 +431,7 @@ export async function forEachParallel<T>(
       }
 
       const item = items[currentIndex];
-      const stepWise = new StepWise(String(currentIndex), workspacePath, workerConfig.env, workerId);
+      const stepWise = new StepWise(String(currentIndex), workspacePath, workerConfig.env, workerId, effectiveCwd);
 
       const context: WorkerContext<T> = {
         item,
