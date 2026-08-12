@@ -178,30 +178,66 @@ await agent.execCollectPrompt('Step 2: Collect data', fmt);  // Skipped
 await agent.execPrompt('Step 3: Process item $name', { data: { name: 'item1' } }); // Resume here
 ```
 
-### Example 7: Session Fork (Branch a Conversation)
+### Example 7: Session Management
 
-When you specify both `sessionId` and `newSession: true`, StepWise **forks** the session: it resumes from the given `sessionId` but derives a brand-new session ID, leaving the original session untouched. This lets you explore an alternative path without losing the original conversation.
+StepWise gives you explicit control over AI sessions. Every `exec*` call returns an `ExecutionResult` whose `sessionId` field is the session ID actually used for that run. This example walks through the four behaviors: default reuse, standalone `newSession`, reusing a specific `sessionId`, and `fork`.
 
 ```typescript
-const agent = new StepWise('ForkAgent');
+import { StepWise, saveCollectData } from 'stepwise';
 
-// Reuse a specific existing session
-await agent.execPrompt('Implement feature A', { sessionId: 'orig-session-uuid' });
+const agent = new StepWise('SessionAgent');
 
-// Later: fork from that session to explore an alternative approach
-// The original session is preserved; a new derived session runs this task
-await agent.execPrompt('Try a different implementation approach', {
-  sessionId: 'orig-session-uuid',
-  newSession: true   // ← fork semantics: branch off from orig-session-uuid
+// 1) Default behavior: the first task creates a new session; subsequent
+//    tasks automatically reuse it (context accumulates across steps).
+const r1 = await agent.execPrompt('Analyze requirements and design the data model');
+// r1.sessionId is the session ID used for this run
+
+const r2 = await agent.execPrompt('Implement CRUD APIs based on the previous design');
+// r2.sessionId === r1.sessionId  → same session, continuous context
+
+// 2) Capture and persist the returned sessionId, so you can resume the
+//    same session later (across steps, processes, or StepWise instances).
+const sessionId = r2.sessionId;
+saveCollectData([{ sessionId }], 'session_checkpoint.json');
+
+// 3) Standalone newSession: true → create a brand-new session. If a previous
+//    session exists, it is auto-summarized first (Skill generation).
+//    Use setSkipSummarize(true) to skip the summary.
+const r3 = await agent.execPrompt('Start an independent new requirement', { newSession: true });
+// r3.sessionId is a fresh ID, different from r1/r2; the prior session was summarized
+
+// 4) Specify sessionId: resume a known session to keep working in it
+//    (forces resume mode, i.e. --resume <sessionId>).
+await agent.execPrompt('Continue refining on top of an existing session', { sessionId });
+
+// 5) Fork: sessionId + newSession: true → branch a new session off the given
+//    sessionId. The original session is preserved; the derived session runs
+//    independently. The new ID is returned via result.sessionId.
+const r5 = await agent.execPrompt('Try an alternative implementation approach', {
+  sessionId,          // branch off from this existing session
+  newSession: true    // ← fork semantics
 });
-
-// Under the hood (Claude/CodeAgent):
-//   claude --resume orig-session-uuid --fork-session -p "..."
-// Under the hood (OpenCode):
-//   opencode run --thinking --session ses_xxx --fork "..."
+// r5.sessionId is a brand-new derived ID; the original session is untouched
 ```
 
-> **Note**: `fork` only takes effect when both `sessionId` and `newSession: true` are set. Passing `newSession: true` alone creates a fresh new session (and summarizes the previous one); passing `sessionId` alone resumes that session. Fork derives a new session **from** the specified one. After a fork, the derived new session ID is recorded in `progress.json` and `currentSessionId`.
+**Behavior summary**
+
+1. **Default (reuse)** — passing no session option: the first task creates a new session, and every subsequent step reuses the previous one (`--resume`), so context accumulates. `result.sessionId` always reports the ID used for that run.
+2. **Capture sessionId** — `ExecutionResult.sessionId` returns the session ID of each execution. Persist it to resume the same session later across steps, processes, or StepWise instances.
+3. **Standalone `newSession`** — `{ newSession: true }` creates a fresh session; if a prior session exists, it is auto-summarized first (Skill generation). Disable with `setSkipSummarize(true)`.
+4. **Specify `sessionId`** — `{ sessionId }` forces resume mode to reuse that specific known session — ideal for resuming from a checkpoint.
+5. **Fork** — `{ sessionId, newSession: true }` derives a new session from the given one, leaving the original intact. The derived new ID is returned via `result.sessionId` and recorded in `progress.json` / `currentSessionId`.
+
+**Underlying commands**
+
+| Options | Claude / CodeAgent | OpenCode | Semantics |
+|---|---|---|---|
+| (default) | `--resume <id>` | `--session <id>` | Reuse previous session |
+| `newSession: true` | `--session-id <new>` | (no `--session`) | Fresh session (+summarize prior) |
+| `sessionId` | `--resume <id>` | `--session <id>` | Reuse the specified session |
+| `sessionId` + `newSession: true` | `--resume <id> --fork-session` | `--session <id> --fork` | Branch off the specified session |
+
+> Fork only takes effect when **both** `sessionId` and `newSession: true` are set. Passing `newSession: true` alone creates a fresh new session (and summarizes the previous one); passing `sessionId` alone resumes that session.
 
 ---
 

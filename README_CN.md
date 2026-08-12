@@ -178,30 +178,61 @@ await agent.execCollectPrompt('步骤 2: 收集数据', fmt);  // 跳过
 await agent.execPrompt('步骤 3: 处理项目 $name', { data: { name: 'item1' } }); // 从这里继续
 ```
 
-### 示例 7：会话分岔（Fork，从已有会话派生分支）
+### 示例 7：会话管理
 
-当同时指定 `sessionId` 和 `newSession: true` 时，StepWise 会**分岔**会话：从指定 `sessionId` 恢复，但派生一个全新的 session ID，原会话保持不变。这样可以在不丢失原对话的情况下探索替代方案。
+StepWise 让你对 AI 会话有显式控制。每次 `exec*` 调用都返回 `ExecutionResult`，其 `sessionId` 字段就是本次执行实际使用的会话 ID。本示例依次说明四种行为：默认复用、单独 `newSession`、指定 `sessionId` 复用、以及 `fork` 分岔。
 
 ```typescript
-const agent = new StepWise('ForkAgent');
+import { StepWise, saveCollectData } from 'stepwise';
 
-// 复用一个已有的指定会话
-await agent.execPrompt('实现功能 A', { sessionId: 'orig-session-uuid' });
+const agent = new StepWise('SessionAgent');
 
-// 之后：从该会话分岔，探索另一种实现思路
-// 原会话保留；派生出的新会话执行本任务
-await agent.execPrompt('尝试另一种实现思路', {
-  sessionId: 'orig-session-uuid',
-  newSession: true   // ← fork 语义：从 orig-session-uuid 派生分支
+// 1) 默认行为：首个任务创建新会话，后续任务自动复用（同一会话逐步累积上下文）
+const r1 = await agent.execPrompt('分析需求并设计数据模型');
+// r1.sessionId 是本次执行使用的会话 ID
+
+const r2 = await agent.execPrompt('基于上一步设计实现 CRUD 接口');
+// r2.sessionId === r1.sessionId → 同一会话，上下文连续
+
+// 2) 获取并持久化返回的 sessionId，以便后续跨步骤/跨进程/跨实例恢复同一会话
+const sessionId = r2.sessionId;
+saveCollectData([{ sessionId }], 'session_checkpoint.json');
+
+// 3) 单独 newSession: true → 创建全新会话；若之前存在会话，会先自动总结（生成 Skill）
+//    可用 setSkipSummarize(true) 跳过总结
+const r3 = await agent.execPrompt('开始一个独立的新需求', { newSession: true });
+// r3.sessionId 是全新 ID，与 r1/r2 不同；前一会话已被自动总结
+
+// 4) 指定 sessionId：恢复某个已知会话继续完善（强制 resume 模式，即 --resume <sessionId>）
+await agent.execPrompt('在已有会话基础上继续完善', { sessionId });
+
+// 5) fork：sessionId + newSession: true → 从该 sessionId 派生新分支，原会话保留不变
+//    派生出的新 ID 通过 result.sessionId 返回
+const r5 = await agent.execPrompt('尝试另一种实现思路', {
+  sessionId,          // 从这个已有会话派生
+  newSession: true    // ← fork 语义
 });
-
-// 实际执行的命令（Claude/CodeAgent）：
-//   claude --resume orig-session-uuid --fork-session -p "..."
-// 实际执行的命令（OpenCode）：
-//   opencode run --thinking --session ses_xxx --fork "..."
+// r5.sessionId 是派生出的全新 ID，原 sessionId 会话不受影响
 ```
 
-> **注意**：仅当 `sessionId` 与 `newSession: true` 同时指定时才触发 fork。单独传 `newSession: true` 会创建全新会话（并总结前一会话）；单独传 `sessionId` 会恢复该会话。fork 是**从**指定会话派生新会话。fork 后，派生出的新 session ID 会被记录到 `progress.json` 和 `currentSessionId`。
+**行为说明**
+
+1. **默认（复用）** —— 不传任何 session 选项时，首个任务创建新会话，之后每步自动复用上一会话（`--resume`），上下文逐步累积。`result.sessionId` 始终返回本次使用的会话 ID。
+2. **获取 sessionId** —— `ExecutionResult.sessionId` 返回每次执行的会话 ID。持久化保存后，可用于后续跨步骤、跨进程、跨 StepWise 实例恢复同一会话。
+3. **单独 `newSession`** —— `{ newSession: true }` 创建全新会话；若之前存在会话，会先自动总结（生成 Skill）。可用 `setSkipSummarize(true)` 跳过。
+4. **指定 `sessionId`** —— `{ sessionId }` 强制以 resume 模式复用该已知会话，适合从检查点恢复。
+5. **fork** —— `{ sessionId, newSession: true }` 同时指定 → 从该 sessionId 派生新会话，原会话保留不变。派生出的新 ID 通过 `result.sessionId` 返回，并记录到 `progress.json` / `currentSessionId`。
+
+**底层命令对照**
+
+| 选项 | Claude / CodeAgent | OpenCode | 语义 |
+|---|---|---|---|
+| （默认） | `--resume <id>` | `--session <id>` | 复用上一会话 |
+| `newSession: true` | `--session-id <new>` | （不传 `--session`） | 全新会话（+总结前一个） |
+| `sessionId` | `--resume <id>` | `--session <id>` | 复用指定会话 |
+| `sessionId` + `newSession: true` | `--resume <id> --fork-session` | `--session <id> --fork` | 从指定会话派生新分支 |
+
+> 仅当 `sessionId` 与 `newSession: true` **同时**指定时才触发 fork。单独传 `newSession: true` 会创建全新会话（并总结前一会话）；单独传 `sessionId` 会恢复该会话。
 
 ---
 
