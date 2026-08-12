@@ -112,7 +112,8 @@ await forEachParallel(apis, workerConfigs, async (ctx) => {
     { data: ctx.item }
   );
 });
-// All branches merged automatically after completion
+// Finalize: deterministic script commits each worktree's changes to its own branch
+// and keeps the branches (no AI-driven merge)
 ```
 
 ```typescript
@@ -124,6 +125,8 @@ await forEachParallel(apis, workerConfigs, async (ctx) => {
   );
 }, { cwd: '/path/to/other-repo' });
 ```
+
+> **Parallel finalization & branch preservation**: After parallel tasks finish, the framework runs a **deterministic script** (no AI) to commit each worktree's changes to its own branch and keep the branch, then removes the worktree. Code is not auto-merged into the main branch (avoiding AI-merge-induced code loss); the main branch stays clean. The console prints the list of preserved branch names; integrate manually as needed (e.g. `git merge <branch>`). Set `skipBranchMerge: true` to skip this finalization script (worktree changes won't be committed).
 
 > **Session behavior in parallel mode**: Each worker runs in its own git worktree (a different cwd from the main repo). Claude/CodeAgent sessions are stored per-cwd, so:
 > - **Default reuse**: when the worker omits `sessionId`, the session is created and reused within the worker's own worktree — no problem.

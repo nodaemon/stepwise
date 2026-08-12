@@ -44,11 +44,12 @@ export interface ForEachParallelOptions {
    */
   cwd?: string;
   /**
-   * 是否跳过最终的分支合并步骤（mergeWorkerBranches）
-   * - true: 跳过分支合并，仅合并报告文件
-   * - false 或 undefined: 执行完整的报告+分支合并（默认行为）
+   * 是否跳过最终的收尾脚本（preserveWorkerBranches）
+   * - true: 跳过收尾，worktree 改动不提交、分支可能不含最新改动（仅整合报告文件）
+   * - false 或 undefined: 执行收尾——固定脚本提交各 worktree 改动到自己的分支并保留分支（默认）
    *
-   * 适用于只需要报告文件输出、不需要将 worktree 分支合并回主仓库的场景
+   * 收尾不依赖 AI：避免 AI 合并误删代码；改动保留在各 worker 分支，主分支零污染，
+   * 用户按需手动整合。适用于需要保留各分支独立改动的场景。
    * @default false
    */
   skipBranchMerge?: boolean;
@@ -203,6 +204,19 @@ function isValidGitWorktree(worktreePath: string): boolean {
 }
 
 /**
+ * 检查某分支名是否已存在（本地）
+ * 用于 ensureWorktrees 决定是新建分支还是复用已有分支（保留上次未整合改动）
+ */
+function checkBranchExists(branchName: string, cwd: string): boolean {
+  try {
+    execSync(`git rev-parse --verify refs/heads/"${branchName}"`, { cwd, stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 清理已存在的 worktree 和本地分支
  *
  * 处理逻辑：
@@ -247,14 +261,8 @@ function cleanWorktree(
     fs.rmSync(worktreePath, { recursive: true, force: true });
   }
 
-  // 4. 删除本地分支（无论是否已推送远端）
-  //    这确保新创建的分支基于主工作目录的最新状态
-  try {
-    execSync(`git branch -D "${branchName}"`, { cwd, stdio: 'pipe' });
-    console.log(`[forEachParallel] 本地分支 "${branchName}" 已删除`);
-  } catch {
-    // 分支可能已不存在，忽略错误
-  }
+  // 注意：不删除本地分支——分支可能含用户未整合的改动，删除会丢代码。
+  // 下次 forEachParallel 重建 worktree 时会复用已有分支（见 ensureWorktrees）。
 }
 
 /**
@@ -346,10 +354,7 @@ export async function forEachParallel<T>(
     console.log(`[forEachParallel] 恢复模式: ${completed} 个任务已完成, ${inProgress} 个任务进行中`);
   }
 
-  // 4. 创建主 StepWise（用于最后 merge）
-  const mainStepWise = new StepWise('main', effectiveCwd);
-
-  // 5. 并发执行
+  // 4. 并发执行
   const recoveredIndices = new Set<number>();  // 记录阶段 A 已恢复的索引
   let newItemIndex = 0;  // 新任务的分配索引
 
@@ -470,12 +475,13 @@ export async function forEachParallel<T>(
   // 6. 整合所有 worker 的报告（任务完成后）
   await mergeWorkerReports(taskDir, workerConfigs);
 
-  // 7. 串行执行 merge（任务完成后）
+  // 7. 收尾：固定脚本提交各 worktree 改动到分支并保留分支（不依赖 AI）
   if (options?.skipBranchMerge) {
-    console.log("[forEachParallel] 跳过分支合并（skipBranchMerge=true）");
+    console.log("[forEachParallel] 跳过收尾脚本（skipBranchMerge=true）");
+    console.log("[forEachParallel] 注意：worktree 改动未提交，分支可能不含最新改动");
     console.log(`[forEachParallel] 报告已整合到: ${path.resolve(taskDir, 'report')}`);
   } else {
-    await mergeWorkerBranches(workerConfigs, mainStepWise);
+    await preserveWorkerBranches(workerConfigs, workspacePaths, effectiveCwd);
   }
 }
 
@@ -585,10 +591,16 @@ async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean,
       }
     }
 
-    // 创建 worktree（始终创建新分支，基于当前 HEAD）
+    // 创建 worktree：分支已存在则复用（保留上次未整合改动），否则基于当前 HEAD 新建
+    const branchExists = checkBranchExists(config.branchName, cwd);
     console.log(`[forEachParallel] 创建 worktree: ${worktreePath}`);
-    console.log(`[forEachParallel] 创建分支: ${config.branchName}（基于当前 HEAD）`);
-    execSync(`git worktree add -b "${config.branchName}" "${worktreePath}"`, { cwd, stdio: 'inherit' });
+    if (branchExists) {
+      console.log(`[forEachParallel] 复用已有分支: ${config.branchName}（含上次未整合改动）`);
+      execSync(`git worktree add "${worktreePath}" "${config.branchName}"`, { cwd, stdio: 'inherit' });
+    } else {
+      console.log(`[forEachParallel] 创建分支: ${config.branchName}（基于当前 HEAD）`);
+      execSync(`git worktree add -b "${config.branchName}" "${worktreePath}"`, { cwd, stdio: 'inherit' });
+    }
 
     workspacePaths.push(worktreePath);
   }
@@ -663,20 +675,101 @@ async function mergeWorkerReports(taskDir: string, workerConfigs: WorkerConfig[]
  * 将所有 worktree 的分支合并到当前目录
  * 任务完成后串行执行
  */
-async function mergeWorkerBranches(
+/**
+ * 收尾：固定脚本保留各 worker 分支（不依赖 AI，杜绝误删代码）
+ *
+ * 步骤（对每个 worker）：
+ * 1. 在 worktree 内提交所有改动到自己的分支（--allow-empty，容错）
+ * 2. 删除 worktree 但保留分支（不 git branch -D）
+ *
+ * 各 worker 分支名唯一无冲突；不合并到主分支，主分支零污染；
+ * 用户事后按需手动整合（git merge/rebase/cherry-pick）。
+ *
+ * 全程脚本固定完成，单步失败不阻断整体，记录错误继续。
+ */
+async function preserveWorkerBranches(
   workerConfigs: WorkerConfig[],
-  mainStepWise: StepWise
+  workspacePaths: string[],
+  cwd: string
 ): Promise<void> {
-  for (const config of workerConfigs) {
-    console.log(`[forEachParallel] 合并分支: ${config.branchName}`);
+  const preservedBranches: string[] = [];
+  const errors: string[] = [];
 
-    await mainStepWise.execPrompt(
-      `将分支 ${config.branchName} 的代码合并到当前分支。` +
-      `如果遇到冲突，请合理解决冲突，优先保留当前分支的修改。`,
-      {
-        newSession: true,
-        env: config.env
+  for (let i = 0; i < workerConfigs.length; i++) {
+    const config = workerConfigs[i];
+    const worktreePath = workspacePaths[i];
+    const branchName = config.branchName;
+
+    try {
+      // 步骤1：worktree 内提交所有改动到分支（容错，不阻断）
+      const isValid = fs.existsSync(worktreePath) && isValidGitWorktree(worktreePath);
+      if (isValid) {
+        // git add -A：暂存所有改动（含新增/删除/修改），失败仅记录
+        try {
+          execSync('git add -A', { cwd: worktreePath, stdio: 'pipe' });
+        } catch (e) {
+          errors.push(`[${branchName}] git add -A 失败: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        // git commit：--allow-empty 确保即使无改动也推进分支 ref
+        // 临时设置 user.email/user.name，避免无 git 身份导致 commit 失败
+        try {
+          execSync(
+            'git -c user.email=stepwise@local -c user.name=stepwise commit --allow-empty -m ' +
+            `"stepwise: ${branchName} 并行任务改动"`,
+            { cwd: worktreePath, stdio: 'pipe' }
+          );
+          console.log(`[forEachParallel] 分支 "${branchName}"：改动已提交`);
+        } catch (e) {
+          // commit 失败可能是无改动（nothing to commit）——非致命，分支仍保留上次提交
+          errors.push(`[${branchName}] git commit 失败: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      } else {
+        errors.push(`[${branchName}] worktree 无效或不存在: ${worktreePath}`);
       }
-    );
+
+      // 步骤2：删 worktree 但保留分支（不执行 git branch -D）
+      try {
+        execSync(`git worktree remove --force "${worktreePath}"`, { cwd, stdio: 'pipe' });
+      } catch {
+        // git worktree remove 失败 → 手动删目录 + prune
+        if (fs.existsSync(worktreePath)) {
+          try {
+            fs.rmSync(worktreePath, { recursive: true, force: true });
+          } catch (e) {
+            errors.push(`[${branchName}] 删除 worktree 目录失败: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+        try {
+          execSync('git worktree prune', { cwd, stdio: 'pipe' });
+        } catch {
+          // 忽略 prune 失败
+        }
+      }
+
+      preservedBranches.push(branchName);
+    } catch (e) {
+      errors.push(`[${branchName}] 收尾异常: ${e instanceof Error ? e.message : String(e)}`);
+      // 仍尝试记录分支名（分支可能已存在）
+      preservedBranches.push(branchName);
+    }
+  }
+
+  // 打印汇总日志
+  console.log('');
+  console.log('================================================================================');
+  console.log('[forEachParallel] 并行任务完成。所有 worker 的修改已提交并保留在各自分支中：');
+  for (const branch of preservedBranches) {
+    console.log(`  - ${branch}`);
+  }
+  console.log('代码未合并到主分支（避免 AI 合并误删），请按需手动整合，例如：');
+  console.log('  git merge <分支名>      # 合并某分支');
+  console.log('  git branch -d <分支名>  # 确认无需后删除分支');
+  console.log('================================================================================');
+
+  if (errors.length > 0) {
+    console.log('[forEachParallel] 收尾过程中出现以下非致命错误（分支仍已尽量保留）：');
+    for (const err of errors) {
+      console.log(`  ${err}`);
+    }
   }
 }

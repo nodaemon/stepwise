@@ -112,7 +112,7 @@ await forEachParallel(apis, workerConfigs, async (ctx) => {
     { data: ctx.item }
   );
 });
-// 所有分支完成后自动合并
+// 收尾：固定脚本提交各 worktree 改动到自己的分支并保留分支（不依赖 AI 合并）
 ```
 
 ```typescript
@@ -124,6 +124,8 @@ await forEachParallel(apis, workerConfigs, async (ctx) => {
   );
 }, { cwd: '/path/to/other-repo' });
 ```
+
+> **并行任务收尾与分支保留**：并行任务完成后，框架用**固定脚本**（不依赖 AI）把每个 worktree 的改动提交到自己的分支并保留分支，再删除 worktree。代码不会自动合并到主分支（避免 AI 合并误删代码），主分支零污染。控制台会打印保留的分支名列表，用户按需手动整合（如 `git merge <分支名>`）。设 `skipBranchMerge: true` 可跳过此收尾脚本（worktree 改动将不提交）。
 
 > **并行模式下的 Session 行为**：每个 worker 在独立 git worktree（cwd 与主仓库不同）运行。Claude/CodeAgent 的 session 按 cwd 隔离存储，因此：
 > - **默认复用**：worker 不传 `sessionId` 时，session 在 worker 自己的 worktree 内创建+复用，无问题。
