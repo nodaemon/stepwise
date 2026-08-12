@@ -13,6 +13,19 @@ import { AgentExecutorOptions, AgentExecutor, ExecutorRawResult } from './types'
 import { parseAndFormatNDJson, formatNDJsonLine } from './ndjsonFormatter';
 
 /**
+ * 生成当前时刻的时间戳前缀，形如 [2026-08-12 14:30:25.123]
+ * 用于在 verbose_output.txt 中标记每个块（子进程实时输出该行的时刻）
+ */
+function nowTimestamp(): string {
+  const d = new Date();
+  const pad = (n: number, len = 2) => String(n).padStart(len, '0');
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const ms = pad(d.getMilliseconds(), 3);
+  return `[${date} ${time}.${ms}]`;
+}
+
+/**
  * 速率限制信息
  * 当检测到 API 限额达到上限时返回
  */
@@ -337,6 +350,17 @@ export abstract class BaseExecutor implements AgentExecutor {
         }
       }
 
+      // 将一块内容写入 verbose_output.txt，在块首行行首附加时间戳
+      // 时间戳反映子进程实时输出该行的时刻；块内其余行保持原样
+      const writeBlockWithTimestamp = (block: string) => {
+        if (!verboseStream) return;
+        const blockLines = block.split('\n');
+        if (blockLines.length === 0) return;
+        // 仅给首行加时间戳前缀，块内其余行不变
+        blockLines[0] = `${nowTimestamp()} ${blockLines[0]}`;
+        verboseStream.write(blockLines.join('\n') + '\n');
+      };
+
       // 将一行内容写入 verbose_output.txt
       // - NDJSON 执行器（Claude、CodeAgent）：空行跳过，JSON 按 type 格式化
       // - 纯文本执行器（OpenCode）：空行保留以维持可读性，非 JSON 行原样写入
@@ -353,10 +377,10 @@ export abstract class BaseExecutor implements AgentExecutor {
 
         const result = formatNDJsonLine(line);
         if (result.formatted) {
-          verboseStream.write(result.formatted + '\n');
+          writeBlockWithTimestamp(result.formatted);
         } else if (!result.isJsonParsed) {
           // 非 JSON 行（OpenCode 等纯文本输出）：原样写入
-          verboseStream.write(line + '\n');
+          writeBlockWithTimestamp(line);
         }
         // else: JSON 解析成功但类型被显式忽略（keep_alive 等），跳过
       };
@@ -395,8 +419,8 @@ export abstract class BaseExecutor implements AgentExecutor {
               }
               continue;
             }
-            // stderr 行标记为 [stderr]，便于区分来源
-            verboseStream.write(`[stderr] ${line}\n`);
+            // stderr 行标记为 [stderr]，便于区分来源（同样附加时间戳）
+            writeBlockWithTimestamp(`[stderr] ${line}`);
           }
         }
       });
@@ -408,14 +432,14 @@ export abstract class BaseExecutor implements AgentExecutor {
         if (lineBuffer.trim()) {
           const result = formatNDJsonLine(lineBuffer);
           if (result.formatted) {
-            verboseStream.write(result.formatted + '\n');
+            writeBlockWithTimestamp(result.formatted);
           } else if (!result.isJsonParsed) {
-            verboseStream.write(lineBuffer + '\n');
+            writeBlockWithTimestamp(lineBuffer);
           }
         }
         // 刷新 stderr lineBuffer
         if (stderrLineBuffer.trim()) {
-          verboseStream.write(`[stderr] ${stderrLineBuffer}\n`);
+          writeBlockWithTimestamp(`[stderr] ${stderrLineBuffer}`);
         }
       };
 
