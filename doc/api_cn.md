@@ -35,7 +35,42 @@
 
 用于配置和数据管理的全局函数。
 
+### initTask(taskName: string, resumePath?: string): void
+
+初始化任务,合并 taskName 与可选 resumePath,消除 `setTaskName`/`setResumePath` 的调用顺序依赖。
+
+**参数**
+
+| 参数 | 类型 | 描述 |
+|------|------|------|
+| taskName | string | 任务名称,建议使用英文和下划线 |
+| resumePath | string (可选) | 恢复路径(任务目录名)。指定时为恢复模式,复用旧任务目录 |
+
+**行为**
+
+- resumePath 指定时:复用旧任务目录(恢复模式,跳过已完成步骤、重执行中断步骤)
+- resumePath 省略时:生成时间戳新目录
+- 必须在创建 StepWise 实例之前调用
+- TaskName 会全局注册,不能与 StepWise 名称重复
+
+**示例**
+
+```typescript
+import { initTask } from 'stepwise';
+
+// 新任务
+initTask('AnalyzeCodebase');
+// 创建目录: stepwise_exec_infos/AnalyzeCodebase_20260307_103000_123/
+
+// 从历史目录恢复（替代 setResumePath + setTaskName）
+initTask('AnalyzeCodebase', 'AnalyzeCodebase_20260307_103000_123');
+```
+
+---
+
 ### setTaskName(taskName: string): void
+
+> **已废弃**:推荐使用 {@link initTask}。
 
 设置任务名称，用于生成任务目录。
 
@@ -64,6 +99,8 @@ setTaskName('AnalyzeCodebase');
 
 ### setResumePath(path: string): void
 
+> **已废弃**:推荐使用 {@link initTask}(传 resumePath 参数)。
+
 设置恢复路径，从指定任务目录恢复执行。
 
 **参数**
@@ -74,6 +111,8 @@ setTaskName('AnalyzeCodebase');
 
 **行为**
 
+- 必须在 `setTaskName()` 之前调用（`setTaskName` 会读取 resumePath 决定是否生成新目录）；
+  `initTask` 内部已保证此顺序,推荐改用 `initTask`
 - 设置后，已完成的任务会被跳过
 - 中断的任务会重新执行
 - 找不到 Agent 目录时会报错退出

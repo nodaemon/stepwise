@@ -6,6 +6,7 @@ export { StepWise } from './StepWise';
 
 // 全局设置接口
 export {
+  initTask,
   setTaskName,
   setResumePath,
   enableDebugMode,

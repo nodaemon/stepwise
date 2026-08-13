@@ -168,13 +168,13 @@ console.log('生成的 Skill 文件:', summaryResult.skillFiles);
 从中断点恢复，使用调试模式快速验证流程：
 
 ```typescript
-import { StepWise, setTaskName, setResumePath, enableDebugMode } from 'stepwise';
+import { StepWise, initTask, enableDebugMode } from 'stepwise';
 
 // 启用调试模式：只收集 1 条数据，快速验证流程
 enableDebugMode(true);
 
-setResumePath('MyTask_20260315_143000_123');
-setTaskName('MyTask');
+// initTask：第二个参数（可选）为恢复路径（任务目录名）
+initTask('MyTask', 'MyTask_20260315_143000_123');
 const agent = new StepWise('MainAgent');
 
 // 已完成的步骤自动跳过
@@ -257,13 +257,14 @@ const r5 = await agent.execPrompt('尝试另一种实现思路', {
 
 | 方法 | 用途 | 说明 |
 |------|------|------|
-| `setTaskName` | 设置任务名称 | 必须，用于标识任务目录 |
+| `initTask` | 初始化任务 | 设置任务名称；第二参数（可选）为恢复路径（替代 `setTaskName`+`setResumePath`） |
 | `setAgentType` | 设置 AI 编程助手 | 可选，默认 `'claude'`，可选 `'opencode'`、`'codeagent'` |
-| `setResumePath` | 设置恢复路径 | 从中断点恢复任务 |
 | `enableDebugMode` | 启用调试模式 | 快速验证流程，只收集 1 条数据 |
 | `setSkipSummarize` | 跳过自动总结 | 禁用创建新 session 时的自动总结 |
 | `saveCollectData` | 保存收集数据 | 保存数据到 JSON 文件 |
 | `loadCollectData` | 加载收集数据 | 从 JSON 文件加载数据 |
+
+> `setTaskName` 与 `setResumePath` 已废弃,推荐使用 `initTask`——第二参数可选恢复路径,避免两者的调用顺序依赖。
 
 #### 并行处理
 

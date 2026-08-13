@@ -169,13 +169,13 @@ console.log('Generated Skill files:', summaryResult.skillFiles);
 Resume from interruption and use debug mode for quick validation:
 
 ```typescript
-import { StepWise, setTaskName, setResumePath, enableDebugMode } from 'stepwise';
+import { StepWise, initTask, enableDebugMode } from 'stepwise';
 
 // Enable debug mode: collect only 1 item for quick workflow validation
 enableDebugMode(true);
 
-setResumePath('MyTask_20260315_143000_123');
-setTaskName('MyTask');
+// initTask: optional second arg is the resume path (task directory name)
+initTask('MyTask', 'MyTask_20260315_143000_123');
 const agent = new StepWise('MainAgent');
 
 // Completed steps are automatically skipped
@@ -262,13 +262,14 @@ const r5 = await agent.execPrompt('Try an alternative implementation approach', 
 
 | Method | Usage | Description |
 |--------|-------|-------------|
-| `setTaskName` | Set task name | Required, identifies task directory |
+| `initTask` | Initialize task | Set task name; optional resume path as 2nd arg (replaces `setTaskName`+`setResumePath`) |
 | `setAgentType` | Set AI coding assistant | Optional, default `'claude'`, options: `'opencode'`, `'codeagent'` |
-| `setResumePath` | Set resume path | Resume task from interruption point |
 | `enableDebugMode` | Enable debug mode | Quick validation, collect only 1 item |
 | `setSkipSummarize` | Skip auto-summarize | Disable auto-summarize when creating new session |
 | `saveCollectData` | Save collected data | Save data to JSON file |
 | `loadCollectData` | Load collected data | Load data from JSON file |
+
+> `setTaskName` and `setResumePath` are deprecated; prefer `initTask`, which takes an optional resume path and avoids the call-order dependency.
 
 #### Parallel Processing
 

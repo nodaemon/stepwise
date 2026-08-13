@@ -35,7 +35,42 @@ This document provides detailed API reference for StepWise.
 
 Global functions for configuration and data management.
 
+### initTask(taskName: string, resumePath?: string): void
+
+Initializes a task, combining taskName with an optional resumePath, eliminating the call-order dependency between `setTaskName` and `setResumePath`.
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| taskName | string | Task name, recommend using English and underscores |
+| resumePath | string (optional) | Resume path (task directory name). When set, runs in resume mode reusing the existing task directory |
+
+**Behavior**
+
+- When resumePath is set: reuses the existing task directory (resume mode — skips completed steps, re-runs interrupted ones)
+- When resumePath is omitted: generates a fresh timestamped directory
+- Must be called before creating any StepWise instance
+- TaskName is registered globally and cannot be duplicated with StepWise names
+
+**Example**
+
+```typescript
+import { initTask } from 'stepwise';
+
+// New task
+initTask('AnalyzeCodebase');
+// Creates directory: stepwise_exec_infos/AnalyzeCodebase_20260307_103000_123/
+
+// Resume from a historical directory (replaces setResumePath + setTaskName)
+initTask('AnalyzeCodebase', 'AnalyzeCodebase_20260307_103000_123');
+```
+
+---
+
 ### setTaskName(taskName: string): void
+
+> **Deprecated**: prefer {@link initTask}.
 
 Sets the task name used to generate the task directory.
 
@@ -64,6 +99,8 @@ setTaskName('AnalyzeCodebase');
 
 ### setResumePath(path: string): void
 
+> **Deprecated**: prefer {@link initTask} (pass resumePath as the 2nd argument).
+
 Sets the recovery path to resume execution from a specified task directory.
 
 **Parameters**
@@ -74,6 +111,7 @@ Sets the recovery path to resume execution from a specified task directory.
 
 **Behavior**
 
+- Must be called **before** `setTaskName()` (`setTaskName` reads resumePath to decide whether to generate a new directory); `initTask` handles this ordering internally — prefer `initTask`
 - After setting, completed tasks will be skipped
 - Interrupted tasks will be re-executed
 - If Agent directory not found, will error and exit

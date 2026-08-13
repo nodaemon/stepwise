@@ -79,8 +79,27 @@ function printTaskStartup(taskName: string, taskDirName: string): void {
 }
 
 /**
+ * 初始化任务（合并 taskName 与可选 resumePath,消除调用顺序依赖）
+ *
+ * resumePath 指定时为恢复模式:复用旧任务目录;否则为新任务:生成时间戳目录。
+ * 内部先设 resumePath(若有)再走 setTaskName,保证顺序正确。
+ *
+ * @param taskName 任务名称
+ * @param resumePath 可选,恢复路径(任务目录名)。指定时从该目录恢复执行
+ */
+export function initTask(taskName: string, resumePath?: string): void {
+  if (resumePath !== undefined && resumePath.trim() !== '') {
+    setResumePath(resumePath);
+  }
+  setTaskName(taskName);
+}
+
+/**
  * 设置任务名称
  * 基于任务名称加时间生成任务目录
+ *
+ * @deprecated 请使用 {@link initTask},可在单接口中同时指定 taskName 与 resumePath,
+ * 避免与 setResumePath 的调用顺序依赖
  */
 export function setTaskName(taskName: string): void {
   if (!taskName || taskName.trim() === '') {
@@ -121,6 +140,9 @@ export function setTaskName(taskName: string): void {
 /**
  * 设置恢复路径
  * 从指定任务目录恢复执行
+ *
+ * @deprecated 请使用 {@link initTask}(传 resumePath 参数),避免与 setTaskName 的调用顺序依赖
+ * （setResumePath 必须在 setTaskName 之前调用,initTask 内部保证此顺序）
  */
 export function setResumePath(resumePath: string): void {
   globalState.resumePath = resumePath.trim();
