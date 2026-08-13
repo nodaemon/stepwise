@@ -127,7 +127,7 @@ await forEachParallel(apis, workerConfigs, async (ctx) => {
 
 > **并行任务收尾与分支保留**：并行任务完成后，框架用**固定脚本**（不依赖 AI）把每个 worktree 的改动提交到自己的分支并保留分支，再删除 worktree。代码不会自动合并到主分支（避免 AI 合并误删代码），主分支零污染。控制台会打印保留的分支名列表，用户按需手动整合（如 `git merge <分支名>`）。设 `skipBranchMerge: true` 可跳过此收尾脚本（worktree 改动将不提交）。
 
-> **并行模式下的 Session 行为**：每个 worker 在独立 git worktree（cwd 与主仓库不同）运行。Claude/CodeAgent 的 session 按 cwd 隔离存储，因此：
+> **并行模式下的 Session 行为**：每个 worker 在独立 git worktree（cwd 与主仓库不同）运行。Claude/CodeAgent 的 session 按 cwd 隔离存储（Claude Code 存于 `~/.claude/projects/`，CodeAgent 存于 `~/.cac/projects/`），因此：
 > - **默认复用**：worker 不传 `sessionId` 时，session 在 worker 自己的 worktree 内创建+复用，无问题。
 > - **fork（`sessionId` + `newSession:true`）**：框架自动软链主仓库的 session 文件到 worktree 目录，使 fork 可跨 worktree 派生（fork 只读原会话，安全）。删除 worktree 时不清除这些软链（残留无害，最坏为 dangling symlink，Claude 自然处理为"找不到会话"）；如需清理可手动调用 `cleanWorktreeSessionLinks`。
 > - **纯指定 `sessionId`（非 fork）**：跨目录 resume 会共享写并发风险，框架**报错**。如需跨 worktree 复用上下文，请用 fork，或通过产物文件而非 session 共享。

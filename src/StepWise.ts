@@ -70,7 +70,8 @@ import {
   _registerName,
   _getTaskDir,
   _getAllowRead,
-  _getAllowWrite
+  _getAllowWrite,
+  _getAgentType
 } from './globalState';
 import { trackPerformance } from './utils/performanceDecorator';
 import { PerformanceTracker } from './utils/performanceTracker';
@@ -446,18 +447,24 @@ export class StepWise {
     if (!this.workerId || !this.mainCwd || !effectiveCwd) return;  // 非并行场景或缺 cwd
     if (!sessionId) return;  // 无 sessionId（默认场景），worktree 内自建
 
+    // 按执行器类型选 config 目录：claude → ~/.claude，codeagent → ~/.cac
+    // OpenCode 不按 cwd 文件隔离（全局 db），跳过跨目录处理
+    const agentType = _getAgentType();
+    if (agentType === 'opencode') return;
+    const configSubdir = agentType === 'codeagent' ? '.cac' : '.claude';
+
     // 本地会话：worktree 自己的 projects 目录已有实体文件 → 同 cwd resume，无需处理
-    if (isLocalSession(effectiveCwd, sessionId)) return;
+    if (isLocalSession(configSubdir, effectiveCwd, sessionId)) return;
 
     // 跨目录会话：
     if (fork) {
       // fork 只读原会话，软链主仓库 session 到 worktree 目录
-      linkCrossCwdSession(this.mainCwd, effectiveCwd, sessionId);
+      linkCrossCwdSession(configSubdir, this.mainCwd, effectiveCwd, sessionId);
     } else {
       // 纯 resume 跨目录：共享写并发风险，报错
       throw new Error(
         `[StepWise] 并行 worktree 下不能直接复用其他目录的 session（sessionId=${sessionId}）。` +
-        `Claude session 按 cwd 隔离，worktree（${effectiveCwd}）与主仓库（${this.mainCwd}）不同目录无法 resume。` +
+        `${agentType} session 按 cwd 隔离，worktree（${effectiveCwd}）与主仓库（${this.mainCwd}）不同目录无法 resume。` +
         `请改用 fork（sessionId + newSession:true）派生新会话，或去掉 sessionId 让 worker 在本 worktree 内独立会话。`
       );
     }
