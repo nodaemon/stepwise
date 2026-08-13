@@ -29,10 +29,11 @@ const CONFIG_SUBDIR: Record<string, string> = {
 
 /**
  * 将 cwd 绝对路径转义为 projects 目录名
- * 规则：路径中的 / 全部替换为 -（如 /tmp/fork-test → -tmp-fork-test）
+ * 规则：所有非字母数字字符替换为 -（如 /tmp/Code_Agent1 → -tmp-Code-Agent1）
+ * 实机验证：Claude/CodeAgent 把 / _ . 空格 @ # + ( ) 等特殊字符统一转为 -
  */
 function escapeCwd(cwd: string): string {
-  return cwd.replace(/\//g, '-');
+  return cwd.replace(/[^a-zA-Z0-9]/g, '-');
 }
 
 /**
