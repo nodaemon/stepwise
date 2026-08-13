@@ -439,6 +439,17 @@ export class StepWise {
    * 注意用实际使用的 sessionId（含 in_progress 恢复取的历史/派生 ID）判断，而非用户原始 options.sessionId。
    * 非并行场景（无 workerId）不做任何处理。
    */
+  /**
+   * 按执行器类型获取 session 存储 config 目录名
+   * - claude → '.claude'，codeagent → '.cac'
+   * - opencode 不按 cwd 文件隔离（全局 db），返回 null
+   */
+  private getConfigSubdir(): string | null {
+    const agentType = _getAgentType();
+    if (agentType === 'opencode') return null;
+    return agentType === 'codeagent' ? '.cac' : '.claude';
+  }
+
   private handleParallelCrossCwdSession(
     fork: boolean,
     effectiveCwd: string | undefined,
@@ -447,11 +458,8 @@ export class StepWise {
     if (!this.workerId || !this.mainCwd || !effectiveCwd) return;  // 非并行场景或缺 cwd
     if (!sessionId) return;  // 无 sessionId（默认场景），worktree 内自建
 
-    // 按执行器类型选 config 目录：claude → ~/.claude，codeagent → ~/.cac
-    // OpenCode 不按 cwd 文件隔离（全局 db），跳过跨目录处理
-    const agentType = _getAgentType();
-    if (agentType === 'opencode') return;
-    const configSubdir = agentType === 'codeagent' ? '.cac' : '.claude';
+    const configSubdir = this.getConfigSubdir();
+    if (!configSubdir) return;  // OpenCode 不按 cwd 文件隔离，跳过
 
     // 本地会话：worktree 自己的 projects 目录已有实体文件 → 同 cwd resume，无需处理
     if (isLocalSession(configSubdir, effectiveCwd, sessionId)) return;
@@ -464,7 +472,7 @@ export class StepWise {
       // 纯 resume 跨目录：共享写并发风险，报错
       throw new Error(
         `[StepWise] 并行 worktree 下不能直接复用其他目录的 session（sessionId=${sessionId}）。` +
-        `${agentType} session 按 cwd 隔离，worktree（${effectiveCwd}）与主仓库（${this.mainCwd}）不同目录无法 resume。` +
+        `${_getAgentType()} session 按 cwd 隔离，worktree（${effectiveCwd}）与主仓库（${this.mainCwd}）不同目录无法 resume。` +
         `请改用 fork（sessionId + newSession:true）派生新会话，或去掉 sessionId 让 worker 在本 worktree 内独立会话。`
       );
     }
@@ -1297,11 +1305,17 @@ export class StepWise {
         this.currentSessionId = resumedSessionId;
       }
       this.cleanupInProgressTask(taskIndex, taskType);
-      // 命中历史：用历史 sessionId 覆盖，并取消 fork（派生已完成，现在是续传）
+      // 命中历史：用历史 sessionId 覆盖。
+      // 派生已完成（本地实体文件）→ 续传，取消 fork；
+      // 派生前中断（非本地，原始 sessionId 来自主仓库）→ 保留用户原始 newSession，重新 fork。
+      const cfgSubdir = this.getConfigSubdir();
+      const isDerived = (cfgSubdir && effectiveCwd && resumedSessionId)
+        ? isLocalSession(cfgSubdir, effectiveCwd, resumedSessionId)
+        : false;
       effectiveOptions = {
         ...options,
         sessionId: resumedSessionId || options?.sessionId,
-        newSession: false
+        newSession: isDerived ? false : options?.newSession
       };
     }
 
@@ -1415,11 +1429,17 @@ export class StepWise {
         this.currentSessionId = resumedSessionId;
       }
       this.cleanupInProgressTask(taskIndex, taskType);
-      // 命中历史：用历史 sessionId 覆盖，并取消 fork（派生已完成，现在是续传）
+      // 命中历史：用历史 sessionId 覆盖。
+      // 派生已完成（本地实体文件）→ 续传，取消 fork；
+      // 派生前中断（非本地，原始 sessionId 来自主仓库）→ 保留用户原始 newSession，重新 fork。
+      const cfgSubdir = this.getConfigSubdir();
+      const isDerived = (cfgSubdir && effectiveCwd && resumedSessionId)
+        ? isLocalSession(cfgSubdir, effectiveCwd, resumedSessionId)
+        : false;
       effectiveOptions = {
         ...options,
         sessionId: resumedSessionId || options?.sessionId,
-        newSession: false
+        newSession: isDerived ? false : options?.newSession
       };
     }
 
@@ -1568,11 +1588,17 @@ export class StepWise {
         this.currentSessionId = resumedSessionId;
       }
       this.cleanupInProgressTask(taskIndex, taskType);
-      // 命中历史：用历史 sessionId 覆盖，并取消 fork（派生已完成，现在是续传）
+      // 命中历史：用历史 sessionId 覆盖。
+      // 派生已完成（本地实体文件）→ 续传，取消 fork；
+      // 派生前中断（非本地，原始 sessionId 来自主仓库）→ 保留用户原始 newSession，重新 fork。
+      const cfgSubdir = this.getConfigSubdir();
+      const isDerived = (cfgSubdir && effectiveCwd && resumedSessionId)
+        ? isLocalSession(cfgSubdir, effectiveCwd, resumedSessionId)
+        : false;
       effectiveOptions = {
         ...options,
         sessionId: resumedSessionId || options?.sessionId,
-        newSession: false
+        newSession: isDerived ? false : options?.newSession
       };
     }
 
@@ -1712,11 +1738,17 @@ export class StepWise {
         this.currentSessionId = resumedSessionId;
       }
       this.cleanupInProgressTask(taskIndex, taskType);
-      // 命中历史：用历史 sessionId 覆盖，并取消 fork（派生已完成，现在是续传）
+      // 命中历史：用历史 sessionId 覆盖。
+      // 派生已完成（本地实体文件）→ 续传，取消 fork；
+      // 派生前中断（非本地，原始 sessionId 来自主仓库）→ 保留用户原始 newSession，重新 fork。
+      const cfgSubdir = this.getConfigSubdir();
+      const isDerived = (cfgSubdir && effectiveCwd && resumedSessionId)
+        ? isLocalSession(cfgSubdir, effectiveCwd, resumedSessionId)
+        : false;
       effectiveOptions = {
         ...options,
         sessionId: resumedSessionId || options?.sessionId,
-        newSession: false
+        newSession: isDerived ? false : options?.newSession
       };
     }
 
@@ -1862,11 +1894,17 @@ export class StepWise {
         this.currentSessionId = resumedSessionId;
       }
       this.cleanupInProgressTask(taskIndex, taskType);
-      // 命中历史：用历史 sessionId 覆盖，并取消 fork（派生已完成，现在是续传）
+      // 命中历史：用历史 sessionId 覆盖。
+      // 派生已完成（本地实体文件）→ 续传，取消 fork；
+      // 派生前中断（非本地，原始 sessionId 来自主仓库）→ 保留用户原始 newSession，重新 fork。
+      const cfgSubdir = this.getConfigSubdir();
+      const isDerived = (cfgSubdir && effectiveCwd && resumedSessionId)
+        ? isLocalSession(cfgSubdir, effectiveCwd, resumedSessionId)
+        : false;
       effectiveOptions = {
         ...options,
         sessionId: resumedSessionId || options?.sessionId,
-        newSession: false
+        newSession: isDerived ? false : options?.newSession
       };
     }
 
