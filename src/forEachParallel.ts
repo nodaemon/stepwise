@@ -501,24 +501,15 @@ async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean,
   }
 
   // 1. 先扫描哪些 worktree 目录已存在（非 Resume 模式）
-  // 同时清理残留分支（目录不存在但分支存在的情况）
+  // 注意：不删除本地分支——分支可能含用户未整合的改动，删除会丢代码
   const existingWorktrees: Array<{ config: WorkerConfig; path: string }> = [];
 
   if (!isResume) {
-    // 先清理无效的 worktree 引用，避免分支被占用导致删除失败
+    // 先清理无效的 worktree 引用，避免分支被占用导致重建失败
     execSync('git worktree prune', { cwd, stdio: 'pipe' });
 
     for (const config of workerConfigs) {
       const worktreePath = path.join(parentDir, `${cwdName}_${config.branchName}`);
-
-      // 清理残留分支（即使目录不存在）
-      try {
-        execSync(`git branch -D "${config.branchName}"`, { cwd, stdio: 'pipe' });
-        console.log(`[forEachParallel] 清理残留分支: ${config.branchName}`);
-      } catch {
-        // 分支不存在，忽略
-      }
-
       if (fs.existsSync(worktreePath)) {
         existingWorktrees.push({
           config,
@@ -528,7 +519,9 @@ async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean,
     }
   }
 
-  // 2. 如果有已存在的，统一提示并确认一次
+  // 2. 如果有已存在的，统一提示并确认一次（所有删除动作必须用户确认）
+  // 用户选 No → 不删，直接在现有目录工作（代码不丢）
+  const keepExisting = new Set<string>();  // 用户选择保留的 worktree 路径
   if (existingWorktrees.length > 0) {
     console.log('');
     console.log('================================================================================');
@@ -536,11 +529,9 @@ async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean,
 
     for (const item of existingWorktrees) {
       console.log(`  - ${item.path}`);
-      console.log(`    分支 "${item.config.branchName}"，执行操作：`);
-      console.log(`      1. 删除 worktree 目录`);
-      console.log(`      2. 删除本地分支`);
-      console.log(`      3. 基于当前 HEAD 创建新分支`);
+      console.log(`    分支 "${item.config.branchName}"`);
     }
+    console.log('删除将移除 worktree 目录（分支保留）；不删则直接在现有目录工作。');
 
     console.log('================================================================================');
 
@@ -552,23 +543,24 @@ async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean,
       console.log('[forEachParallel] 自动确认清理模式，跳过用户确认');
       confirmed = true;
     } else {
-      confirmed = await confirmAction('是否执行以上清理操作？[y/N]: ');
+      confirmed = await confirmAction('是否删除以上 worktree 目录并重建？[y/N]: ');
     }
 
-    if (!confirmed) {
-      throw new Error(
-        '[forEachParallel] 用户取消清理\n' +
-        '如需手动处理，请执行: git worktree remove <path>'
-      );
-    }
-
-    // 3. 执行清理（遇到错误直接退出）
-    for (const item of existingWorktrees) {
-      cleanWorktree(item.path, item.config.branchName, cwd);
+    if (confirmed) {
+      // 用户确认删除 → 清理 worktree 目录（分支保留）
+      for (const item of existingWorktrees) {
+        cleanWorktree(item.path, item.config.branchName, cwd);
+      }
+    } else {
+      // 用户选 No → 不删，标记为直接复用
+      console.log('[forEachParallel] 用户选择保留，直接在现有目录工作');
+      for (const item of existingWorktrees) {
+        keepExisting.add(item.path);
+      }
     }
   }
 
-  // 4. 创建所有 worktree（始终基于当前 HEAD 创建新分支）
+  // 3. 创建所有 worktree（分支已存在则复用，否则基于当前 HEAD 新建）
   const workspacePaths: string[] = [];
 
   // 判断 forEachParallel 是否已开始执行
@@ -578,16 +570,34 @@ async function ensureWorktrees(workerConfigs: WorkerConfig[], isResume: boolean,
     const worktreePath = path.join(parentDir, `${cwdName}_${config.branchName}`);
     const isValidWorktree = fs.existsSync(worktreePath) && isValidGitWorktree(worktreePath);
 
+    // 用户选择保留的目录 → 直接复用，不删不重建
+    if (keepExisting.has(worktreePath)) {
+      console.log(`[forEachParallel] 复用用户保留的目录: ${worktreePath}`);
+      workspacePaths.push(worktreePath);
+      continue;
+    }
+
     if (isResume) {
-      if (hasStarted && isValidWorktree) {
-        // forEachParallel 已执行且有有效 worktree，直接复用
+      if (isValidWorktree) {
+        // worktree 有效 → 直接复用（保留所有改动），不论 hasStarted
         console.log(`[forEachParallel] Resume 模式，复用已存在的 worktree: ${worktreePath}`);
         workspacePaths.push(worktreePath);
         continue;
-      } else {
-        // forEachParallel 未执行或 worktree 无效，清理残留后重新创建
-        console.log(`[forEachParallel] Resume 模式，清理残留的分支: ${config.branchName}`);
+      }
+
+      // worktree 无效（非有效 git worktree）：删除前必须用户确认，绝不静默删
+      console.log(`[forEachParallel] 发现无效 worktree: ${worktreePath}`);
+      const shouldRemove = options?.autoConfirmCleanup === true
+        ? true
+        : await confirmAction(`Resume 模式：worktree "${worktreePath}" 无效，是否删除并重建？[y/N]: `);
+      if (shouldRemove) {
+        console.log(`[forEachParallel] 用户确认删除，清理: ${worktreePath}`);
         cleanWorktree(worktreePath, config.branchName, cwd);
+      } else {
+        // 用户选 No → 不删，直接在现有目录工作（代码不丢）
+        console.log(`[forEachParallel] 用户选择保留，直接在现有目录工作: ${worktreePath}`);
+        workspacePaths.push(worktreePath);
+        continue;
       }
     }
 
