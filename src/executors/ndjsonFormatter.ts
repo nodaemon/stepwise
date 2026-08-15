@@ -29,6 +29,24 @@ const TOOL_RESULT_MAX_LENGTH = 5000;
 const HOOK_OUTPUT_MAX_LENGTH = 300;
 
 /**
+ * 从 assistant 消息 content 数组中提取纯文本
+ * 兼容 pi (TextContent) 和 Claude (text block) 的字段命名
+ */
+function extractAssistantTextFromContent(content: any): string {
+  if (!Array.isArray(content)) return '';
+  const parts: string[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue;
+    // pi: { type: 'text', text: string }
+    // Claude: { type: 'text', text: string }
+    if (block.type === 'text' && typeof block.text === 'string') {
+      parts.push(block.text);
+    }
+  }
+  return parts.join('');
+}
+
+/**
  * 截断字符串，超长时显示省略信息
  */
 function truncate(text: string, maxLength: number): string {
@@ -355,6 +373,363 @@ export function formatNDJsonLine(line: string): NDJsonLineResult {
           (parsed.total_cost_usd !== undefined ? ` | Cost: $${parsed.total_cost_usd.toFixed(4)}` : ''));
       }
       lines.push('');
+      break;
+    }
+
+    // ============================================================
+    // Pi (--mode json) 事件格式
+    // 参见 @earendil-works/pi-coding-agent 的 AgentSessionEvent 定义：
+    //   packages/coding-agent/src/core/agent-session.ts
+    // ============================================================
+
+    // Pi 首行：SessionHeader
+    // { type: 'session', version?: number, id: uuid, timestamp, cwd, parentSession? }
+    case 'session': {
+      lines.push('--- Session Init ---');
+      if (parsed.id) {
+        lines.push(`Session: ${parsed.id}`);
+        sessionId = parsed.id;
+      }
+      if (parsed.cwd) lines.push(`CWD: ${parsed.cwd}`);
+      if (parsed.parentSession) lines.push(`Parent: ${parsed.parentSession}`);
+      lines.push('');
+      break;
+    }
+
+    // Pi: agent 生命周期
+    case 'agent_start': {
+      lines.push('--- Agent Start ---');
+      lines.push('');
+      break;
+    }
+    case 'agent_end': {
+      const msgCount = Array.isArray(parsed.messages) ? parsed.messages.length : 0;
+      lines.push('--- Agent End ---');
+      lines.push(`Messages: ${msgCount} | WillRetry: ${parsed.willRetry === true}`);
+      lines.push('');
+      break;
+    }
+    case 'agent_settled': {
+      lines.push('[Agent Settled]');
+      lines.push('');
+      break;
+    }
+
+    // Pi: turn 生命周期（一轮 = 一次 assistant 响应 + 任意工具调用/结果）
+    case 'turn_start': {
+      lines.push('--- Turn Start ---');
+      lines.push('');
+      break;
+    }
+    case 'turn_end': {
+      const msg = parsed.message;
+      const toolResultCount = Array.isArray(parsed.toolResults) ? parsed.toolResults.length : 0;
+      lines.push('--- Turn End ---');
+      if (msg?.role) lines.push(`  Last role: ${msg.role}`);
+      if (msg?.stopReason) lines.push(`  Stop reason: ${msg.stopReason}`);
+      lines.push(`  Tool results: ${toolResultCount}`);
+      lines.push('');
+      break;
+    }
+
+    // Pi: message 生命周期（user / assistant / toolResult）
+    case 'message_start': {
+      const msg = parsed.message;
+      if (msg?.role === 'assistant') {
+        // 仅标记开始，不重复输出 text；实际 text 在 text_end 输出
+        lines.push('[Assistant Message Start]');
+        lines.push('');
+      }
+      break;
+    }
+    case 'message_end': {
+      const msg = parsed.message;
+      if (msg?.role === 'assistant') {
+        // 提取最终文本作为 result（pi 无独立 result 事件）
+        const text = extractAssistantTextFromContent(msg.content);
+        const stopReason = msg.stopReason;
+        if (stopReason === 'error' || stopReason === 'aborted') {
+          lines.push('[Assistant Message End]');
+          lines.push(`  Stop reason: ${stopReason}`);
+          if (msg.errorMessage) lines.push(`  Error: ${msg.errorMessage}`);
+          // 失败时仍把已有文本作为 finalResultText，便于上层拿到部分结果
+          if (text) finalResultText = text;
+          lines.push('');
+        } else if (text) {
+          // 成功结束：覆盖式记录最终文本
+          finalResultText = text;
+          assistantText = text;
+          // 详细文本不重复输出（流式 delta 中已有累积），
+          // 仅在 stopReason 标记结尾时给一条紧凑记录
+          lines.push('[Assistant Message End]');
+          lines.push(`  Stop reason: ${stopReason || 'stop'}`);
+          lines.push('');
+        } else {
+          lines.push('[Assistant Message End]');
+          lines.push(`  Stop reason: ${stopReason || 'stop'}`);
+          lines.push('');
+        }
+      } else if (msg?.role === 'user') {
+        lines.push('[User Message End]');
+        lines.push('');
+      } else if (msg?.role === 'toolResult') {
+        lines.push('[Tool Result]');
+        const resultText = extractAssistantTextFromContent(msg.content);
+        if (resultText) {
+          lines.push(`  ${truncate(resultText, TOOL_RESULT_MAX_LENGTH)}`);
+        } else {
+          // content 为非 text 块（如 image）时回退为 JSON
+          lines.push(`  ${truncate(JSON.stringify(msg.content), TOOL_RESULT_MAX_LENGTH)}`);
+        }
+        lines.push('[/Tool Result]');
+        lines.push('');
+      }
+      break;
+    }
+
+    // Pi: 流式 message_update，包含嵌套 assistantMessageEvent
+    // assistantMessageEvent.type: start / text_start / text_delta / text_end /
+    //                            thinking_start / thinking_delta / thinking_end /
+    //                            toolcall_start / toolcall_delta / toolcall_end /
+    //                            done / error
+    case 'message_update': {
+      const ame = parsed.assistantMessageEvent;
+      if (!ame || typeof ame !== 'object') break;
+
+      switch (ame.type) {
+        case 'start': {
+          lines.push('[Assistant Stream Start]');
+          lines.push('');
+          break;
+        }
+        case 'thinking_start': {
+          // 累积开始：仅记录开始标记，完整内容在 thinking_end 输出
+          lines.push('[Thinking Start]');
+          lines.push('');
+          break;
+        }
+        case 'thinking_delta': {
+          // delta 不单独输出（避免 verbose_output.txt 被大量短行淹没），
+          // 完整内容在 thinking_end 输出。如需看流式过程可改此处输出 ame.delta。
+          break;
+        }
+        case 'thinking_end': {
+          // 完整思考内容一次性输出
+          const thinkingText = ame.content || '';
+          if (thinkingText) {
+            lines.push('[Thinking]');
+            lines.push(thinkingText);
+            lines.push('[/Thinking]');
+            lines.push('');
+          }
+          break;
+        }
+        case 'text_start': {
+          // 文本块开始，仅记录标记
+          lines.push('[Text Start]');
+          lines.push('');
+          break;
+        }
+        case 'text_delta': {
+          // delta 不单独输出；完整内容在 text_end 输出
+          break;
+        }
+        case 'text_end': {
+          // 完整文本块一次性输出
+          const text = ame.content || '';
+          if (text) {
+            lines.push('[Text]');
+            lines.push(text);
+            lines.push('[/Text]');
+            lines.push('');
+            assistantText = text;
+          }
+          break;
+        }
+        case 'toolcall_start': {
+          lines.push('[Tool Call Start]');
+          lines.push('');
+          break;
+        }
+        case 'toolcall_delta': {
+          // 工具调用参数增量（JSON 字符串 delta），在 toolcall_end 一次性输出
+          break;
+        }
+        case 'toolcall_end': {
+          // 完整 ToolCall 对象
+          const tc = ame.toolCall;
+          if (tc) {
+            const toolName = tc.name || 'Unknown';
+            const toolInput = tc.arguments || tc.input || {};
+            lines.push(`[${toolName}]`);
+            lines.push(formatToolInput(toolName, toolInput));
+            lines.push('');
+          }
+          break;
+        }
+        case 'done': {
+          // 流结束（reason: stop | length | toolUse）
+          lines.push(`[Stream Done] reason=${ame.reason || ''}`);
+          lines.push('');
+          break;
+        }
+        case 'error': {
+          lines.push(`[Stream Error] reason=${ame.reason || ''}`);
+          if (ame.error?.errorMessage) lines.push(`  ${ame.error.errorMessage}`);
+          lines.push('');
+          break;
+        }
+        default:
+          // 未知的 assistantMessageEvent 子类型：原样输出，保留诊断信息
+          lines.push(line);
+          break;
+      }
+      break;
+    }
+
+    // Pi: 工具执行生命周期
+    case 'tool_execution_start': {
+      const toolName = parsed.toolName || 'Unknown';
+      lines.push('[Tool Execution Start]');
+      lines.push(`  Tool: ${toolName}`);
+      lines.push(`  Call ID: ${parsed.toolCallId || ''}`);
+      if (parsed.args !== undefined) {
+        lines.push(formatToolInput(toolName, parsed.args || {}));
+      }
+      lines.push('');
+      break;
+    }
+    case 'tool_execution_update': {
+      // 流式中间结果（长命令输出等）。delta 结构视工具而定。
+      lines.push('[Tool Execution Update]');
+      lines.push(`  Tool: ${parsed.toolName || ''}`);
+      lines.push(`  Call ID: ${parsed.toolCallId || ''}`);
+      if (parsed.partialResult !== undefined) {
+        const partial = typeof parsed.partialResult === 'string'
+          ? parsed.partialResult
+          : JSON.stringify(parsed.partialResult);
+        lines.push(`  Partial: ${truncate(partial, HOOK_OUTPUT_MAX_LENGTH)}`);
+      }
+      lines.push('');
+      break;
+    }
+    case 'tool_execution_end': {
+      const toolName = parsed.toolName || 'Unknown';
+      const isError = parsed.isError === true;
+      const result = parsed.result;
+      lines.push(isError ? '[Tool Execution End (ERROR)]' : '[Tool Execution End]');
+      lines.push(`  Tool: ${toolName}`);
+      lines.push(`  Call ID: ${parsed.toolCallId || ''}`);
+      // 工具结果：
+      // - 字符串：直接展示
+      // - 对象：优先尝试 pi 的 { content: [{ type:'text', text:'...' }] } 结构
+      //         再退回到 extractToolResultContent 兼容 Claude 格式，
+      //         最终退回到 JSON.stringify 保留原始信息
+      if (typeof result === 'string') {
+        lines.push(`  Result: ${truncate(result, TOOL_RESULT_MAX_LENGTH)}`);
+      } else if (result !== undefined && result !== null) {
+        const extractedFromPiShape = extractAssistantTextFromContent(
+          Array.isArray((result as any)?.content) ? (result as any).content : null
+        );
+        if (extractedFromPiShape) {
+          lines.push(`  Result: ${truncate(extractedFromPiShape, TOOL_RESULT_MAX_LENGTH)}`);
+        } else {
+          const extracted = extractToolResultContent(result);
+          if (extracted && extracted !== '{}') {
+            lines.push(`  Result: ${truncate(extracted, TOOL_RESULT_MAX_LENGTH)}`);
+          } else {
+            lines.push(`  Result: ${truncate(JSON.stringify(result), TOOL_RESULT_MAX_LENGTH)}`);
+          }
+        }
+      }
+      lines.push('');
+      break;
+    }
+
+    // Pi: 队列更新（steering / followUp）
+    case 'queue_update': {
+      const steering = Array.isArray(parsed.steering) ? parsed.steering : [];
+      const followUp = Array.isArray(parsed.followUp) ? parsed.followUp : [];
+      if (steering.length > 0 || followUp.length > 0) {
+        lines.push('[Queue Update]');
+        if (steering.length > 0) lines.push(`  Steering: ${steering.length}`);
+        if (followUp.length > 0) lines.push(`  FollowUp: ${followUp.length}`);
+        lines.push('');
+      }
+      break;
+    }
+
+    // Pi: 压缩
+    case 'compaction_start': {
+      lines.push('[Compaction Start]');
+      lines.push(`  Reason: ${parsed.reason || ''}`);
+      lines.push('');
+      break;
+    }
+    case 'compaction_end': {
+      lines.push('[Compaction End]');
+      lines.push(`  Reason: ${parsed.reason || ''}`);
+      lines.push(`  Aborted: ${parsed.aborted === true}`);
+      lines.push(`  WillRetry: ${parsed.willRetry === true}`);
+      if (parsed.errorMessage) lines.push(`  Error: ${parsed.errorMessage}`);
+      lines.push('');
+      break;
+    }
+
+    // Pi: 自动重试 / 总结重试
+    case 'auto_retry_start': {
+      lines.push(`[Auto Retry Start] attempt=${parsed.attempt || '?'}/${parsed.maxAttempts || '?'} delay=${parsed.delayMs || '?'}ms`);
+      if (parsed.errorMessage) lines.push(`  Error: ${parsed.errorMessage}`);
+      lines.push('');
+      break;
+    }
+    case 'auto_retry_end': {
+      lines.push(`[Auto Retry End] success=${parsed.success === true} attempt=${parsed.attempt || '?'}`);
+      if (parsed.finalError) lines.push(`  Final error: ${parsed.finalError}`);
+      lines.push('');
+      break;
+    }
+    case 'summarization_retry_scheduled': {
+      lines.push(`[Summary Retry Scheduled] attempt=${parsed.attempt || '?'}/${parsed.maxAttempts || '?'} delay=${parsed.delayMs || '?'}ms`);
+      lines.push('');
+      break;
+    }
+    case 'summarization_retry_attempt_start': {
+      lines.push(`[Summary Retry Attempt Start] source=${parsed.source || ''}`);
+      lines.push('');
+      break;
+    }
+    case 'summarization_retry_finished': {
+      lines.push('[Summary Retry Finished]');
+      lines.push('');
+      break;
+    }
+
+    // Pi: bash 执行流式输出
+    case 'bash_execution_update': {
+      lines.push('[Bash Update]');
+      if (parsed.delta) {
+        lines.push(truncate(parsed.delta, HOOK_OUTPUT_MAX_LENGTH));
+      }
+      lines.push('');
+      break;
+    }
+
+    // Pi: 其他状态变更
+    case 'thinking_level_changed': {
+      lines.push(`[Thinking Level] ${parsed.level || ''}`);
+      lines.push('');
+      break;
+    }
+    case 'session_info_changed': {
+      if (parsed.name !== undefined) {
+        lines.push(`[Session Name] ${parsed.name || '(cleared)'}`);
+        lines.push('');
+      }
+      break;
+    }
+    case 'entry_appended': {
+      // session 持久化事件，verbose 中不展开
       break;
     }
 

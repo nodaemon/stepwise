@@ -130,4 +130,371 @@ describe('ndjsonFormatter', () => {
       expect(result.isJsonParsed).toBe(false);
     });
   });
+
+  // ============================================================
+  // Pi (--mode json) 事件格式测试
+  // ============================================================
+  describe('Pi 事件格式', () => {
+    describe('SessionHeader (首行)', () => {
+      it('应正确格式化并提取 session_id', () => {
+        const line = JSON.stringify({
+          type: 'session',
+          version: 1,
+          id: 'test-pi-session-uuid',
+          timestamp: '2026-01-15T10:00:00.000Z',
+          cwd: '/home/user/project'
+        });
+
+        const result = formatNDJsonLine(line);
+
+        expect(result.formatted).toContain('Session Init');
+        expect(result.formatted).toContain('Session: test-pi-session-uuid');
+        expect(result.formatted).toContain('CWD: /home/user/project');
+        expect(result.sessionId).toBe('test-pi-session-uuid');
+        expect(result.isJsonParsed).toBe(true);
+      });
+    });
+
+    describe('agent 生命周期', () => {
+      it('agent_start 应输出开始标记', () => {
+        const line = JSON.stringify({ type: 'agent_start' });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('Agent Start');
+      });
+
+      it('agent_end 应输出结束标记与重试状态', () => {
+        const line = JSON.stringify({
+          type: 'agent_end',
+          messages: [{}, {}, {}],
+          willRetry: false
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('Agent End');
+        expect(result.formatted).toContain('Messages: 3');
+        expect(result.formatted).toContain('WillRetry: false');
+      });
+
+      it('agent_settled 应输出标记', () => {
+        const line = JSON.stringify({ type: 'agent_settled' });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('Agent Settled');
+      });
+    });
+
+    describe('turn 生命周期', () => {
+      it('turn_start 应输出开始标记', () => {
+        const line = JSON.stringify({ type: 'turn_start' });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('Turn Start');
+      });
+
+      it('turn_end 应输出 stop reason 与工具结果数', () => {
+        const line = JSON.stringify({
+          type: 'turn_end',
+          message: { role: 'assistant', stopReason: 'toolUse' },
+          toolResults: [{}, {}]
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('Turn End');
+        expect(result.formatted).toContain('Last role: assistant');
+        expect(result.formatted).toContain('Stop reason: toolUse');
+        expect(result.formatted).toContain('Tool results: 2');
+      });
+    });
+
+    describe('message 生命周期', () => {
+      it('message_start (assistant) 应输出标记但不重复 text', () => {
+        const line = JSON.stringify({
+          type: 'message_start',
+          message: { role: 'assistant' }
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('Assistant Message Start');
+      });
+
+      it('message_end (assistant 成功) 应设置 finalResultText 与 assistantText', () => {
+        const line = JSON.stringify({
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            stopReason: 'stop',
+            content: [{ type: 'text', text: '这是最终回复内容' }]
+          }
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.finalResultText).toBe('这是最终回复内容');
+        expect(result.assistantText).toBe('这是最终回复内容');
+        expect(result.formatted).toContain('Assistant Message End');
+      });
+
+      it('message_end (assistant 错误) 仍记录部分文本', () => {
+        const line = JSON.stringify({
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            stopReason: 'error',
+            errorMessage: 'API 调用失败',
+            content: [{ type: 'text', text: '部分输出' }]
+          }
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.finalResultText).toBe('部分输出');
+        expect(result.formatted).toContain('Stop reason: error');
+        expect(result.formatted).toContain('API 调用失败');
+      });
+
+      it('message_end (toolResult) 应作为工具结果格式化', () => {
+        const line = JSON.stringify({
+          type: 'message_end',
+          message: {
+            role: 'toolResult',
+            content: [{ type: 'text', text: '文件内容：hello world' }]
+          }
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('[Tool Result]');
+        expect(result.formatted).toContain('文件内容：hello world');
+        expect(result.formatted).toContain('[/Tool Result]');
+      });
+    });
+
+    describe('message_update 流式事件', () => {
+      it('thinking_start 仅输出开始标记', () => {
+        const line = JSON.stringify({
+          type: 'message_update',
+          assistantMessageEvent: { type: 'thinking_start', contentIndex: 0 }
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('[Thinking Start]');
+      });
+
+      it('thinking_delta 不输出（避免 verbose 被淹没）', () => {
+        const line = JSON.stringify({
+          type: 'message_update',
+          assistantMessageEvent: { type: 'thinking_delta', contentIndex: 0, delta: '部分思考' }
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toBeNull();
+      });
+
+      it('thinking_end 输出完整思考内容', () => {
+        const line = JSON.stringify({
+          type: 'message_update',
+          assistantMessageEvent: {
+            type: 'thinking_end',
+            contentIndex: 0,
+            content: '完整的思考过程...'
+          }
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('[Thinking]');
+        expect(result.formatted).toContain('完整的思考过程...');
+        expect(result.formatted).toContain('[/Thinking]');
+      });
+
+      it('text_end 输出完整文本并设置 assistantText', () => {
+        const line = JSON.stringify({
+          type: 'message_update',
+          assistantMessageEvent: {
+            type: 'text_end',
+            contentIndex: 0,
+            content: '完整回复文本'
+          }
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('[Text]');
+        expect(result.formatted).toContain('完整回复文本');
+        expect(result.assistantText).toBe('完整回复文本');
+      });
+
+      it('toolcall_end 输出工具调用与参数', () => {
+        const line = JSON.stringify({
+          type: 'message_update',
+          assistantMessageEvent: {
+            type: 'toolcall_end',
+            contentIndex: 0,
+            toolCall: {
+              id: 'call-1',
+              name: 'Bash',
+              arguments: { command: 'ls -la', description: '列出文件' }
+            }
+          }
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('[Bash]');
+        expect(result.formatted).toContain('Command: ls -la');
+        expect(result.formatted).toContain('Description: 列出文件');
+      });
+
+      it('done 输出结束原因', () => {
+        const line = JSON.stringify({
+          type: 'message_update',
+          assistantMessageEvent: { type: 'done', reason: 'stop' }
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('[Stream Done]');
+        expect(result.formatted).toContain('reason=stop');
+      });
+    });
+
+    describe('tool_execution 生命周期', () => {
+      it('tool_execution_start 输出工具名与参数', () => {
+        const line = JSON.stringify({
+          type: 'tool_execution_start',
+          toolCallId: 'call-1',
+          toolName: 'Read',
+          args: { file_path: '/tmp/test.ts' }
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('[Tool Execution Start]');
+        expect(result.formatted).toContain('Tool: Read');
+        expect(result.formatted).toContain('Call ID: call-1');
+        expect(result.formatted).toContain('File: /tmp/test.ts');
+      });
+
+      it('tool_execution_update 输出流式部分结果', () => {
+        const line = JSON.stringify({
+          type: 'tool_execution_update',
+          toolCallId: 'call-1',
+          toolName: 'Bash',
+          partialResult: 'partial output'
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('[Tool Execution Update]');
+        expect(result.formatted).toContain('partial output');
+      });
+
+      it('tool_execution_end 字符串结果直接展示', () => {
+        const line = JSON.stringify({
+          type: 'tool_execution_end',
+          toolCallId: 'call-1',
+          toolName: 'Bash',
+          result: '命令执行成功',
+          isError: false
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('[Tool Execution End]');
+        expect(result.formatted).toContain('Tool: Bash');
+        expect(result.formatted).toContain('命令执行成功');
+      });
+
+      it('tool_execution_end 错误标记', () => {
+        const line = JSON.stringify({
+          type: 'tool_execution_end',
+          toolCallId: 'call-1',
+          toolName: 'Bash',
+          result: '失败信息',
+          isError: true
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('[Tool Execution End (ERROR)]');
+      });
+
+      it('tool_execution_end 对象结果尝试提取常见字段', () => {
+        const line = JSON.stringify({
+          type: 'tool_execution_end',
+          toolCallId: 'call-1',
+          toolName: 'Read',
+          result: { content: [{ type: 'text', text: '文件文本内容' }] },
+          isError: false
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('[Tool Execution End]');
+        expect(result.formatted).toContain('文件文本内容');
+      });
+
+      it('tool_execution_end pi Bash 结果格式 (content 数组中含 text)', () => {
+        const line = JSON.stringify({
+          type: 'tool_execution_end',
+          toolCallId: 'call-1',
+          toolName: 'bash',
+          result: {
+            content: [{ type: 'text', text: '总用量 0\ndrwxr-xr-x 2 wangkai wangkai 40' }]
+          },
+          isError: false
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('[Tool Execution End]');
+        expect(result.formatted).toContain('Tool: bash');
+        expect(result.formatted).toContain('总用量 0');
+        expect(result.formatted).toContain('drwxr-xr-x');
+      });
+    });
+
+    describe('压缩与重试事件', () => {
+      it('compaction_start/end 应输出原因与中止状态', () => {
+        const start = JSON.stringify({
+          type: 'compaction_start',
+          reason: 'threshold'
+        });
+        const startResult = formatNDJsonLine(start);
+        expect(startResult.formatted).toContain('[Compaction Start]');
+        expect(startResult.formatted).toContain('Reason: threshold');
+
+        const end = JSON.stringify({
+          type: 'compaction_end',
+          reason: 'threshold',
+          result: { summary: '...' },
+          aborted: false,
+          willRetry: false
+        });
+        const endResult = formatNDJsonLine(end);
+        expect(endResult.formatted).toContain('[Compaction End]');
+        expect(endResult.formatted).toContain('Aborted: false');
+      });
+
+      it('auto_retry_start/end 应输出重试信息', () => {
+        const start = JSON.stringify({
+          type: 'auto_retry_start',
+          attempt: 1,
+          maxAttempts: 3,
+          delayMs: 1000,
+          errorMessage: 'rate limit'
+        });
+        const startResult = formatNDJsonLine(start);
+        expect(startResult.formatted).toContain('[Auto Retry Start]');
+        expect(startResult.formatted).toContain('attempt=1/3');
+        expect(startResult.formatted).toContain('rate limit');
+      });
+    });
+
+    describe('其他状态变更', () => {
+      it('thinking_level_changed 应输出级别', () => {
+        const line = JSON.stringify({
+          type: 'thinking_level_changed',
+          level: 'high'
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toContain('[Thinking Level] high');
+      });
+
+      it('entry_appended 应被静默忽略（持久化事件）', () => {
+        const line = JSON.stringify({
+          type: 'entry_appended',
+          entry: { id: 'abc', type: 'message' }
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.formatted).toBeNull();
+      });
+
+      it('queue_update 仅在非空时输出', () => {
+        const empty = JSON.stringify({
+          type: 'queue_update',
+          steering: [],
+          followUp: []
+        });
+        const emptyResult = formatNDJsonLine(empty);
+        expect(emptyResult.formatted).toBeNull();
+
+        const nonEmpty = JSON.stringify({
+          type: 'queue_update',
+          steering: ['steer msg'],
+          followUp: []
+        });
+        const nonEmptyResult = formatNDJsonLine(nonEmpty);
+        expect(nonEmptyResult.formatted).toContain('[Queue Update]');
+        expect(nonEmptyResult.formatted).toContain('Steering: 1');
+      });
+    });
+  });
 });

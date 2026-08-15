@@ -9,13 +9,18 @@
  * - --fork <id> --session-id <newId>：从已有 session fork 出新会话，并指定新会话 ID
  *
  * 输出模式：
- * - text 模式（-p）：stdout 直接输出 assistant 的最终文本，纯文本无需解析 JSON
- * - 不使用 --mode json，避免复杂的 JSON 事件流解析
+ * - --mode json + -p：stdout 为逐行 JSON（NDJSON）事件流，每行对应一个 AgentSessionEvent
+ *   包含完整过程：thinking、text、tool_call（tool_execution_start/update/end）、
+ *   turn/agent lifecycle 等。verbose_output.txt 中按事件类型格式化输出。
+ *   首行为 SessionHeader（{"type":"session","id":"<uuid>",...}），从中提取 session_id。
+ * - 不使用 text 模式（-p 默认行为），因为它只输出最终 assistant 文本，
+ *   缺少中间过程（思考、工具调用、工具结果）。
  *
  * Session ID 获取策略：
- * - 新会话/恢复：通过 --session-id <uuid> 指定，pi 自动创建或打开
+ * - 新会话/恢复：首行 SessionHeader 包含 id 字段，由 ndjsonFormatter 提取后回填
  * - Fork：在 execute() 中预生成派生 ID，通过 --session-id 指定给 pi，
- *   并立即通过 onDerivedSessionId 回调通知 StepWise（无需从输出解析）
+ *   并立即通过 onDerivedSessionId 回调通知 StepWise（无需从输出解析）。
+ *   SessionHeader 的 id 字段同样会与派生 ID 匹配，可用于校验。
  *
  * Pi 的 session 存储路径：
  * - 默认：~/.pi/agent/sessions/--<escaped-cwd>--/<sessionId>.jsonl
@@ -58,11 +63,12 @@ export class PiExecutor extends BaseExecutor {
   }
 
   /**
-   * Pi 使用纯文本输出格式（text 模式）
-   * stdout 为 assistant 最终文本，空行保留以维持可读性
+   * Pi 使用 NDJSON 输出格式（--mode json）
+   * stdout 为逐行 JSON，每行按 type 格式化后写入 verbose_output.txt，
+   * 空行无意义需跳过。
    */
   protected usesNDJsonOutput(): boolean {
-    return false;
+    return true;
   }
 
   /**
@@ -124,7 +130,9 @@ export class PiExecutor extends BaseExecutor {
       args.push('--session-id', sessionId);
     }
 
-    // print 模式，纯文本输出
+    // print 模式 + JSON 事件流，stdout 为 NDJSON，每行一个 AgentSessionEvent，
+    // 包含完整过程（思考、文本、工具调用与结果），由 ndjsonFormatter 格式化输出
+    args.push('--mode', 'json');
     args.push('-p', prompt);
 
     return args;
@@ -133,6 +141,10 @@ export class PiExecutor extends BaseExecutor {
   /**
    * fork 模式下返回预生成的派生 session ID
    * 使 BaseExecutor 能将派生 ID 作为最终 sessionId 返回
+   *
+   * 非 fork 场景下，session_id 由 ndjsonFormatter 从首行 SessionHeader.id 提取，
+   * 并通过 parseAndFormatNDJson().sessionId 回填到 BaseExecutor（无需在此返回）。
+   * 这里仍保留返回 fork 派生 ID 的能力，覆盖 fork 路径。
    */
   protected async getSessionIdAfterExecution(): Promise<string | null> {
     return this.forkNewSessionId;
