@@ -88,7 +88,7 @@ export interface AgentExecutor {
    * 执行器类型标识
    * 返回当前执行器对应的智能体类型
    */
-  readonly agentType: 'claude' | 'opencode' | 'codeagent';
+  readonly agentType: 'claude' | 'opencode' | 'codeagent' | 'pi';
 
   /**
    * 执行提示词任务

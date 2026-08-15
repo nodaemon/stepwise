@@ -11,6 +11,7 @@ export { BaseExecutor } from './base';
 export { ClaudeExecutor } from './claude';
 export { OpenCodeExecutor } from './opencode';
 export { CodeAgentExecutor } from './codeagent';
+export { PiExecutor } from './pi';
 
 // NDJSON 解析器
 export { parseAndFormatNDJson, formatNDJsonLine } from './ndjsonFormatter';

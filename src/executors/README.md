@@ -11,7 +11,8 @@ src/executors/
 ├── base.ts       # 抽象基类
 ├── claude.ts     # Claude 执行器实现（同时作为 CodeAgent 的基类）
 ├── codeagent.ts  # CodeAgent 执行器实现（继承 ClaudeExecutor）
-└── opencode.ts   # OpenCode 执行器实现
+├── opencode.ts   # OpenCode 执行器实现
+└── pi.ts         # Pi 执行器实现（@earendil-works/pi-coding-agent）
 ```
 
 ## 架构设计
@@ -30,13 +31,13 @@ src/executors/
                       │ implements
                       ▼
                 BaseExecutor (abstract)
-           ┌────────────┼────────────┐
-           │            │            │
-           ▼            ▼            ▼
-    ClaudeExecutor  OpenCodeExecutor  CodeAgentExecutor
-           ▲
-           │ extends
-           └─────────── (复用 buildArgs，仅覆盖 getCommand/agentType)
+           ┌─────────┬──────────┬──────────┐
+           │         │          │          │
+           ▼         ▼          ▼          ▼
+    ClaudeExecutor  OpenCodeExecutor  CodeAgentExecutor  PiExecutor
+           ▲                                              │
+           │ extends                                       │
+           └─────────────────────── (复用 buildArgs，仅覆盖 getCommand/agentType)
 ```
 
 ## 如何添加新的执行器
@@ -122,7 +123,9 @@ export { AiderExecutor } from './aider';
 | 方法 | 说明 |
 |------|------|
 | `buildEnv()` | 构建环境变量，默认返回 `process.env` |
-| `usesNDJsonOutput()` | 是否输出 NDJSON（stream-json）格式，默认 `false`。Claude、CodeAgent 返回 `true`（空行跳过、按 type 格式化）；OpenCode 等纯文本执行器为 `false`（空行保留） |
+| `usesNDJsonOutput()` | 是否输出 NDJSON（stream-json）格式，默认 `false`。Claude、CodeAgent 返回 `true`（空行跳过、按 type 格式化）；OpenCode、Pi 等纯文本执行器为 `false`（空行保留） |
+| `execute()` | 执行提示词任务，默认在 `BaseExecutor` 中实现重试、错误处理等逻辑。Pi 执行器重写此方法以在 fork 模式下预生成派生 session ID |
+| `getSessionIdAfterExecution()` | 执行完成后获取 sessionId。OpenCode 通过 `session list` 获取；Pi 在 fork 模式下返回预生成的派生 ID |
 | `getRateLimitPatterns()` | 速率限制检测正则表达式 |
 | `checkRateLimitError()` | 速率限制错误检测逻辑 |
 
@@ -135,6 +138,7 @@ export { AiderExecutor } from './aider';
 | Claude | `--session-id <uuid>` | `--resume <uuid>` | 否 |
 | CodeAgent | `--session-id <uuid>` | `--resume <uuid>` | 否 |
 | OpenCode | `--session <uuid>` | `--session <uuid>` | 是 |
+| Pi | `--session-id <uuid>` | `--session-id <uuid>` | 是（自动判断创建/打开） |
 
 在实现 `buildArgs()` 方法时，需要根据具体 CLI 工具的参数设计来处理 `isResume` 参数。
 

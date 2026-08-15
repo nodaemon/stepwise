@@ -42,6 +42,7 @@ import { setAgentType, setTaskName, StepWise } from 'stepwise';
 setAgentType('claude');   // 使用 Claude Code（默认）
 // setAgentType('opencode');  // 使用 OpenCode
 // setAgentType('codeagent'); // 使用 CodeAgent（命令参数与 claude 一致，仅可执行程序名不同）
+// setAgentType('pi');        // 使用 Pi（@earendil-works/pi-coding-agent）
 
 setTaskName('MyTask');
 const agent = new StepWise('MainAgent');
@@ -127,7 +128,7 @@ await forEachParallel(apis, workerConfigs, async (ctx) => {
 
 > **并行任务收尾与分支保留**：并行任务完成后，框架用**固定脚本**（不依赖 AI）把每个 worktree 的改动提交到自己的分支并保留分支，再删除 worktree。代码不会自动合并到主分支（避免 AI 合并误删代码），主分支零污染。控制台会打印保留的分支名列表，用户按需手动整合（如 `git merge <分支名>`）。设 `skipBranchMerge: true` 可跳过此收尾脚本（worktree 改动将不提交）。
 
-> **并行模式下的 Session 行为**：每个 worker 在独立 git worktree（cwd 与主仓库不同）运行。Claude/CodeAgent 的 session 按 cwd 隔离存储（Claude Code 存于 `~/.claude/projects/`，CodeAgent 存于 `~/.cac/projects/`），因此：
+> **并行模式下的 Session 行为**：每个 worker 在独立 git worktree（cwd 与主仓库不同）运行。Claude/CodeAgent/Pi 的 session 按 cwd 隔离存储（Claude Code 存于 `~/.claude/projects/`，CodeAgent 存于 `~/.cac/projects/`，Pi 存于 `~/.pi/agent/sessions/`），因此：
 > - **默认复用**：worker 不传 `sessionId` 时，session 在 worker 自己的 worktree 内创建+复用，无问题。
 > - **fork（`sessionId` + `newSession:true`）**：框架自动软链主仓库的 session 文件到 worktree 目录，使 fork 可跨 worktree 派生（fork 只读原会话，安全）。删除 worktree 时不清除这些软链（残留无害，最坏为 dangling symlink，Claude 自然处理为"找不到会话"）；如需清理可手动调用 `cleanWorktreeSessionLinks`。
 > - **纯指定 `sessionId`（非 fork）**：跨目录 resume 会共享写并发风险，框架**报错**。如需跨 worktree 复用上下文，请用 fork，或通过产物文件而非 session 共享。
@@ -258,7 +259,7 @@ const r5 = await agent.execPrompt('尝试另一种实现思路', {
 | 方法 | 用途 | 说明 |
 |------|------|------|
 | `initTask` | 初始化任务 | 设置任务名称；第二参数（可选）为恢复路径（替代 `setTaskName`+`setResumePath`） |
-| `setAgentType` | 设置 AI 编程助手 | 可选，默认 `'claude'`，可选 `'opencode'`、`'codeagent'` |
+| `setAgentType` | 设置 AI 编程助手 | 可选，默认 `'claude'`，可选 `'opencode'`、`'codeagent'`、`'pi'` |
 | `enableDebugMode` | 启用调试模式 | 快速验证流程，只收集 1 条数据 |
 | `setSkipSummarize` | 跳过自动总结 | 禁用创建新 session 时的自动总结 |
 | `saveCollectData` | 保存收集数据 | 保存数据到 JSON 文件 |
@@ -356,7 +357,15 @@ opencode run --thinking --session <uuid> "你的提示词"
 # OpenCode 自动判断新会话还是恢复会话
 # 分岔：从 <uuid> 派生新会话分支（原会话保留）
 opencode run --thinking --session <uuid> --fork "你的提示词"
+
+# Pi 示例（@earendil-works/pi-coding-agent）
+# --session-id 自动判断：不存在则创建，已存在则打开（恢复）
+pi --session-id <uuid> -p "你的提示词"
+# 分岔：从 <session-id> 派生新会话，并指定新会话 ID（原会话保留）
+pi --fork <session-id> --session-id <new-uuid> -p "你的提示词"
 ```
+
+> **Pi**：无需权限标志——Pi 设计上没有权限弹窗。通过 `--session-id` 指定会话 ID（自动判断创建或恢复）。分岔使用 `--fork <id> --session-id <new-id>` 预先指定派生会话 ID，无需解析 JSON 输出。
 
 > **OpenCode 权限配置**：使用 OpenCode 时，需要在项目根目录的 `opencode.json` 配置文件中添加 `"permission": "allow"`，以跳过交互式权限确认。详情参见 [OpenCode 权限文档](https://opencode.ai/docs/zh-cn/permissions/)。
 >

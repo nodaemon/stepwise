@@ -55,6 +55,11 @@ export const OPENCODE_COMMAND = 'opencode';
 /** CodeAgent 命令（参数与 claude 一致，仅可执行程序名不同） */
 export const CODEAGENT_COMMAND = 'codeagent';
 
+// ============ Pi 相关常量 ============
+
+/** Pi 命令（@earendil-works/pi-coding-agent） */
+export const PI_COMMAND = 'pi';
+
 /** 任务类型 */
 export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell' | 'schema';
 

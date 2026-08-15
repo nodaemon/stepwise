@@ -42,7 +42,7 @@ interface RateLimitInfo {
  */
 export abstract class BaseExecutor implements AgentExecutor {
   /** 子类必须实现：返回执行器类型 */
-  abstract readonly agentType: 'claude' | 'opencode' | 'codeagent';
+  abstract readonly agentType: 'claude' | 'opencode' | 'codeagent' | 'pi';
 
   /** 子类必须实现：构建命令行参数 */
   protected abstract buildArgs(

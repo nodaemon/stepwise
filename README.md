@@ -42,6 +42,7 @@ import { setAgentType, setTaskName, StepWise } from 'stepwise';
 setAgentType('claude');   // Use Claude Code (default)
 // setAgentType('opencode');  // Use OpenCode
 // setAgentType('codeagent'); // Use CodeAgent (same args as claude, different executable)
+// setAgentType('pi');        // Use Pi (@earendil-works/pi-coding-agent)
 
 setTaskName('MyTask');
 const agent = new StepWise('MainAgent');
@@ -128,7 +129,7 @@ await forEachParallel(apis, workerConfigs, async (ctx) => {
 
 > **Parallel finalization & branch preservation**: After parallel tasks finish, the framework runs a **deterministic script** (no AI) to commit each worktree's changes to its own branch and keep the branch, then removes the worktree. Code is not auto-merged into the main branch (avoiding AI-merge-induced code loss); the main branch stays clean. The console prints the list of preserved branch names; integrate manually as needed (e.g. `git merge <branch>`). Set `skipBranchMerge: true` to skip this finalization script (worktree changes won't be committed).
 
-> **Session behavior in parallel mode**: Each worker runs in its own git worktree (a different cwd from the main repo). Claude/CodeAgent sessions are stored per-cwd (Claude Code under `~/.claude/projects/`, CodeAgent under `~/.cac/projects/`), so:
+> **Session behavior in parallel mode**: Each worker runs in its own git worktree (a different cwd from the main repo). Claude/CodeAgent/Pi sessions are stored per-cwd (Claude Code under `~/.claude/projects/`, CodeAgent under `~/.cac/projects/`, Pi under `~/.pi/agent/sessions/`), so:
 > - **Default reuse**: when the worker omits `sessionId`, the session is created and reused within the worker's own worktree — no problem.
 > - **Fork (`sessionId` + `newSession:true`)**: the framework auto-symlinks the main repo's session file into the worktree's projects dir so fork can branch across worktrees (fork only reads the original session, so it's safe). Symlinks are not removed when the worktree is deleted — leftover links are harmless (worst case a dangling symlink that Claude treats as "conversation not found"); call `cleanWorktreeSessionLinks` manually to clean up.
 > - **Standalone `sessionId` (no fork)**: resuming across cwds risks concurrent writes to a shared session, so the framework **throws an error**. To share context across worktrees, use fork, or pass context via artifact files rather than sessions.
@@ -263,7 +264,7 @@ const r5 = await agent.execPrompt('Try an alternative implementation approach', 
 | Method | Usage | Description |
 |--------|-------|-------------|
 | `initTask` | Initialize task | Set task name; optional resume path as 2nd arg (replaces `setTaskName`+`setResumePath`) |
-| `setAgentType` | Set AI coding assistant | Optional, default `'claude'`, options: `'opencode'`, `'codeagent'` |
+| `setAgentType` | Set AI coding assistant | Optional, default `'claude'`, options: `'opencode'`, `'codeagent'`, `'pi'` |
 | `enableDebugMode` | Enable debug mode | Quick validation, collect only 1 item |
 | `setSkipSummarize` | Skip auto-summarize | Disable auto-summarize when creating new session |
 | `saveCollectData` | Save collected data | Save data to JSON file |
@@ -361,7 +362,15 @@ opencode run --thinking --session <uuid> "your prompt"
 # OpenCode auto-detects new vs resume session
 # Fork: branch off from <uuid> into a new session (original preserved)
 opencode run --thinking --session <uuid> --fork "your prompt"
+
+# Pi example (@earendil-works/pi-coding-agent)
+# --session-id auto-detects: creates if missing, opens (resumes) if exists
+pi --session-id <uuid> -p "your prompt"
+# Fork: branch off from <uuid> into a new session with specified new ID (original preserved)
+pi --fork <session-id> --session-id <new-uuid> -p "your prompt"
 ```
+
+> **Pi**: No permission flags needed — Pi has no permission popups by design. Session ID is specified via `--session-id` (auto-detects create vs resume). Fork uses `--fork <id> --session-id <new-id>` to pre-assign the derived session ID, avoiding the need to parse JSON output.
 
 > **OpenCode Permission Configuration**: When using OpenCode, you need to add `"permission": "allow"` to the `opencode.json` config file in the project root directory to skip interactive permission confirmations. For more details, see [OpenCode Permissions](https://opencode.ai/docs/permissions/).
 >

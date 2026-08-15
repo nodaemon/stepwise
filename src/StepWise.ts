@@ -441,13 +441,15 @@ export class StepWise {
    */
   /**
    * 按执行器类型获取 session 存储 config 目录名
-   * - claude → '.claude'，codeagent → '.cac'
+   * - claude → '.claude'，codeagent → '.cac'，pi → '.pi'
    * - opencode 不按 cwd 文件隔离（全局 db），返回 null
    */
   private getConfigSubdir(): string | null {
     const agentType = _getAgentType();
     if (agentType === 'opencode') return null;
-    return agentType === 'codeagent' ? '.cac' : '.claude';
+    if (agentType === 'codeagent') return '.cac';
+    if (agentType === 'pi') return '.pi';
+    return '.claude';
   }
 
   private handleParallelCrossCwdSession(

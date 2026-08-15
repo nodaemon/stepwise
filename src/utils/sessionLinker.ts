@@ -21,14 +21,16 @@ import { ensureDir } from './fileHelper';
  * 各执行器的 session 存储 config 目录名（相对 ~）
  * - claude: ~/.claude
  * - codeagent: ~/.cac
+ * - pi: ~/.pi/agent（session 路径还多一层 sessions/--<cwd>--）
  */
 const CONFIG_SUBDIR: Record<string, string> = {
   claude: '.claude',
-  codeagent: '.cac'
+  codeagent: '.cac',
+  pi: '.pi'
 };
 
 /**
- * 将 cwd 绝对路径转义为 projects 目录名
+ * 将 cwd 绝对路径转义为 projects 目录名（Claude/CodeAgent 格式）
  * 规则：所有非字母数字字符替换为 -（如 /tmp/Code_Agent1 → -tmp-Code-Agent1）
  * 实机验证：Claude/CodeAgent 把 / _ . 空格 @ # + ( ) 等特殊字符统一转为 -
  */
@@ -37,11 +39,28 @@ function escapeCwd(cwd: string): string {
 }
 
 /**
- * 获取某 cwd 对应的 projects 目录绝对路径
- * @param configSubdir config 目录名（如 .claude / .cac），由执行器类型决定
+ * 将 cwd 绝对路径转义为 pi 的 sessions 目录名
+ * 规则：去掉前导 / 或 \，将 / \ : 替换为 -，前后加 --
+ * 如 /tmp/Code_Agent1 → --tmp-Code-Agent1--
+ */
+function escapeCwdForPi(cwd: string): string {
+  return `--${cwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`;
+}
+
+/**
+ * 获取某 cwd 对应的 session 存储目录绝对路径
+ * @param configSubdir config 目录名（如 .claude / .cac / .pi），由执行器类型决定
  * @param cwd 工作目录绝对路径
  */
 function getProjectsDir(configSubdir: string, cwd: string): string {
+  if (configSubdir === '.pi') {
+    // pi: <agentDir>/sessions/--<escaped-cwd>--
+    // agentDir 默认 ~/.pi/agent，可通过 PI_CODING_AGENT_DIR 环境变量覆盖
+    const agentDir = process.env.PI_CODING_AGENT_DIR
+      || path.join(os.homedir(), '.pi', 'agent');
+    return path.join(agentDir, 'sessions', escapeCwdForPi(cwd));
+  }
+  // Claude/CodeAgent: ~/<config>/projects/<escaped-cwd>
   return path.join(os.homedir(), configSubdir, 'projects', escapeCwd(cwd));
 }
 
