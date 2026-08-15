@@ -243,6 +243,61 @@ describe('ndjsonFormatter', () => {
         expect(result.formatted).toContain('API 调用失败');
       });
 
+      it('message_end (assistant stopReason=stop) 应设置 finalResultText', () => {
+        const line = JSON.stringify({
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            stopReason: 'stop',
+            content: [{ type: 'text', text: '正常回复' }]
+          }
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.finalResultText).toBe('正常回复');
+      });
+
+      it('message_end (assistant stopReason=toolUse) 应设置 finalResultText', () => {
+        const line = JSON.stringify({
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            stopReason: 'toolUse',
+            content: [
+              { type: 'text', text: '调用工具' },
+              { type: 'toolCall', name: 'Bash', arguments: {} }
+            ]
+          }
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.finalResultText).toBe('调用工具');
+      });
+
+      it('message_end (assistant stopReason=pending) 不应设置 finalResultText', () => {
+        // pending 是流开始时的初值，不应被当作正常结束
+        const line = JSON.stringify({
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            stopReason: 'pending',
+            content: [{ type: 'text', text: '部分输出' }]
+          }
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.finalResultText).toBeNull();
+      });
+
+      it('message_end (assistant 无 stopReason) 不应设置 finalResultText', () => {
+        const line = JSON.stringify({
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: '部分输出' }]
+          }
+        });
+        const result = formatNDJsonLine(line);
+        expect(result.finalResultText).toBeNull();
+      });
+
       it('message_end (toolResult) 应作为工具结果格式化', () => {
         const line = JSON.stringify({
           type: 'message_end',

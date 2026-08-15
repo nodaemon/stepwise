@@ -448,25 +448,31 @@ export function formatNDJsonLine(line: string): NDJsonLineResult {
         // 提取最终文本作为 result（pi 无独立 result 事件）
         const text = extractAssistantTextFromContent(msg.content);
         const stopReason = msg.stopReason;
-        if (stopReason === 'error' || stopReason === 'aborted') {
+        // 已知成功/可接受的结束原因：stop（自然结束）、toolUse（调用工具后中断流）、
+        // length（上下文超出截断）。error/aborted 为失败。
+        // 其他值（如 pending、undefined）视为异常，不覆盖 finalResultText。
+        const isSuccess = stopReason === 'stop' || stopReason === 'toolUse' || stopReason === 'length';
+        const isFailure = stopReason === 'error' || stopReason === 'aborted';
+        if (isFailure) {
           lines.push('[Assistant Message End]');
           lines.push(`  Stop reason: ${stopReason}`);
           if (msg.errorMessage) lines.push(`  Error: ${msg.errorMessage}`);
           // 失败时仍把已有文本作为 finalResultText，便于上层拿到部分结果
           if (text) finalResultText = text;
           lines.push('');
-        } else if (text) {
+        } else if (isSuccess && text) {
           // 成功结束：覆盖式记录最终文本
           finalResultText = text;
           assistantText = text;
           // 详细文本不重复输出（流式 delta 中已有累积），
           // 仅在 stopReason 标记结尾时给一条紧凑记录
           lines.push('[Assistant Message End]');
-          lines.push(`  Stop reason: ${stopReason || 'stop'}`);
+          lines.push(`  Stop reason: ${stopReason}`);
           lines.push('');
         } else {
+          // 未知 stopReason 或无文本：只打日志，不覆盖 finalResultText
           lines.push('[Assistant Message End]');
-          lines.push(`  Stop reason: ${stopReason || 'stop'}`);
+          lines.push(`  Stop reason: ${stopReason || '(none)'}`);
           lines.push('');
         }
       } else if (msg?.role === 'user') {
