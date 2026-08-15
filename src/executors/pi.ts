@@ -32,7 +32,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { BaseExecutor } from './base';
 import { AgentType, ExecutionResult } from '../types';
-import { AgentExecutorOptions } from './types';
+import { AgentExecutorOptions, ExecutorRawResult } from './types';
 
 /**
  * 检测当前是否为 Windows 系统
@@ -69,6 +69,51 @@ export class PiExecutor extends BaseExecutor {
    */
   protected usesNDJsonOutput(): boolean {
     return true;
+  }
+
+  /**
+   * 判断 pi 执行结果是否真的成功
+   *
+   * Pi 在 --mode json 模式下，进程退出码始终是 0（即使 assistant.stopReason 是 error/aborted
+   * 或内部 auto-retry 全部失败）。仅靠 exitCode === 0 会让 base.ts 把错误结果误判为成功，
+   * 并绕过 checkRateLimitError() 的 429 重试机制。
+   *
+   * 此方法扫描 NDJSON stdout，检查最后一条 assistant message_end 的 stopReason，
+   * 如为 error/aborted 则返回 false，让基类走非零退出码路径触发 rate limit 重试。
+   */
+  protected isExecutionSuccessful(result: ExecutorRawResult): boolean {
+    if (!super.isExecutionSuccessful(result)) {
+      return false;
+    }
+    const lastAssistantStopReason = this.extractLastAssistantStopReason(result.stdout);
+    return lastAssistantStopReason !== 'error' && lastAssistantStopReason !== 'aborted';
+  }
+
+  /**
+   * 从 NDJSON 流中提取最后一个 assistant message_end 事件的 stopReason
+   * 返回 null 表示未找到；返回字符串表示找到（包含 'stop' / 'toolUse' / 'length' / 'error' / 'aborted' / 'pending' 等）
+   */
+  private extractLastAssistantStopReason(ndjsonStdout: string): string | null {
+    if (!ndjsonStdout) return null;
+    const lines = ndjsonStdout.split('\n');
+    let lastStopReason: string | null = null;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (
+          parsed.type === 'message_end' &&
+          parsed.message?.role === 'assistant' &&
+          typeof parsed.message.stopReason === 'string'
+        ) {
+          lastStopReason = parsed.message.stopReason;
+        }
+      } catch {
+        // 忽略非 JSON 行（不预期出现，但容错）
+      }
+    }
+    return lastStopReason;
   }
 
   /**

@@ -70,6 +70,23 @@ export abstract class BaseExecutor implements AgentExecutor {
   }
 
   /**
+   * 判断执行结果是否真的成功
+   *
+   * 默认仅检查 exit code：exit code === 0 视为成功。
+   *
+   * 对于 NDJSON 输出且进程退出码不能准确反映运行结果的执行器（如 pi --mode json，
+   * 该模式下 exit code 始终是 0，即使 assistant 报 error/aborted），
+   * 可重写此方法检查 stdout 流中的错误事件（如最后一条 message_end 的 stopReason），
+   * 将错误执行结果视为失败，从而触发基类的非零退出码路径（包括 rate limit 重试）。
+   *
+   * @param result 子进程原始执行结果（stdout / stderr / exitCode）
+   * @returns true 视为成功，false 视为失败（会走错误路径）
+   */
+  protected isExecutionSuccessful(result: ExecutorRawResult): boolean {
+    return result.exitCode === 0;
+  }
+
+  /**
    * 构建执行环境变量
    * 子类可以重写以添加额外的环境变量
    * @param extraEnv 额外的环境变量数组，格式为 "KEY=VALUE"
@@ -137,8 +154,9 @@ export abstract class BaseExecutor implements AgentExecutor {
         lastStderr = result.stderr;
         lastExitCode = result.exitCode;
 
-        // 退出码为 0 表示成功
-        if (result.exitCode === 0) {
+        // 退出码为 0 表示成功，但子类（NDJSON 执行器）可重写 isExecutionSuccessful()
+        // 基于 stdout 内容进一步判断（如检查 message_end 的 stopReason）
+        if (this.isExecutionSuccessful(result)) {
           // 检查 stdout 是否为空
           if (!result.stdout || result.stdout.trim() === '') {
             console.log(`[${this.agentType}] 警告: 任务执行完成但没有任何输出，将触发重试`);
