@@ -65,18 +65,69 @@ function getProjectsDir(configSubdir: string, cwd: string): string {
 }
 
 /**
+ * 在 pi session 目录里按后缀查找 sessionId 对应的文件
+ * pi 文件格式: <timestamp>_<sessionId>.jsonl，需用 endsWith 而非精确匹配
+ * @returns 实体文件（非软链）的路径，未找到返回 null
+ */
+function findPiSessionFilePath(sessionDir: string, sessionId: string): string | null {
+  if (!fs.existsSync(sessionDir)) return null;
+  try {
+    const files = fs.readdirSync(sessionDir);
+    for (const f of files) {
+      if (f.endsWith(`_${sessionId}.jsonl`)) {
+        const full = path.join(sessionDir, f);
+        // 实体文件（非软链）才算本地自建
+        if (!fs.lstatSync(full).isSymbolicLink()) {
+          return full;
+        }
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 判断某 sessionId 是否为某 cwd 本地创建的会话（实体文件，非软链）
  * 用于区分"worktree 自建会话（本地，无需跨目录处理）"与"来自主仓库（跨目录，需软链/报错）"
- * @param configSubdir config 目录名（如 .claude / .cac），由执行器类型决定
+ * @param configSubdir config 目录名（如 .claude / .cac / .pi），由执行器类型决定
  */
 export function isLocalSession(configSubdir: string, cwd: string, sessionId: string): boolean {
-  const file = path.join(getProjectsDir(configSubdir, cwd), `${sessionId}.jsonl`);
+  const sessionDir = getProjectsDir(configSubdir, cwd);
+
+  // pi 文件名为 <timestamp>_<sessionId>.jsonl，需按后缀匹配
+  if (configSubdir === '.pi') {
+    return findPiSessionFilePath(sessionDir, sessionId) !== null;
+  }
+
+  // Claude/CodeAgent: 精确文件名匹配
+  const file = path.join(sessionDir, `${sessionId}.jsonl`);
   if (!fs.existsSync(file)) return false;
   try {
-    // 实体文件（非符号链接）才算本地自建；软链指向的是别处
     return !fs.lstatSync(file).isSymbolicLink();
   } catch {
     return false;
+  }
+}
+
+/**
+ * 在 pi session 目录里查找 sessionId 对应的文件路径（实体或软链均可）
+ * 用于 linkCrossCwdSession 跨目录软链场景
+ * @returns 文件路径，未找到返回 null
+ */
+export function findPiSessionFile(sessionDir: string, sessionId: string): string | null {
+  if (!fs.existsSync(sessionDir)) return null;
+  try {
+    const files = fs.readdirSync(sessionDir);
+    for (const f of files) {
+      if (f.endsWith(`_${sessionId}.jsonl`)) {
+        return path.join(sessionDir, f);
+      }
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 
@@ -91,8 +142,12 @@ export function isLocalSession(configSubdir: string, cwd: string, sessionId: str
  */
 export function linkCrossCwdSession(configSubdir: string, mainCwd: string, worktreeCwd: string, sessionId: string): void {
   const sourceDir = getProjectsDir(configSubdir, mainCwd);
-  const sourceFile = path.join(sourceDir, `${sessionId}.jsonl`);
-  if (!fs.existsSync(sourceFile)) {
+
+  // pi 文件名为 <timestamp>_<sessionId>.jsonl，按后缀匹配查找源文件
+  const sourceFile = configSubdir === '.pi'
+    ? findPiSessionFile(sourceDir, sessionId)
+    : path.join(sourceDir, `${sessionId}.jsonl`);
+  if (!sourceFile || !fs.existsSync(sourceFile)) {
     // 主仓库无该 session 文件，无法软链；交由执行器自然报错
     return;
   }

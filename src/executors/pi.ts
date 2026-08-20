@@ -123,14 +123,30 @@ export class PiExecutor extends BaseExecutor {
    * 因此可以在执行前就知道派生 ID，无需从输出解析。
    * 立即通过 onDerivedSessionId 回调通知 StepWise，
    * 使 fork 执行中断后仍可按派生 ID 恢复。
+   *
+   * 防幽灵 ID：fork 前必须确认 fork 源会话真实存在。
+   * 若 fork 源不存在（progress.json 中的幽灵 ID / 会话已过期 / 跨 cwd 等场景），
+   * 降级为新建会话（不 fork），避免 pi 报 "No session found"。
+   * 此时 onDerivedSessionId 不调用，progress.json 保留旧 sessionId，
+   * 下次恢复仍可被此处拦截（不会无限传播）。
    */
   async execute(prompt: string, options: AgentExecutorOptions): Promise<ExecutionResult> {
     this.currentCwd = options.cwd || process.cwd();
 
     if (options.fork && options.sessionId) {
-      this.forkNewSessionId = this.generateUUID();
-      // 立即通知 StepWise，使其在执行中断前就记录派生 ID
-      options.onDerivedSessionId?.(this.forkNewSessionId);
+      if (this.isPiSessionExists(options.sessionId)) {
+        // fork 源存在：预生成派生 ID 并回写 progress.json
+        this.forkNewSessionId = this.generateUUID();
+        options.onDerivedSessionId?.(this.forkNewSessionId);
+      } else {
+        // fork 源不存在（幽灵 ID / 过期会话）：降级为新建会话
+        this.forkNewSessionId = null;
+        options.fork = false;
+        options.sessionId = this.generateUUID();
+        // 不调用 onDerivedSessionId：派生 ID 是真的新建会话 ID，
+        // 但执行前不确定 spawn 是否成功，回写会造成新的幽灵。
+        // 即便这里不更新，下次恢复时本方法同样会拦截 fork 源不存在的情况。
+      }
     } else {
       this.forkNewSessionId = null;
     }
@@ -197,8 +213,12 @@ export class PiExecutor extends BaseExecutor {
 
   /**
    * 检查 pi session 文件是否存在
-   * pi 的 session 存储在 <agentDir>/sessions/--<escaped-cwd>--/<sessionId>.jsonl
+   * pi 的 session 存储在 <agentDir>/sessions/--<escaped-cwd>--/<timestamp>_<sessionId>.jsonl
+   * 文件名带时间戳前缀，需用 readdir + 后缀匹配，不能精确匹配
    * agentDir 默认为 ~/.pi/agent，可通过 PI_CODING_AGENT_DIR 环境变量覆盖
+   *
+   * 注意：需跳过悬空 symlink（worktree 中指向主仓库已清理会话的 symlink）。
+   * 使用 fs.statSync（跟随 symlink）验证目标可达，避免误判。
    */
   private isPiSessionExists(sessionId: string): boolean {
     if (!this.currentCwd) return false;
@@ -210,8 +230,24 @@ export class PiExecutor extends BaseExecutor {
     // pi 的 cwd 编码规则：去掉前导 / 或 \，将 / \ : 替换为 -，前后加 --
     const escapedCwd = `--${this.currentCwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`;
     const sessionDir = path.join(agentDir, 'sessions', escapedCwd);
-    const sessionFile = path.join(sessionDir, `${sessionId}.jsonl`);
 
-    return fs.existsSync(sessionFile);
+    if (!fs.existsSync(sessionDir)) return false;
+    try {
+      const files = fs.readdirSync(sessionDir);
+      // pi 文件名格式: <timestamp>_<sessionId>.jsonl
+      // 精确匹配 <sessionId>.jsonl 永远找不到，必须按后缀匹配
+      // 需 statSync 跟随 symlink，跳过悬空链接（主仓库会话已清理时）
+      return files.some(f => {
+        if (!f.endsWith(`_${sessionId}.jsonl`)) return false;
+        try {
+          fs.statSync(path.join(sessionDir, f));  // 跟随 symlink，目标不存在则抛错
+          return true;
+        } catch {
+          return false;  // 悬空 symlink 或不可访问
+        }
+      });
+    } catch {
+      return false;
+    }
   }
 }
