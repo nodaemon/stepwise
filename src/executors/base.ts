@@ -227,23 +227,7 @@ export abstract class BaseExecutor implements AgentExecutor {
 
           // 429 探测恢复：等待重置时间后，先用无持久化 session 探测限额是否恢复
           // 探测成功才 resume 正式 session，避免 429 错误响应累积在上下文中
-          let probeCount = 0;
-          let rateLimitRecovered = false;
-          while (probeCount < MAX_PROBE_ATTEMPTS) {
-            probeCount++;
-            console.log(`[${this.agentType}] 429 探测 ${probeCount}/${MAX_PROBE_ATTEMPTS}...`);
-            rateLimitRecovered = await this.probeRateLimit(options);
-            if (rateLimitRecovered) {
-              break;
-            }
-            // 探测也返回 429，继续等待
-            console.log(`[${this.agentType}] 探测失败，限额未恢复，等待 ${DEFAULT_RETRY_WAIT_MS / 1000}s 后重试...`);
-            await this.waitUntilReset(new Date(Date.now() + DEFAULT_RETRY_WAIT_MS));
-          }
-
-          if (!rateLimitRecovered) {
-            console.log(`[${this.agentType}] 探测 ${MAX_PROBE_ATTEMPTS} 次均失败，回到主重试循环`);
-          }
+          await this.runProbeLoop(options);
 
           attempts--; // 速率限制/503 不计入重试次数
           continue;
@@ -273,22 +257,7 @@ export abstract class BaseExecutor implements AgentExecutor {
           await this.waitUntilReset(rateLimitInfo.resetTime);
 
           // 429 探测恢复（同 try 块逻辑）
-          let probeCount = 0;
-          let rateLimitRecovered = false;
-          while (probeCount < MAX_PROBE_ATTEMPTS) {
-            probeCount++;
-            console.log(`[${this.agentType}] 429 探测 ${probeCount}/${MAX_PROBE_ATTEMPTS}...`);
-            rateLimitRecovered = await this.probeRateLimit(options);
-            if (rateLimitRecovered) {
-              break;
-            }
-            console.log(`[${this.agentType}] 探测失败，限额未恢复，等待 ${DEFAULT_RETRY_WAIT_MS / 1000}s 后重试...`);
-            await this.waitUntilReset(new Date(Date.now() + DEFAULT_RETRY_WAIT_MS));
-          }
-
-          if (!rateLimitRecovered) {
-            console.log(`[${this.agentType}] 探测 ${MAX_PROBE_ATTEMPTS} 次均失败，回到主重试循环`);
-          }
+          await this.runProbeLoop(options);
 
           attempts--; // 速率限制/503 不计入重试次数
           continue;
@@ -716,6 +685,37 @@ export abstract class BaseExecutor implements AgentExecutor {
       console.log(`[${this.agentType}] 探测命令执行异常: ${error}，视为限额未恢复`);
       return false;
     }
+  }
+
+  /**
+   * 执行探测循环
+   *
+   * 429 检测到后，在 waitUntilReset 之后调用。
+   * 最多探测 MAX_PROBE_ATTEMPTS 次，每次超时 PROBE_TIMEOUT_MS。
+   * 探测成功返回 true，探测耗尽返回 false。
+   *
+   * @param options 执行选项
+   * @returns true 表示限额已恢复，false 表示探测耗尽仍未恢复
+   */
+  private async runProbeLoop(options: AgentExecutorOptions): Promise<boolean> {
+    let probeCount = 0;
+    let rateLimitRecovered = false;
+    while (probeCount < MAX_PROBE_ATTEMPTS) {
+      probeCount++;
+      console.log(`[${this.agentType}] 429 探测 ${probeCount}/${MAX_PROBE_ATTEMPTS}...`);
+      rateLimitRecovered = await this.probeRateLimit(options);
+      if (rateLimitRecovered) {
+        break;
+      }
+      console.log(`[${this.agentType}] 探测失败，限额未恢复，等待 ${DEFAULT_RETRY_WAIT_MS / 1000}s 后重试...`);
+      await this.waitUntilReset(new Date(Date.now() + DEFAULT_RETRY_WAIT_MS));
+    }
+
+    if (!rateLimitRecovered) {
+      console.log(`[${this.agentType}] 探测 ${MAX_PROBE_ATTEMPTS} 次均失败，回到主重试循环`);
+    }
+
+    return rateLimitRecovered;
   }
 
   /**
