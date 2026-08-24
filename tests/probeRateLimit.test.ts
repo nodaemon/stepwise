@@ -208,4 +208,47 @@ describe('probeRateLimit spawnSync 集成', () => {
     expect(result).toBe(true);
     expect(callCount).toBe(4);
   });
+
+  it('探测 10 次均失败应返回 false（探测耗尽场景）', async () => {
+    const executor = new ClaudeExecutor();
+    let callCount = 0;
+    mockSpawnSync.mockImplementation(() => {
+      callCount++;
+      return {
+        status: 1,
+        stdout: '',
+        stderr: '429 rate_limit_error',
+        pid: 12345,
+        output: [null, '', '429 rate_limit_error'],
+        signal: null
+      };
+    });
+    jest.spyOn(executor as any, 'waitUntilReset').mockResolvedValue(undefined);
+    const result = await (executor as any).runProbeLoop({ cwd: process.cwd() });
+    expect(result).toBe(false);
+    expect(callCount).toBe(10);
+  });
+
+  it('探测耗尽时最后一次失败后不应等待（无多余 5 分钟延迟）', async () => {
+    const executor = new ClaudeExecutor();
+    mockSpawnSync.mockReturnValue({
+      status: 1,
+      stdout: '',
+      stderr: '429 rate_limit_error',
+      pid: 12345,
+      output: [null, '', '429 rate_limit_error'],
+      signal: null
+    });
+    const waitSpy = jest.spyOn(executor as any, 'waitUntilReset').mockResolvedValue(undefined);
+    await (executor as any).runProbeLoop({ cwd: process.cwd() });
+    // waitUntilReset 应在 10 次探测之间调用 9 次（最后一次失败后不再等待）
+    expect(waitSpy).toHaveBeenCalledTimes(9);
+  });
+
+  it('OpenCode 429 探测时 buildProbeArgs 抛错应返回 false（不导致死循环）', async () => {
+    const executor = new OpenCodeExecutor();
+    // OpenCode 的 buildProbeArgs() 抛错，probeRateLimit 应捕获并返回 false
+    const result = await (executor as any).probeRateLimit({ cwd: process.cwd() });
+    expect(result).toBe(false);
+  });
 });

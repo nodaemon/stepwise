@@ -647,10 +647,14 @@ export abstract class BaseExecutor implements AgentExecutor {
   protected async probeRateLimit(options: AgentExecutorOptions): Promise<boolean> {
     const cwd = options.cwd || process.cwd();
     const command = this.getCommand();
-    const probeArgs = this.buildProbeArgs();
     const env = this.buildEnv(options.env);
 
     try {
+      // buildProbeArgs() 可能抛错（如 OpenCode 不支持探测），
+      // 放在 try 内捕获，避免异常传播到 execute() 的 catch 块
+      // 导致 checkRateLimitError 匹配异常消息中的 "429" 而形成循环
+      const probeArgs = this.buildProbeArgs();
+
       const result = childProcess.spawnSync(command, probeArgs, {
         cwd,
         env,
@@ -707,8 +711,11 @@ export abstract class BaseExecutor implements AgentExecutor {
       if (rateLimitRecovered) {
         break;
       }
-      console.log(`[${this.agentType}] 探测失败，限额未恢复，等待 ${DEFAULT_RETRY_WAIT_MS / 1000}s 后重试...`);
-      await this.waitUntilReset(new Date(Date.now() + DEFAULT_RETRY_WAIT_MS));
+      // 仅在还有下一次探测时等待，最后一次失败后无需等待
+      if (probeCount < MAX_PROBE_ATTEMPTS) {
+        console.log(`[${this.agentType}] 探测失败，限额未恢复，等待 ${DEFAULT_RETRY_WAIT_MS / 1000}s 后重试...`);
+        await this.waitUntilReset(new Date(Date.now() + DEFAULT_RETRY_WAIT_MS));
+      }
     }
 
     if (!rateLimitRecovered) {
