@@ -136,3 +136,76 @@ describe('probeRateLimit', () => {
     );
   });
 });
+
+describe('probeRateLimit spawnSync 集成', () => {
+  let mockSpawnSync: jest.Mock;
+
+  beforeEach(() => {
+    mockSpawnSync = childProcess.spawnSync as jest.Mock;
+    mockSpawnSync.mockReset();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('Pi 探测 429 应返回 false（模拟 Pi --mode json 退出码 0 但内容含 429）', async () => {
+    const executor = new PiExecutor();
+    mockSpawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify({ type: 'message_end', message: { role: 'assistant', stopReason: 'error', errorMessage: '429 budget exceeded' } }),
+      stderr: '',
+      pid: 12345,
+      output: [null, '', ''],
+      signal: null
+    });
+    const result = await (executor as any).probeRateLimit({ cwd: process.cwd() });
+    expect(result).toBe(false);
+  });
+
+  it('Claude 探测成功应返回 true（模拟正常 "ok" 输出）', async () => {
+    const executor = new ClaudeExecutor();
+    mockSpawnSync.mockReturnValue({
+      status: 0,
+      stdout: 'ok',
+      stderr: '',
+      pid: 12345,
+      output: [null, 'ok', ''],
+      signal: null
+    });
+    const result = await (executor as any).probeRateLimit({ cwd: process.cwd() });
+    expect(result).toBe(true);
+  });
+
+  it('探测前 3 次 429，第 4 次成功应返回 true', async () => {
+    const executor = new ClaudeExecutor();
+    let callCount = 0;
+    mockSpawnSync.mockImplementation(() => {
+      callCount++;
+      if (callCount <= 3) {
+        return {
+          status: 1,
+          stdout: '',
+          stderr: '429 rate_limit_error',
+          pid: 12345,
+          output: [null, '', '429 rate_limit_error'],
+          signal: null
+        };
+      }
+      return {
+        status: 0,
+        stdout: 'ok',
+        stderr: '',
+        pid: 12345,
+        output: [null, 'ok', ''],
+        signal: null
+      };
+    });
+    // 使用 runProbeLoop（探测循环），因为它包含多次探测逻辑
+    // 模拟 waitUntilReset 为立即返回，避免长时间等待
+    jest.spyOn(executor as any, 'waitUntilReset').mockResolvedValue(undefined);
+    const result = await (executor as any).runProbeLoop({ cwd: process.cwd() });
+    expect(result).toBe(true);
+    expect(callCount).toBe(4);
+  });
+});
