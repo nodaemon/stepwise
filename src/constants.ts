@@ -32,6 +32,12 @@ export const DEFAULT_TIMEOUT_MS = 3 * 60 * 60 * 1000;
 /** 错误重试默认等待时间（毫秒）：5 分钟 */
 export const DEFAULT_RETRY_WAIT_MS = 5 * 60 * 1000;
 
+/** 429 探测恢复最大探测次数 */
+export const MAX_PROBE_ATTEMPTS = 10;
+
+/** 429 探测恢复单次探测超时时间（毫秒）：30 秒 */
+export const PROBE_TIMEOUT_MS = 30 * 1000;
+
 // ============ Shell 任务相关常量 ============
 
 /**
