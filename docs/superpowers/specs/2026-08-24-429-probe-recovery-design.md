@@ -10,41 +10,16 @@ CodeAgent/Claude 有每日 token 限额，超过限额返回 429 错误。StepWi
 
 ### 执行流程
 
-```pseudo
-// BaseExecutor.execute() 内的 429 处理（伪代码）
-// 正式执行：使用 --session-id 或 --resume
-
-if (检测到 429) {
-    waitUntilReset(重置时间)
-    
-    // 探测循环：用无持久化 session 确认限额恢复
-    probeCount = 0
-    while (probeCount < MAX_PROBE_ATTEMPTS) {
-        probeCount++
-        
-        // 执行探测命令（示例：claude --no-session-persistence -p "reply ok"）
-        result = spawnSync(getCommand(), buildProbeArgs(), { cwd, env, timeout: 30s })
-        
-        if (result 非 429) {
-            break  // 限额已恢复，退出探测循环
-        }
-        
-        // 探测也 429，继续等待
-        waitUntilReset(DEFAULT_RETRY_WAIT_MS)  // 等待 5 分钟
-    }
-    
-    if (probeCount >= MAX_PROBE_ATTEMPTS) {
-        // 探测耗尽，仍视为 429 错误，回到主重试循环
-        // 不增加 attempts（429 不计入重试次数），由主循环决定是否继续
-        continue
-    }
-    
-    // 限额已恢复，--resume 正式 session 继续
-    // 正式 session 上下文不含任何 429 垃圾 ✅
-    attempts--  // 429 不计入重试次数（原有逻辑）
-    continue
-}
-```
+1. 正式执行任务（`--session-id` 或 `--resume`）
+2. 检测到 429 错误
+3. 调用 `waitUntilReset()` 等待重置时间
+4. 进入探测循环（最多 `MAX_PROBE_ATTEMPTS` 次）：
+   - 使用 `spawnSync` 执行探测命令（如 `claude --no-session-persistence -p "reply ok"`），超时 30 秒
+   - 探测成功（非 429）→ 退出探测循环，限额已恢复
+   - 探测也 429 → 调用 `waitUntilReset()` 等待 5 分钟，继续下一次探测
+5. 探测循环结束后：
+   - 限额已恢复 → `--resume` 正式 session 继续，上下文不含 429 垃圾
+   - 探测耗尽 → 回到主重试循环，429 不计入重试次数，主循环下一轮重新尝试正式请求
 
 ### 探测命令
 
@@ -81,23 +56,19 @@ if (检测到 429) {
 ### 429 重试流程变更
 
 当前代码（`BaseExecutor.execute()`）:
-```
-429 → waitUntilReset() → attempts-- → continue（直接 --resume 重试）
-```
+- 429 → `waitUntilReset()` → 429 不计入重试次数 → 直接 `--resume` 重试
 
 修改后:
-```
-429 → waitUntilReset() → probeRateLimit()
-  → 恢复 → attempts-- → continue（--resume 重试，上下文干净）
-  → 未恢复 → 继续等待+探测循环
-```
+- 429 → `waitUntilReset()` → `probeRateLimit()` 探测
+  - 限额恢复 → `--resume` 重试，上下文干净
+  - 限额未恢复 → 继续等待 + 探测循环
 
 ### 探测循环保护
 
 - 探测超时：30 秒（`spawnSync` timeout）
 - 探测次数上限：10 次（`MAX_PROBE_ATTEMPTS`）
 - 等待间隔：使用 `waitUntilReset()` 的默认等待时间（5 分钟）
-- 探测耗尽时**不抛出错误**，而是回到主重试循环的 `continue`——仍被视为 429 错误，不增加 `attempts`，主循环继续执行下一次正式请求。只有当主循环的 `attempts >= MAX_RETRIES`（3 次）时才会因非 429 重试次数耗尽而失败
+- 探测耗尽时**不抛出错误**，而是回到主重试循环——429 不计入重试次数，主循环下一轮重新尝试正式请求
 
 ### 对现有重试逻辑的影响
 
