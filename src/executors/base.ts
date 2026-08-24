@@ -7,7 +7,7 @@ import * as childProcess from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ExecutionResult } from '../types';
-import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS, PROBE_TIMEOUT_MS } from '../constants';
+import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS, PROBE_TIMEOUT_MS, MAX_PROBE_ATTEMPTS } from '../constants';
 import { Logger } from '../utils/logger';
 import { AgentExecutorOptions, AgentExecutor, ExecutorRawResult } from './types';
 import { parseAndFormatNDJson, formatNDJsonLine } from './ndjsonFormatter';
@@ -224,6 +224,27 @@ export abstract class BaseExecutor implements AgentExecutor {
           console.log(`\n${rateLimitInfo.message}`);
           // 重要：不增加 attempts，等待后继续循环重试
           await this.waitUntilReset(rateLimitInfo.resetTime);
+
+          // 429 探测恢复：等待重置时间后，先用无持久化 session 探测限额是否恢复
+          // 探测成功才 resume 正式 session，避免 429 错误响应累积在上下文中
+          let probeCount = 0;
+          let rateLimitRecovered = false;
+          while (probeCount < MAX_PROBE_ATTEMPTS) {
+            probeCount++;
+            console.log(`[${this.agentType}] 429 探测 ${probeCount}/${MAX_PROBE_ATTEMPTS}...`);
+            rateLimitRecovered = await this.probeRateLimit(options);
+            if (rateLimitRecovered) {
+              break;
+            }
+            // 探测也返回 429，继续等待
+            console.log(`[${this.agentType}] 探测失败，限额未恢复，等待 ${DEFAULT_RETRY_WAIT_MS / 1000}s 后重试...`);
+            await this.waitUntilReset(new Date(Date.now() + DEFAULT_RETRY_WAIT_MS));
+          }
+
+          if (!rateLimitRecovered) {
+            console.log(`[${this.agentType}] 探测 ${MAX_PROBE_ATTEMPTS} 次均失败，回到主重试循环`);
+          }
+
           attempts--; // 速率限制/503 不计入重试次数
           continue;
         }
@@ -250,6 +271,25 @@ export abstract class BaseExecutor implements AgentExecutor {
         if (rateLimitInfo) {
           console.log(`\n${rateLimitInfo.message}`);
           await this.waitUntilReset(rateLimitInfo.resetTime);
+
+          // 429 探测恢复（同 try 块逻辑）
+          let probeCount = 0;
+          let rateLimitRecovered = false;
+          while (probeCount < MAX_PROBE_ATTEMPTS) {
+            probeCount++;
+            console.log(`[${this.agentType}] 429 探测 ${probeCount}/${MAX_PROBE_ATTEMPTS}...`);
+            rateLimitRecovered = await this.probeRateLimit(options);
+            if (rateLimitRecovered) {
+              break;
+            }
+            console.log(`[${this.agentType}] 探测失败，限额未恢复，等待 ${DEFAULT_RETRY_WAIT_MS / 1000}s 后重试...`);
+            await this.waitUntilReset(new Date(Date.now() + DEFAULT_RETRY_WAIT_MS));
+          }
+
+          if (!rateLimitRecovered) {
+            console.log(`[${this.agentType}] 探测 ${MAX_PROBE_ATTEMPTS} 次均失败，回到主重试循环`);
+          }
+
           attempts--; // 速率限制/503 不计入重试次数
           continue;
         }
