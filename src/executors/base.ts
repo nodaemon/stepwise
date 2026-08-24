@@ -717,7 +717,12 @@ export abstract class BaseExecutor implements AgentExecutor {
         rateLimitRecovered = await this.probeRateLimit(options);
       } catch (error) {
         // probeRateLimit 抛出"探测不适用"错误：立即退出，不浪费等待时间
-        console.log(`[${this.agentType}] 探测不适用于当前执行器，跳过探测循环`);
+        if (error instanceof Error && error.message.includes('探测不适用')) {
+          console.log(`[${this.agentType}] 探测不适用于当前执行器，跳过探测循环`);
+          return false;
+        }
+        // 其他意外异常：记录后退出探测循环
+        console.log(`[${this.agentType}] 探测循环异常退出: ${error}`);
         return false;
       }
       if (rateLimitRecovered) {

@@ -14,7 +14,7 @@ CodeAgent/Claude 有每日 token 限额，超过限额返回 429 错误。StepWi
 2. 检测到 429 错误
 3. 调用 `waitUntilReset()` 等待重置时间
 4. 进入探测循环（最多 `MAX_PROBE_ATTEMPTS` 次）：
-   - 使用 `spawnSync` 执行探测命令（如 `claude --no-session-persistence -p "reply ok"`），超时 30 秒
+   - 使用 `spawnSync` 执行探测命令（如 `claude --dangerously-skip-permissions --no-session-persistence -p "reply ok"`），超时 30 秒
    - 探测成功（非 429）→ 退出探测循环，限额已恢复
    - 探测也 429 → 调用 `waitUntilReset()` 等待 5 分钟，继续下一次探测
 5. 探测循环结束后：
@@ -27,8 +27,8 @@ CodeAgent/Claude 有每日 token 限额，超过限额返回 429 错误。StepWi
 
 | 执行器 | 探测命令 |
 |--------|---------|
-| Claude | `claude --no-session-persistence -p "reply ok"` |
-| CodeAgent | `codeagent --no-session-persistence -p "reply ok"` |
+| Claude | `claude --dangerously-skip-permissions --no-session-persistence -p "reply ok"` |
+| CodeAgent | `codeagent --dangerously-skip-permissions --no-session-persistence -p "reply ok"` |
 | Pi | `pi --no-session --mode json -p "reply ok"` |
 | OpenCode | 不适用（全局 DB session，无 429 检测） |
 
@@ -42,7 +42,7 @@ CodeAgent/Claude 有每日 token 限额，超过限额返回 429 错误。StepWi
 - `execute()` 中 429 处理流程增加探测步骤
 
 **`ClaudeExecutor`**:
-- `buildProbeArgs()` → `['--no-session-persistence', '-p', 'reply ok']`
+- `buildProbeArgs()` → `['--dangerously-skip-permissions', '--no-session-persistence', '-p', 'reply ok']`
 
 **`CodeAgentExecutor`**:
 - 继承 ClaudeExecutor 的 `buildProbeArgs()`，无需覆盖
