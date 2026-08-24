@@ -27,10 +27,10 @@ describe('429 探测恢复常量', () => {
 });
 
 describe('buildProbeArgs 各执行器', () => {
-  it('ClaudeExecutor 应返回 --no-session-persistence -p "reply ok"', () => {
+  it('ClaudeExecutor 应返回 --dangerously-skip-permissions --no-session-persistence -p "reply ok"', () => {
     const executor = new ClaudeExecutor();
     const args = (executor as any).buildProbeArgs();
-    expect(args).toEqual(['--no-session-persistence', '-p', 'reply ok']);
+    expect(args).toEqual(['--dangerously-skip-permissions', '--no-session-persistence', '-p', 'reply ok']);
   });
 
   it('PiExecutor 应返回 --no-session --mode json -p "reply ok"', () => {
@@ -247,8 +247,12 @@ describe('probeRateLimit spawnSync 集成', () => {
 
   it('OpenCode 429 探测时 buildProbeArgs 抛错应返回 false（不导致死循环）', async () => {
     const executor = new OpenCodeExecutor();
-    // OpenCode 的 buildProbeArgs() 抛错，probeRateLimit 应捕获并返回 false
-    const result = await (executor as any).probeRateLimit({ cwd: process.cwd() });
+    // OpenCode 的 buildProbeArgs() 抛错，probeRateLimit 应向上抛出
+    // runProbeLoop 捕获后立即退出，不会循环 10 次
+    const waitSpy = jest.spyOn(executor as any, 'waitUntilReset').mockResolvedValue(undefined);
+    const result = await (executor as any).runProbeLoop({ cwd: process.cwd() });
     expect(result).toBe(false);
+    // 不应发生任何等待
+    expect(waitSpy).not.toHaveBeenCalled();
   });
 });

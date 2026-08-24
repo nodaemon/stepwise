@@ -89,8 +89,9 @@ export class ClaudeExecutor extends BaseExecutor {
   /**
    * 构建探测命令参数
    * 使用 --no-session-persistence 避免探测 session 落盘
+   * 需要 --dangerously-skip-permissions 避免探测命令等待交互式权限确认
    */
   protected buildProbeArgs(): string[] {
-    return ['--no-session-persistence', '-p', 'reply ok'];
+    return ['--dangerously-skip-permissions', '--no-session-persistence', '-p', 'reply ok'];
   }
 }

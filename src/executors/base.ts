@@ -653,6 +653,8 @@ export abstract class BaseExecutor implements AgentExecutor {
       // buildProbeArgs() 可能抛错（如 OpenCode 不支持探测），
       // 放在 try 内捕获，避免异常传播到 execute() 的 catch 块
       // 导致 checkRateLimitError 匹配异常消息中的 "429" 而形成循环
+      // 不支持探测的执行器：直接抛出 PROBE_NOT_SUPPORTED 标记，
+      // 由 runProbeLoop 捕获后立即退出，避免 10 次 × 5 分钟的无用等待
       const probeArgs = this.buildProbeArgs();
 
       const result = childProcess.spawnSync(command, probeArgs, {
@@ -686,6 +688,10 @@ export abstract class BaseExecutor implements AgentExecutor {
       console.log(`[${this.agentType}] 探测成功，API 限额已恢复`);
       return true;
     } catch (error) {
+      // buildProbeArgs() 抛出的"不支持探测"错误，向上传播让 runProbeLoop 立即退出
+      if (error instanceof Error && error.message.includes('探测不适用')) {
+        throw error;
+      }
       console.log(`[${this.agentType}] 探测命令执行异常: ${error}，视为限额未恢复`);
       return false;
     }
@@ -707,7 +713,13 @@ export abstract class BaseExecutor implements AgentExecutor {
     while (probeCount < MAX_PROBE_ATTEMPTS) {
       probeCount++;
       console.log(`[${this.agentType}] 429 探测 ${probeCount}/${MAX_PROBE_ATTEMPTS}...`);
-      rateLimitRecovered = await this.probeRateLimit(options);
+      try {
+        rateLimitRecovered = await this.probeRateLimit(options);
+      } catch (error) {
+        // probeRateLimit 抛出"探测不适用"错误：立即退出，不浪费等待时间
+        console.log(`[${this.agentType}] 探测不适用于当前执行器，跳过探测循环`);
+        return false;
+      }
       if (rateLimitRecovered) {
         break;
       }
