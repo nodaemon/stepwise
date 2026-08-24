@@ -10,20 +10,40 @@ CodeAgent/Claude 有每日 token 限额，超过限额返回 429 错误。StepWi
 
 ### 执行流程
 
-```
-正常执行:
-  --session-id <id> -p "任务prompt"
-  → 成功，返回结果
+```pseudo
+// BaseExecutor.execute() 内的 429 处理（伪代码）
+// 正式执行：使用 --session-id 或 --resume
 
-429 发生:
-  1. checkRateLimitError() 检测到 429
-  2. waitUntilReset() — 等待重置时间
-  3. 探测循环:
-     spawn: <command> <probeArgs>
-     → 成功（非 429）→ 退出探测循环
-     → 又 429 → 继续等待，重新探测
-  4. 探测成功，--resume <正式sessionId> -p "prompt" 继续
-     → 正式 session 上下文不含任何 429 垃圾 ✅
+if (检测到 429) {
+    waitUntilReset(重置时间)
+    
+    // 探测循环：用无持久化 session 确认限额恢复
+    probeCount = 0
+    while (probeCount < MAX_PROBE_ATTEMPTS) {
+        probeCount++
+        
+        // 执行探测命令（示例：claude --no-session-persistence -p "reply ok"）
+        result = spawnSync(getCommand(), buildProbeArgs(), { cwd, env, timeout: 30s })
+        
+        if (result 非 429) {
+            break  // 限额已恢复，退出探测循环
+        }
+        
+        // 探测也 429，继续等待
+        waitUntilReset(DEFAULT_RETRY_WAIT_MS)  // 等待 5 分钟
+    }
+    
+    if (probeCount >= MAX_PROBE_ATTEMPTS) {
+        // 探测耗尽，仍视为 429 错误，回到主重试循环
+        // 不增加 attempts（429 不计入重试次数），由主循环决定是否继续
+        continue
+    }
+    
+    // 限额已恢复，--resume 正式 session 继续
+    // 正式 session 上下文不含任何 429 垃圾 ✅
+    attempts--  // 429 不计入重试次数（原有逻辑）
+    continue
+}
 ```
 
 ### 探测命令
@@ -75,8 +95,9 @@ CodeAgent/Claude 有每日 token 限额，超过限额返回 429 错误。StepWi
 ### 探测循环保护
 
 - 探测超时：30 秒（`spawnSync` timeout）
-- 探测次数上限：10 次探测失败后放弃，抛出错误
+- 探测次数上限：10 次（`MAX_PROBE_ATTEMPTS`）
 - 等待间隔：使用 `waitUntilReset()` 的默认等待时间（5 分钟）
+- 探测耗尽时**不抛出错误**，而是回到主重试循环的 `continue`——仍被视为 429 错误，不增加 `attempts`，主循环继续执行下一次正式请求。只有当主循环的 `attempts >= MAX_RETRIES`（3 次）时才会因非 429 重试次数耗尽而失败
 
 ### 对现有重试逻辑的影响
 
@@ -87,7 +108,7 @@ CodeAgent/Claude 有每日 token 限额，超过限额返回 429 错误。StepWi
 ### 测试要点
 
 - 429 首次探测成功 → 正式 session 干净地 resume
-- 429 探测多次失败 → 最终放弃，抛出错误
+- 429 探测多次失败 → 回到主循环 continue，不抛错、不计 attempts，由主循环决定后续行为
 - 非 429 错误 → 走原有重试逻辑，不触发探测
 - 各执行器的 `buildProbeArgs()` 返回正确参数
 - `probeRateLimit()` 的 spawn 超时处理
