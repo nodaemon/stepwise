@@ -85,4 +85,12 @@ export class ClaudeExecutor extends BaseExecutor {
 
     return args;
   }
+
+  /**
+   * 构建探测命令参数
+   * 使用 --no-session-persistence 避免探测 session 落盘
+   */
+  protected buildProbeArgs(): string[] {
+    return ['--no-session-persistence', '-p', 'reply ok'];
+  }
 }

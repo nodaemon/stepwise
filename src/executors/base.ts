@@ -57,6 +57,16 @@ export abstract class BaseExecutor implements AgentExecutor {
   protected abstract getCommand(): string;
 
   /**
+   * 构建探测命令参数
+   * 429 探测恢复时使用：用无持久化 session 发送简单请求，
+   * 确认 API 限额是否恢复，探测 session 不落盘，无需清理。
+   *
+   * 子类必须实现，返回对应执行器的无持久化参数。
+   * 不适用探测的执行器（如 OpenCode）应抛错。
+   */
+  protected abstract buildProbeArgs(): string[];
+
+  /**
    * 是否输出 NDJSON（stream-json）格式
    * - true（Claude、CodeAgent）：stdout 为逐行 JSON，空行无意义需跳过，
    *   每行按 type 格式化后写入 verbose_output.txt
