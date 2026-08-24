@@ -86,6 +86,14 @@ export class OpenCodeExecutor extends BaseExecutor {
     return args;
   }
 
+  /**
+   * 构建探测命令参数
+   * OpenCode 使用全局 DB session，无 429 检测，探测不适用
+   */
+  protected buildProbeArgs(): string[] {
+    throw new Error('429 探测不适用于 OpenCode');
+  }
+
 /**
    * 通过 `opencode session list` 获取最新的 sessionId
    * 

@@ -7,7 +7,7 @@ import * as childProcess from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ExecutionResult } from '../types';
-import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS } from '../constants';
+import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS, PROBE_TIMEOUT_MS, MAX_PROBE_ATTEMPTS } from '../constants';
 import { Logger } from '../utils/logger';
 import { AgentExecutorOptions, AgentExecutor, ExecutorRawResult } from './types';
 import { parseAndFormatNDJson, formatNDJsonLine } from './ndjsonFormatter';
@@ -55,6 +55,16 @@ export abstract class BaseExecutor implements AgentExecutor {
 
   /** 子类必须实现：返回 CLI 命令名称 */
   protected abstract getCommand(): string;
+
+  /**
+   * 构建探测命令参数
+   * 429 探测恢复时使用：用无持久化 session 发送简单请求，
+   * 确认 API 限额是否恢复，探测 session 不落盘，无需清理。
+   *
+   * 子类必须实现，返回对应执行器的无持久化参数。
+   * 不适用探测的执行器（如 OpenCode）应抛错。
+   */
+  protected abstract buildProbeArgs(): string[];
 
   /**
    * 是否输出 NDJSON（stream-json）格式
@@ -214,6 +224,11 @@ export abstract class BaseExecutor implements AgentExecutor {
           console.log(`\n${rateLimitInfo.message}`);
           // 重要：不增加 attempts，等待后继续循环重试
           await this.waitUntilReset(rateLimitInfo.resetTime);
+
+          // 429 探测恢复：等待重置时间后，先用无持久化 session 探测限额是否恢复
+          // 探测成功才 resume 正式 session，避免 429 错误响应累积在上下文中
+          await this.runProbeLoop(options);
+
           attempts--; // 速率限制/503 不计入重试次数
           continue;
         }
@@ -240,6 +255,10 @@ export abstract class BaseExecutor implements AgentExecutor {
         if (rateLimitInfo) {
           console.log(`\n${rateLimitInfo.message}`);
           await this.waitUntilReset(rateLimitInfo.resetTime);
+
+          // 429 探测恢复（同 try 块逻辑）
+          await this.runProbeLoop(options);
+
           attempts--; // 速率限制/503 不计入重试次数
           continue;
         }
@@ -613,6 +632,114 @@ export abstract class BaseExecutor implements AgentExecutor {
       const v = c === 'x' ? r : (r & 0x3 | 0x8);
       return v.toString(16);
     });
+  }
+
+  /**
+   * 探测 API 限额是否已恢复
+   *
+   * 使用无持久化 session 发送简单请求（如 "reply ok"），
+   * 如果请求成功（非 429），说明限额已恢复。
+   * 探测 session 不落盘，无需清理。
+   *
+   * @param options 执行选项（需要 cwd 和 env）
+   * @returns true 表示限额已恢复，false 表示仍未恢复
+   */
+  protected async probeRateLimit(options: AgentExecutorOptions): Promise<boolean> {
+    const cwd = options.cwd || process.cwd();
+    const command = this.getCommand();
+    const env = this.buildEnv(options.env);
+
+    try {
+      // buildProbeArgs() 可能抛错（如 OpenCode 不支持探测），
+      // 放在 try 内捕获，避免异常传播到 execute() 的 catch 块
+      // 导致 checkRateLimitError 匹配异常消息中的 "429" 而形成循环
+      // 不支持探测的执行器：直接抛出 PROBE_NOT_SUPPORTED 标记，
+      // 由 runProbeLoop 捕获后立即退出，避免 10 次 × 5 分钟的无用等待
+      const probeArgs = this.buildProbeArgs();
+
+      const result = childProcess.spawnSync(command, probeArgs, {
+        cwd,
+        env,
+        timeout: PROBE_TIMEOUT_MS,
+        shell: process.platform === 'win32',
+        encoding: 'utf-8'
+      });
+
+      // 超时（signal 非空）
+      if (result.signal) {
+        console.log(`[${this.agentType}] 探测命令超时（${PROBE_TIMEOUT_MS / 1000}s），限额可能未恢复`);
+        return false;
+      }
+
+      // 非零退出码：可能是 429 或其他错误
+      if (result.status !== 0) {
+        console.log(`[${this.agentType}] 探测命令退出码 ${result.status}，限额可能未恢复`);
+        return false;
+      }
+
+      // 退出码 0 但输出可能包含 429（Pi 的 --mode json 退出码始终为 0）
+      const stdout = result.stdout || '';
+      const stderr = result.stderr || '';
+      if (this.checkRateLimitError(stdout, stderr)) {
+        console.log(`[${this.agentType}] 探测命令输出包含 429，限额未恢复`);
+        return false;
+      }
+
+      console.log(`[${this.agentType}] 探测成功，API 限额已恢复`);
+      return true;
+    } catch (error) {
+      // buildProbeArgs() 抛出的"不支持探测"错误，向上传播让 runProbeLoop 立即退出
+      if (error instanceof Error && error.message.includes('探测不适用')) {
+        throw error;
+      }
+      console.log(`[${this.agentType}] 探测命令执行异常: ${error}，视为限额未恢复`);
+      return false;
+    }
+  }
+
+  /**
+   * 执行探测循环
+   *
+   * 429 检测到后，在 waitUntilReset 之后调用。
+   * 最多探测 MAX_PROBE_ATTEMPTS 次，每次超时 PROBE_TIMEOUT_MS。
+   * 探测成功返回 true，探测耗尽返回 false。
+   *
+   * @param options 执行选项
+   * @returns true 表示限额已恢复，false 表示探测耗尽仍未恢复
+   */
+  private async runProbeLoop(options: AgentExecutorOptions): Promise<boolean> {
+    let probeCount = 0;
+    let rateLimitRecovered = false;
+    while (probeCount < MAX_PROBE_ATTEMPTS) {
+      probeCount++;
+      console.log(`[${this.agentType}] 429 探测 ${probeCount}/${MAX_PROBE_ATTEMPTS}...`);
+      try {
+        rateLimitRecovered = await this.probeRateLimit(options);
+      } catch (error) {
+        // probeRateLimit 抛出"探测不适用"错误：立即退出，不浪费等待时间
+        if (error instanceof Error && error.message.includes('探测不适用')) {
+          console.log(`[${this.agentType}] 探测不适用于当前执行器，跳过探测循环`);
+          return false;
+        }
+        // 其他意外异常：记录后退出探测循环
+        console.log(`[${this.agentType}] 探测循环异常退出: ${error}`);
+        return false;
+      }
+      if (rateLimitRecovered) {
+        break;
+      }
+      // 仅在还有下一次探测时等待，最后一次失败后无需等待
+      if (probeCount < MAX_PROBE_ATTEMPTS) {
+        console.log(`[${this.agentType}] 探测失败，限额未恢复，等待 ${DEFAULT_RETRY_WAIT_MS / 1000}s 后重试...`);
+        await this.waitUntilReset(new Date(Date.now() + DEFAULT_RETRY_WAIT_MS));
+      }
+    }
+
+    if (!rateLimitRecovered) {
+      console.log(`[${this.agentType}] 探测 ${MAX_PROBE_ATTEMPTS} 次均失败，回到主重试循环`);
+    }
+
+    return rateLimitRecovered;
   }
 
   /**

@@ -200,6 +200,16 @@ export class PiExecutor extends BaseExecutor {
   }
 
   /**
+   * 构建探测命令参数
+   * 使用 --no-session 避免探测 session 落盘
+   * --mode json 用于检测 429 错误（Pi 的 --mode json 退出码始终为 0，
+   * 需要通过 NDJSON 中的 message_end stopReason 判断）
+   */
+  protected buildProbeArgs(): string[] {
+    return ['--no-session', '--mode', 'json', '-p', 'reply ok'];
+  }
+
+  /**
    * fork 模式下返回预生成的派生 session ID
    * 使 BaseExecutor 能将派生 ID 作为最终 sessionId 返回
    *
