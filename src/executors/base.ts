@@ -7,7 +7,7 @@ import * as childProcess from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ExecutionResult } from '../types';
-import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS } from '../constants';
+import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS, PROBE_TIMEOUT_MS } from '../constants';
 import { Logger } from '../utils/logger';
 import { AgentExecutorOptions, AgentExecutor, ExecutorRawResult } from './types';
 import { parseAndFormatNDJson, formatNDJsonLine } from './ndjsonFormatter';
@@ -623,6 +623,59 @@ export abstract class BaseExecutor implements AgentExecutor {
       const v = c === 'x' ? r : (r & 0x3 | 0x8);
       return v.toString(16);
     });
+  }
+
+  /**
+   * 探测 API 限额是否已恢复
+   *
+   * 使用无持久化 session 发送简单请求（如 "reply ok"），
+   * 如果请求成功（非 429），说明限额已恢复。
+   * 探测 session 不落盘，无需清理。
+   *
+   * @param options 执行选项（需要 cwd 和 env）
+   * @returns true 表示限额已恢复，false 表示仍未恢复
+   */
+  protected async probeRateLimit(options: AgentExecutorOptions): Promise<boolean> {
+    const cwd = options.cwd || process.cwd();
+    const command = this.getCommand();
+    const probeArgs = this.buildProbeArgs();
+    const env = this.buildEnv(options.env);
+
+    try {
+      const result = childProcess.spawnSync(command, probeArgs, {
+        cwd,
+        env,
+        timeout: PROBE_TIMEOUT_MS,
+        shell: process.platform === 'win32',
+        encoding: 'utf-8'
+      });
+
+      // 超时（signal 非空）
+      if (result.signal) {
+        console.log(`[${this.agentType}] 探测命令超时（${PROBE_TIMEOUT_MS / 1000}s），限额可能未恢复`);
+        return false;
+      }
+
+      // 非零退出码：可能是 429 或其他错误
+      if (result.status !== 0) {
+        console.log(`[${this.agentType}] 探测命令退出码 ${result.status}，限额可能未恢复`);
+        return false;
+      }
+
+      // 退出码 0 但输出可能包含 429（Pi 的 --mode json 退出码始终为 0）
+      const stdout = result.stdout || '';
+      const stderr = result.stderr || '';
+      if (this.checkRateLimitError(stdout, stderr)) {
+        console.log(`[${this.agentType}] 探测命令输出包含 429，限额未恢复`);
+        return false;
+      }
+
+      console.log(`[${this.agentType}] 探测成功，API 限额已恢复`);
+      return true;
+    } catch (error) {
+      console.log(`[${this.agentType}] 探测命令执行异常: ${error}，视为限额未恢复`);
+      return false;
+    }
   }
 
   /**
