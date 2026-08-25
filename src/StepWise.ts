@@ -466,7 +466,10 @@ export class StepWise {
     // 本地会话：worktree 自己的 projects 目录已有实体文件 → 同 cwd resume，无需处理
     if (isLocalSession(configSubdir, effectiveCwd, sessionId)) return;
 
-    // 跨目录会话：
+    // 新会话：worktree 和主仓库都没有该 session 文件 → 首次执行，不需要跨目录处理
+    if (!isLocalSession(configSubdir, this.mainCwd, sessionId)) return;
+
+    // 跨目录会话（主仓库有该 session 但 worktree 没有）：
     if (fork) {
       // fork 只读原会话，软链主仓库 session 到 worktree 目录
       linkCrossCwdSession(configSubdir, this.mainCwd, effectiveCwd, sessionId);
