@@ -7,6 +7,7 @@ This document provides detailed API reference for StepWise.
 ## Table of Contents
 
 - [Global Functions](#global-functions)
+  - [initTask](#inittasktaskname-string-resumepath-string-void)
   - [setTaskName](#settasknametaskname-string-void)
   - [setResumePath](#setresumepathpath-string-void)
   - [enableDebugMode](#enabledebugmodeenabled-boolean-void)
@@ -246,7 +247,7 @@ Sets the agent type, determining which agent will execute tasks.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| type | AgentType | Agent type: `'claude'`, `'opencode'`, or `'codeagent'` |
+| type | AgentType | Agent type: `'claude'`, `'opencode'`, `'codeagent'`, or `'pi'` |
 
 **Behavior**
 
@@ -254,6 +255,7 @@ Sets the agent type, determining which agent will execute tasks.
 - All agents within a task use the same agent type
 - Defaults to `'claude'` (Claude Code agent)
 - `'codeagent'` uses the same command-line arguments and output format as `'claude'`; only the executable name (`codeagent`) differs
+- `'pi'` uses the Pi agent (`@earendil-works/pi-coding-agent`); plain-text output, no permission flags needed, session auto-detected via `--session-id`
 
 **Example**
 
@@ -636,6 +638,113 @@ await agent.execReport(
 
 ---
 
+#### execPromptSchema(prompt: string, schema: JsonSchemaDef, outputFile: string, options?: ExecOptions): Promise\<SchemaResult\>
+
+Executes a schema-driven task: the AI outputs JSON conforming to a user-defined JSON Schema, supporting arbitrary nesting and recursive tree structures.
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| prompt | string | Prompt content, supports variable substitution |
+| schema | JsonSchemaDef | Schema definition (see `JsonSchemaDef` type). Top-level `type` can be `object`, `array`, `string`, `number`, or `boolean` |
+| outputFile | string | Output file name (saved to the task's `report/` directory, shared by all agents) |
+| options | ExecOptions | Execution options (optional) |
+
+**Schema (JsonSchemaDef)**
+
+```typescript
+interface JsonSchemaDef {
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  description?: string;
+  /** type === 'object': field definitions, each a JsonSchemaDef (arbitrary nesting) */
+  properties?: Record<string, JsonSchemaDef>;
+  /** type === 'object': required field names; defaults to all fields required */
+  required?: string[];
+  /** type === 'array': element structure, itself a JsonSchemaDef */
+  items?: JsonSchemaDef;
+  /** type === 'object' only: marks a recursive tree structure */
+  recursive?: boolean;
+  /** recursive === true only: names of self-referencing array fields (must be array-typed, no items) */
+  recursiveFields?: string[];
+  /** recursive === true only: max recursion depth, default 3, range 1~10 */
+  maxDepth?: number;
+}
+```
+
+**Recursive tree structure**: when `recursive: true` is set on an object, list its self-referencing array fields in `recursiveFields`. The framework auto-fills their `items` to self-reference. Nodes beyond `maxDepth` become leaves with empty recursive-field arrays.
+
+**Output Location**: saved to the TaskName directory's `report/` subdirectory (shared by all agents), file named `outputFile`.
+
+**SchemaResult**
+
+```typescript
+interface SchemaResult extends ExecutionResult {
+  data: unknown; // type determined by schema.type: object→single object, array→array, scalar→primitive
+}
+```
+
+**Example (basic)**
+
+```typescript
+const result = await agent.execPromptSchema(
+  'Generate a project overview as a single object',
+  {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: 'Project name' },
+      version: { type: 'string', description: 'Version' },
+      dependencies: { type: 'array', items: { type: 'string', description: 'Dependency name' } }
+    }
+  },
+  'project_overview.json'
+);
+// result.data is the generated object
+```
+
+**Example (recursive tree)**
+
+```typescript
+const result = await agent.execPromptSchema(
+  'Generate the directory tree of this project',
+  {
+    type: 'object',
+    recursive: true,
+    recursiveFields: ['children'],
+    maxDepth: 5,
+    properties: {
+      name: { type: 'string', description: 'File or directory name' },
+      type: { type: 'string', description: "'file' or 'directory'" },
+      children: { type: 'array', description: 'Sub-entries (recursively defined)' }
+    }
+  },
+  'dir_tree.json'
+);
+// result.data is the tree root; nodes deeper than maxDepth have empty children arrays
+```
+
+**Exported schema utilities** (from `stepwise`):
+
+```typescript
+// Schema construction & inspection
+buildJsonSchema(format: OutputFormat): JsonSchema
+getFirstRequiredField(format: OutputFormat): string | null
+getRequiredFields(format: OutputFormat): string[]
+checkDuplicateKeys(...): ...
+validateAgainstSchema(...): ...
+formatValidationErrors(errors: SchemaValidationError[]): string
+
+// Recursive schema validation & conversion
+convertToAjvSchema(schema: JsonSchemaDef): JsonSchema
+unrollRecursiveSchema(schema: JsonSchemaDef): JsonSchema
+validateRecursiveSchema(schema: JsonSchemaDef): void
+validateJsonBySchema(...): ...
+buildSchemaFixPrompt(...): string
+generateSchemaExample(schema: JsonSchemaDef, currentDepth?: number): unknown
+```
+
+---
+
 #### execShell(command: string, options?: ShellOptions): Promise\<ShellResult\>
 
 Executes a Shell command for running system commands or scripts.
@@ -653,7 +762,7 @@ Executes a Shell command for running system commands or scripts.
 interface ShellOptions {
   cwd?: string;        // Working directory, uses process.cwd() if not specified
   timeout?: number;    // Timeout in milliseconds, default 5 minutes (300000ms)
-  env?: Record<string, string>; // Environment variables, merged with process.env
+  env?: string[];      // Environment variables, format "KEY=VALUE", merged with process.env
 }
 ```
 
@@ -692,7 +801,7 @@ const result = await agent.execShell('npm test', {
 
 // Using environment variables
 const result = await agent.execShell('npm run deploy', {
-  env: { NODE_ENV: 'production' }
+  env: ['NODE_ENV=production']
 });
 ```
 
@@ -964,6 +1073,13 @@ interface ForEachParallelOptions {
    * @default process.cwd()
    */
   cwd?: string;
+  /**
+   * Skip the finalization script that commits each worktree's changes to its own branch.
+   * - true: Skip finalization (worktree changes will NOT be committed to branches)
+   * - false or undefined: Run the deterministic finalization script (commits each worktree's changes to its own branch, keeps the branch, removes the worktree; does NOT auto-merge into the main branch)
+   * @default false
+   */
+  skipBranchMerge?: boolean;
 }
 ```
 
@@ -1036,12 +1152,13 @@ interface WorkerContext<T> {
 Agent type.
 
 ```typescript
-type AgentType = 'claude' | 'opencode' | 'codeagent';
+type AgentType = 'claude' | 'opencode' | 'codeagent' | 'pi';
 ```
 
 - `'claude'`: Use Claude Code agent (default)
 - `'opencode'`: Use OpenCode agent
 - `'codeagent'`: Use CodeAgent agent (command-line args identical to claude, only the executable name differs)
+- `'pi'`: Use Pi agent (`@earendil-works/pi-coding-agent`; plain-text output, no permission flags, session auto-detected via `--session-id`)
 
 ---
 
@@ -1117,6 +1234,7 @@ JSON output validation options.
 interface ValidateOptions {
   enabled?: boolean;   // Whether to enable validation, default true
   maxRetries?: number; // Maximum retry count, default 3
+  retryOnFileMissing?: boolean; // Whether to trigger retry when the output file is missing, default true
 }
 ```
 
@@ -1202,7 +1320,7 @@ Shell execution options.
 interface ShellOptions {
   cwd?: string;        // Working directory
   timeout?: number;    // Timeout (milliseconds), default 300000
-  env?: Record<string, string>; // Environment variables
+  env?: string[];      // Environment variables, format "KEY=VALUE"
 }
 ```
 
@@ -1260,7 +1378,7 @@ type TaskStatusType = 'pending' | 'in_progress' | 'completed';
 Task type.
 
 ```typescript
-type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell';
+type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell' | 'schema';
 ```
 
 ---
