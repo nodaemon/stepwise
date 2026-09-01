@@ -1495,6 +1495,9 @@ interface SchemaValidationResult<T> {
 stepwise_exec_infos/
 └── {task-name}_{timestamp1}/              # TaskName directory
     ├── report/                             # Report output (execReport)
+    ├── logs/                               # Task-level logs
+    │   ├── performance.json                # Performance stats (auto-written when a step runs ≥3s)
+    │   └── performance.txt                 # Human-readable performance report
     ├── {agent-name}_{timestamp2}/          # StepWise Agent directory
     │   ├── data/                           # Execution state
     │   │   └── progress.json

@@ -326,6 +326,9 @@ Automatic task directory generation:
 stepwise_exec_infos/
 └── TaskName_20260315_143000_123/     # TaskName directory (timestamp with ms)
     ├── report/                        # Report output (shared by all agents)
+    ├── logs/                          # Task-level logs
+    │   ├── performance.json           # Performance stats (auto-written when a step runs ≥3s)
+    │   └── performance.txt            # Human-readable performance report
     ├── Agent1_20260315_143001_456/    # StepWise Agent directory
     │   ├── data/                      # Execution state
     │   │   └── progress.json
@@ -365,7 +368,7 @@ StepWise implements step control through task sequence numbers and progress pers
 - Field completeness validation
 - Type matching validation
 - Auto-generate fix prompts on validation failure
-- `checkPrompt` option for custom validation
+- `postCheckPrompt` option for custom validation
 
 ### Branch Routing Mechanism
 

@@ -321,6 +321,9 @@ const r5 = await agent.execPrompt('尝试另一种实现思路', {
 stepwise_exec_infos/
 └── TaskName_20260315_143000_123/     # TaskName 目录（时间戳精确到毫秒）
     ├── report/                        # 报告输出（所有 Agent 共享）
+    ├── logs/                          # 任务级日志
+    │   ├── performance.json           # 性能统计（单步执行 ≥3s 时自动写出）
+    │   └── performance.txt            # 可读的性能报告
     ├── Agent1_20260315_143001_456/    # StepWise Agent 目录
     │   ├── data/                      # 执行状态
     │   │   └── progress.json
@@ -360,7 +363,7 @@ StepWise 通过任务序号和进度持久化实现步骤控制：
 - 字段完整性校验
 - 类型匹配校验
 - 校验失败自动生成修复提示词
-- `checkPrompt` 选项支持自定义校验
+- `postCheckPrompt` 选项支持自定义校验
 
 ### 分支路由机制
 

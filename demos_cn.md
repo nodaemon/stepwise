@@ -137,7 +137,7 @@ async function collectAPIs() {
     `收集项目中的所有数据库模型定义`,
     outputFormat,
     {
-      checkPrompt: '检查收集结果是否完整，补充遗漏的模型定义'
+      postCheckPrompt: '检查收集结果是否完整，补充遗漏的模型定义'
     }
   );
 
@@ -557,14 +557,14 @@ console.log('任务目录:', agent.getTaskDir());
 console.log('已执行任务数:', agent.getTaskCounter());
 ```
 
-### 5. 使用 checkPrompt 验证结果
+### 5. 使用 postCheckPrompt 验证结果
 
 ```typescript
 const result = await agent.execCollectPrompt(
   '收集 API 定义',
   format,
   {
-    checkPrompt: '检查收集结果是否完整，补充遗漏的 API'
+    postCheckPrompt: '检查收集结果是否完整，补充遗漏的 API'
   }
 );
 ```

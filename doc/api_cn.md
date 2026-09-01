@@ -1496,6 +1496,9 @@ interface SchemaValidationResult<T> {
 stepwise_exec_infos/
 └── {task-name}_{timestamp1}/              # TaskName 目录
     ├── report/                             # 报告输出（execReport）
+    ├── logs/                               # 任务级日志
+    │   ├── performance.json                # 性能统计（单步执行 ≥3s 时自动写出）
+    │   └── performance.txt                 # 可读的性能报告
     ├── {agent-name}_{timestamp2}/          # StepWise Agent 目录
     │   ├── data/                           # 执行状态
     │   │   └── progress.json

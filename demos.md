@@ -137,7 +137,7 @@ async function collectAPIs() {
     `Collect all database model definitions in the project`,
     outputFormat,
     {
-      checkPrompt: 'Check if collection results are complete, add missing models'
+      postCheckPrompt: 'Check if collection results are complete, add missing models'
     }
   );
 
@@ -566,14 +566,14 @@ console.log('Task directory:', agent.getTaskDir());
 console.log('Executed tasks:', agent.getTaskCounter());
 ```
 
-### 5. Use checkPrompt to Validate Results
+### 5. Use postCheckPrompt to Validate Results
 
 ```typescript
 const result = await agent.execCollectPrompt(
   'Collect API definitions',
   format,
   {
-    checkPrompt: 'Check if collection results are complete, add missing APIs'
+    postCheckPrompt: 'Check if collection results are complete, add missing APIs'
   }
 );
 ```
