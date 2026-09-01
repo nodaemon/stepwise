@@ -174,7 +174,7 @@ StepWise.execPrompt(prompt: string, options?: ExecOptions): Promise<ExecutionRes
 - 支持 `$变量名` 格式的变量替换
 - 支持 `newSession` 控制会话复用
 - 支持 `sessionId` 指定已有会话 ID 直接复用（强制 resume 模式）；与 `newSession:true` 同时指定时为 fork 语义（从该会话派生新分支）
-- 支持 `checkPrompt` 进行结果验证
+- 支持 `postCheckPrompt` 进行结果验证
 
 ### 功能6: 收集任务 (execCollectPrompt)
 
@@ -490,7 +490,7 @@ claude --dangerously-skip-permissions --session-id <uuid> -p "prompt"
 
 4. **监控任务进度**：通过 `getTaskDir()` 和 `getTaskCounter()` 监控执行状态
 
-5. **使用 checkPrompt 验证结果**：确保收集的数据符合预期
+5. **使用 postCheckPrompt 验证结果**：确保收集的数据符合预期
 
 6. **并发任务隔离**：使用 `forEachParallel` 时确保每个 Worker 有独立的分支名
 
