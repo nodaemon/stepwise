@@ -7,6 +7,7 @@
 ## 目录
 
 - [全局函数](#全局函数)
+  - [initTask](#inittasktaskname-string-resumepath-string-void)
   - [setTaskName](#settasknametaskname-string-void)
   - [setResumePath](#setresumepathpath-string-void)
   - [enableDebugMode](#enabledebugmodeenabled-boolean-void)
@@ -247,7 +248,7 @@ const data = loadCollectData('/abs/path/my_data.json');
 
 | 参数 | 类型 | 描述 |
 |------|------|------|
-| type | AgentType | 智能体类型：`'claude'`、`'opencode'` 或 `'codeagent'` |
+| type | AgentType | 智能体类型：`'claude'`、`'opencode'`、`'codeagent'` 或 `'pi'` |
 
 **行为**
 
@@ -255,6 +256,7 @@ const data = loadCollectData('/abs/path/my_data.json');
 - 同一任务内所有 Agent 使用相同智能体类型
 - 默认使用 `'claude'`（Claude Code 智能体）
 - `'codeagent'` 的命令行参数和输出格式与 `'claude'` 完全一致，仅可执行程序名（`codeagent`）不同
+- `'pi'` 使用 Pi 智能体（`@earendil-works/pi-coding-agent`）；纯文本输出，无需权限标志，session 通过 `--session-id` 自动判断创建/恢复
 
 **示例**
 
@@ -637,6 +639,113 @@ await agent.execReport(
 
 ---
 
+#### execPromptSchema(prompt: string, schema: JsonSchemaDef, outputFile: string, options?: ExecOptions): Promise\<SchemaResult\>
+
+执行 Schema 驱动任务：AI 按用户定义的 JSON Schema 输出 JSON，支持任意嵌套与递归树形结构。
+
+**参数**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| prompt | string | 提示词内容，支持变量替换 |
+| schema | JsonSchemaDef | Schema 定义（见 `JsonSchemaDef` 类型）。顶层 `type` 可为 `object`、`array`、`string`、`number`、`boolean` |
+| outputFile | string | 输出文件名（保存到任务的 `report/` 目录，所有 agent 共享） |
+| options | ExecOptions | 执行选项（可选） |
+
+**Schema（JsonSchemaDef）**
+
+```typescript
+interface JsonSchemaDef {
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  description?: string;
+  /** type === 'object'：字段定义，每个字段又是 JsonSchemaDef，支持任意嵌套 */
+  properties?: Record<string, JsonSchemaDef>;
+  /** type === 'object'：必填字段名列表；不指定时默认所有字段必填 */
+  required?: string[];
+  /** type === 'array'：数组元素结构，本身又是 JsonSchemaDef */
+  items?: JsonSchemaDef;
+  /** 仅 type === 'object' 时有效：标记为递归树形结构 */
+  recursive?: boolean;
+  /** 仅 recursive === true 时有效：自引用的数组字段名列表（必须为 array 类型且不定义 items） */
+  recursiveFields?: string[];
+  /** 仅 recursive === true 时有效：递归最大深度，默认 3，范围 1~10 */
+  maxDepth?: number;
+}
+```
+
+**递归树形结构**：在 object 上设置 `recursive: true` 后，将其自引用的数组字段列入 `recursiveFields`。框架自动把这些字段的 `items` 填充为自引用结构。超过 `maxDepth` 的节点成为叶子，递归字段为空数组。
+
+**输出位置**：保存到 TaskName 目录的 `report/` 子目录（所有 agent 共享），文件名为 `outputFile`。
+
+**SchemaResult**
+
+```typescript
+interface SchemaResult extends ExecutionResult {
+  data: unknown; // 类型由 schema.type 决定：object→单个对象，array→数组，标量→对应基础类型
+}
+```
+
+**示例（基础版）**
+
+```typescript
+const result = await agent.execPromptSchema(
+  '生成项目概览（单个对象）',
+  {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: '项目名' },
+      version: { type: 'string', description: '版本' },
+      dependencies: { type: 'array', items: { type: 'string', description: '依赖名' } }
+    }
+  },
+  'project_overview.json'
+);
+// result.data 为生成的对象
+```
+
+**示例（递归树）**
+
+```typescript
+const result = await agent.execPromptSchema(
+  '生成本项目的目录树',
+  {
+    type: 'object',
+    recursive: true,
+    recursiveFields: ['children'],
+    maxDepth: 5,
+    properties: {
+      name: { type: 'string', description: '文件或目录名' },
+      type: { type: 'string', description: "'file' 或 'directory'" },
+      children: { type: 'array', description: '子条目（递归定义）' }
+    }
+  },
+  'dir_tree.json'
+);
+// result.data 为树根；深度超过 maxDepth 的节点 children 为空数组
+```
+
+**导出的 Schema 工具函数**（来自 `stepwise`）：
+
+```typescript
+// Schema 构建与检查
+buildJsonSchema(format: OutputFormat): JsonSchema
+getFirstRequiredField(format: OutputFormat): string | null
+getRequiredFields(format: OutputFormat): string[]
+checkDuplicateKeys(...): ...
+validateAgainstSchema(...): ...
+formatValidationErrors(errors: SchemaValidationError[]): string
+
+// 递归 Schema 校验与转换
+convertToAjvSchema(schema: JsonSchemaDef): JsonSchema
+unrollRecursiveSchema(schema: JsonSchemaDef): JsonSchema
+validateRecursiveSchema(schema: JsonSchemaDef): void
+validateJsonBySchema(...): ...
+buildSchemaFixPrompt(...): string
+generateSchemaExample(schema: JsonSchemaDef, currentDepth?: number): unknown
+```
+
+---
+
 #### execShell(command: string, options?: ShellOptions): Promise\<ShellResult\>
 
 执行 Shell 命令，用于运行系统命令或脚本。
@@ -654,7 +763,7 @@ await agent.execReport(
 interface ShellOptions {
   cwd?: string;        // 工作目录，未指定则使用 process.cwd()
   timeout?: number;    // 超时时间（毫秒），默认 5 分钟 (300000ms)
-  env?: Record<string, string>; // 环境变量，会与 process.env 合并
+  env?: string[];      // 环境变量，格式 "KEY=VALUE"，会与 process.env 合并
 }
 ```
 
@@ -693,7 +802,7 @@ const result = await agent.execShell('npm test', {
 
 // 使用环境变量
 const result = await agent.execShell('npm run deploy', {
-  env: { NODE_ENV: 'production' }
+  env: ['NODE_ENV=production']
 });
 ```
 
@@ -965,6 +1074,13 @@ interface ForEachParallelOptions {
    * @default process.cwd()
    */
   cwd?: string;
+  /**
+   * 跳过收尾脚本（把各 worktree 的改动提交到各自分支的确定性脚本）
+   * - true: 跳过收尾（worktree 的改动不会提交到分支）
+   * - false 或 undefined: 执行确定性收尾脚本（把各 worktree 的改动提交到各自分支、保留分支、删除 worktree；不会自动合并到主分支）
+   * @default false
+   */
+  skipBranchMerge?: boolean;
 }
 ```
 
@@ -1037,12 +1153,13 @@ interface WorkerContext<T> {
 智能体类型。
 
 ```typescript
-type AgentType = 'claude' | 'opencode' | 'codeagent';
+type AgentType = 'claude' | 'opencode' | 'codeagent' | 'pi';
 ```
 
 - `'claude'`: 使用 Claude Code 智能体（默认）
 - `'opencode'`: 使用 OpenCode 智能体
 - `'codeagent'`: 使用 CodeAgent 智能体（命令行参数与 claude 一致，仅可执行程序名不同）
+- `'pi'`: 使用 Pi 智能体（`@earendil-works/pi-coding-agent`；纯文本输出，无需权限标志，session 通过 `--session-id` 自动判断创建/恢复）
 
 ---
 
@@ -1118,6 +1235,7 @@ JSON 输出校验选项。
 interface ValidateOptions {
   enabled?: boolean;   // 是否启用校验，默认 true
   maxRetries?: number; // 最大重试次数，默认 3
+  retryOnFileMissing?: boolean; // 输出文件不存在时是否触发重试，默认 true
 }
 ```
 
@@ -1203,7 +1321,7 @@ Shell 执行选项。
 interface ShellOptions {
   cwd?: string;        // 工作目录
   timeout?: number;    // 超时时间（毫秒），默认 300000
-  env?: Record<string, string>; // 环境变量
+  env?: string[];      // 环境变量，格式 "KEY=VALUE"
 }
 ```
 
@@ -1261,7 +1379,7 @@ type TaskStatusType = 'pending' | 'in_progress' | 'completed';
 任务类型。
 
 ```typescript
-type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell';
+type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell' | 'schema';
 ```
 
 ---
