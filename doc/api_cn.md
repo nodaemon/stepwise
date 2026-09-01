@@ -28,6 +28,7 @@
   - [forEachParallel](#foreachparallelt-items-t-workerconfigs-workerconfig-handler-promisevoid-options-foreachparalleloptions-promisevoid)
   - [WorkerConfig](#workerconfig)
   - [WorkerContext](#workercontextt)
+  - [cleanWorktreeSessionLinks](#cleanworktreesessionlinksconfigsubdir-string-worktreecwd-string-void)
 - [类型定义](#类型定义)
 
 ---
@@ -256,7 +257,7 @@ const data = loadCollectData('/abs/path/my_data.json');
 - 同一任务内所有 Agent 使用相同智能体类型
 - 默认使用 `'claude'`（Claude Code 智能体）
 - `'codeagent'` 的命令行参数和输出格式与 `'claude'` 完全一致，仅可执行程序名（`codeagent`）不同
-- `'pi'` 使用 Pi 智能体（`@earendil-works/pi-coding-agent`）；纯文本输出，无需权限标志，session 通过 `--session-id` 自动判断创建/恢复
+- `'pi'` 使用 Pi 智能体（`@earendil-works/pi-coding-agent`）；纯文本输出，无需权限标志，session 通过 `--session-id` 自动判断创建/恢复。Pi 的配置目录默认为 `~/.pi/agent`，可通过 `PI_CODING_AGENT_DIR` 环境变量覆盖
 
 **示例**
 
@@ -1146,6 +1147,30 @@ interface WorkerContext<T> {
 
 ---
 
+### cleanWorktreeSessionLinks(configSubdir: string, worktreeCwd: string): void
+
+清理 worktree 在其 projects 目录残留的 session 软链。当 `fork` 跨 worktree 派生会话时，框架会把主仓库的 session 文件软链到 worktree 的 projects 目录（`~/.claude/projects/`、`~/.cac/projects/` 或 `~/.pi/agent/sessions/`）。删除 worktree 时**不会**清除这些软链——它们无害（悬空软链会被当作"找不到会话"），但会堆积。调用此函数可清理。
+
+**参数**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| configSubdir | string | 按执行器类型决定的 config 目录名：`'claude'`（→ `~/.claude`）、`'codeagent'`（→ `~/.cac`）或 `'pi'`（→ `~/.pi/agent`） |
+| worktreeCwd | string | 需清理残留软链的 worktree 目录绝对路径 |
+
+**示例**
+
+```typescript
+import { cleanWorktreeSessionLinks } from 'stepwise';
+
+// forEachParallel 结束后，清理某 Claude worktree 残留的 fork 软链
+cleanWorktreeSessionLinks('claude', '/abs/path/to/worktree');
+```
+
+> **何时调用**：可选。软链无害，仅在残留堆积时调用。`codeagent` 用 `'codeagent'`（→ `~/.cac`）；`pi` 用 `'pi'`（→ `~/.pi/agent`）。
+
+---
+
 ## 类型定义
 
 ### AgentType
@@ -1496,6 +1521,7 @@ stepwise_exec_infos/
 - 记录 AI 的完整思考过程、工具调用、返回结果等详细信息
 - 是分析执行过程、调试问题的最关键文件
 - 当有 postCheckPrompt 时，会在文件末尾追加后检查的输出（带分隔标记）
+- 每个输出块的首行附加实时时间戳前缀，形如 `[YYYY-MM-DD HH:mm:ss.SSS]`，标记子进程输出该块的时刻。`stderr` 行标记为 `[stderr]`（同样附加时间戳），便于区分输出与错误流
 
 **目录命名规则**：
 - TaskName 目录：`{taskName}_{YYYYMMDD}_{HHmmss}_{毫秒}`
@@ -1523,4 +1549,6 @@ const EXECUTE_LOG = 'execute.log';     // 汇总日志文件
 
 // 其他常量
 const MAX_RETRIES = 3; // 最大重试次数
+const MAX_PROBE_ATTEMPTS = 10; // 429 探测恢复：最大探测次数（探测耗尽不抛错）
+const PROBE_TIMEOUT_MS = 30000; // 429 探测恢复：单次探测超时（毫秒）
 ```

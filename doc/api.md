@@ -28,6 +28,7 @@ This document provides detailed API reference for StepWise.
   - [forEachParallel](#foreachparallelt-items-t-workerconfigs-workerconfig-handler-promisevoid-options-foreachparalleloptions-promisevoid)
   - [WorkerConfig](#workerconfig)
   - [WorkerContext](#workercontextt)
+  - [cleanWorktreeSessionLinks](#cleanworktreesessionlinksconfigsubdir-string-worktreecwd-string-void)
 - [Type Definitions](#type-definitions)
 
 ---
@@ -255,7 +256,7 @@ Sets the agent type, determining which agent will execute tasks.
 - All agents within a task use the same agent type
 - Defaults to `'claude'` (Claude Code agent)
 - `'codeagent'` uses the same command-line arguments and output format as `'claude'`; only the executable name (`codeagent`) differs
-- `'pi'` uses the Pi agent (`@earendil-works/pi-coding-agent`); plain-text output, no permission flags needed, session auto-detected via `--session-id`
+- `'pi'` uses the Pi agent (`@earendil-works/pi-coding-agent`); plain-text output, no permission flags needed, session auto-detected via `--session-id`. Pi's config directory defaults to `~/.pi/agent`; override with the `PI_CODING_AGENT_DIR` environment variable
 
 **Example**
 
@@ -1145,6 +1146,30 @@ interface WorkerContext<T> {
 
 ---
 
+### cleanWorktreeSessionLinks(configSubdir: string, worktreeCwd: string): void
+
+Removes leftover session symlinks a worktree left in its projects directory. When `fork` branches a session across worktrees, the framework symlinks the main repo's session file into the worktree's projects directory (`~/.claude/projects/`, `~/.cac/projects/`, or `~/.pi/agent/sessions/`). These links are **not** removed when the worktree is deleted — they are harmless (a dangling link is treated as "conversation not found"), but they accumulate. Call this to clean them up.
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| configSubdir | string | Config directory name by executor type: `'claude'` (→ `~/.claude`), `'codeagent'` (→ `~/.cac`), or `'pi'` (→ `~/.pi/agent`) |
+| worktreeCwd | string | Absolute path of the worktree directory whose leftover symlinks should be removed |
+
+**Example**
+
+```typescript
+import { cleanWorktreeSessionLinks } from 'stepwise';
+
+// After forEachParallel finishes, clean leftover fork symlinks in a Claude worktree
+cleanWorktreeSessionLinks('claude', '/abs/path/to/worktree');
+```
+
+> **When to call**: optional. Symlinks are harmless; call only if leftover links pile up. For `codeagent` use `'codeagent'` (→ `~/.cac`); for `pi` use `'pi'` (→ `~/.pi/agent`).
+
+---
+
 ## Type Definitions
 
 ### AgentType
@@ -1495,6 +1520,7 @@ stepwise_exec_infos/
 - Records AI's complete thinking process, tool calls, return results, and other detailed information
 - The most critical file for analyzing execution process and debugging issues
 - When postCheckPrompt exists, the post-check output is appended at the end (with a separator)
+- Each output block is prefixed with a real-time timestamp on its first line, in the form `[YYYY-MM-DD HH:mm:ss.SSS]`, marking when the child process emitted that block. `stderr` lines are tagged `[stderr]` (with the same timestamp) so output and error streams are distinguishable
 
 **Directory Naming Rules**:
 - TaskName directory: `{taskName}_{YYYYMMDD}_{HHmmss}_{milliseconds}`
@@ -1522,4 +1548,6 @@ const EXECUTE_LOG = 'execute.log';     // Summary log file
 
 // Other constants
 const MAX_RETRIES = 3; // Maximum retry count
+const MAX_PROBE_ATTEMPTS = 10; // 429 probe recovery: max probe attempts (probe exhaustion does not throw)
+const PROBE_TIMEOUT_MS = 30000; // 429 probe recovery: per-probe timeout (ms)
 ```
