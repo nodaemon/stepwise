@@ -48,10 +48,10 @@ StepWise 是一个高效构建具备稳定完成复杂代码任务智能体的�
 │  │  ┌──────────────────┐ ┌──────────────────┐         │   │
 │  │  │ Claude Executor  │ │ OpenCode Executor │         │   │
 │  │  └──────────────────┘ └──────────────────┘         │   │
-│  │  ┌──────────────────┐ ┌──────────────────┐         │   │
-│  │  │ CodeAgent Exec.  │ │  Pi Executor      │         │   │
-│  │  │ (继承 Claude)     │ │(@earendil/pi-agent)│        │   │
-│  │  └──────────────────┘ └──────────────────┘         │   │
+│  │  ┌──────────────────────┐ ┌──────────────────────┐ │   │
+│  │  │ CodeAgent Exec.      │ │  Pi Executor         │ │   │
+│  │  │ (继承 Claude)        │ │(@earendil-works/pi)  │ │   │
+│  │  └──────────────────────┘ └──────────────────────┘ │   │
 │  └─────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -71,7 +71,7 @@ src/
 │   ├── claude.ts      # Claude Code 执行器（同时作为 CodeAgent 基类）
 │   ├── codeagent.ts   # CodeAgent 执行器（继承 ClaudeExecutor）
 │   ├── opencode.ts    # OpenCode 执行器
-│   ├── pi.ts          # Pi 执行器 (@earendil/pi-agent)
+│   ├── pi.ts          # Pi 执行器 (@earendil-works/pi-coding-agent)
 │   └── types.ts       # 执行器类型定义
 └── utils/             # 工具函数目录
     ├── executor.ts    # 执行器工厂
