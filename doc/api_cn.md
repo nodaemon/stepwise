@@ -1186,7 +1186,7 @@ interface ExecOptions {
 `sessionId` 允许显式复用一个已知的会话 ID，而非由框架生成或复用上一个任务的 ID。适用于跨 StepWise 实例或跨进程恢复某个会话的场景。
 
 - 指定后，agent 以 resume 模式执行（`--resume <sessionId>`），即视为恢复一个已存在的会话
-- 与 `newSession: true` 同时指定时为 **fork 语义**：从指定 sessionId 派生一个新会话（原会话保留，新会话独立），底层用 `--resume <sessionId> --fork-session`（Claude/CodeAgent）或 `--session <sessionId> --fork`（OpenCode）
+- 与 `newSession: true` 同时指定时为 **fork 语义**：从指定 sessionId 派生一个新会话（原会话保留，新会话独立），底层用 `--resume <sessionId> --fork-session`（Claude/CodeAgent）、`--session <sessionId> --fork`（OpenCode）或 `--fork <sessionId> --session-id <新ID>`（Pi，预先指定派生 ID）
 - 不能为空字符串
 - 不指定时行为不变（按 `newSession` 复用上一个会话或创建新会话）
 
@@ -1194,7 +1194,7 @@ interface ExecOptions {
 
 > **fork 中断恢复**：fork 执行期间，派生的新 ID 一旦从子进程输出（system/init 块）即被实时写入 `progress.json`。因此即使 fork 步骤中断，`setResumePath` 恢复时也会用派生 ID 续传（`--resume <派生ID>`），不会重新派生。恢复命中该步骤的 in_progress 记录时，历史派生 ID 优先于再次传入的 `sessionId`+`newSession`。
 >
-> **OpenCode 限制**：OpenCode 的派生 ID 仅在执行结束后通过 `session list` 可取，无法在执行中途获取。故 OpenCode 的 fork 步骤若中断，恢复时会重新派生新 ID（无法续传原派生分支）。Claude/CodeAgent 不受此限。
+> **OpenCode 限制**：OpenCode 的派生 ID 仅在执行结束后通过 `session list` 可取，无法在执行中途获取。故 OpenCode 的 fork 步骤若中断，恢复时会重新派生新 ID（无法续传原派生分支）。Claude/CodeAgent 不受此限。此外，OpenCode 仅当 sessionId 为 `ses_` 前缀时才附加 `--session`/`--fork`；非 `ses_` 前缀的 sessionId 会导致 `--fork` 被忽略并打印警告（fork 不生效）。
 
 **文件访问限制**
 
