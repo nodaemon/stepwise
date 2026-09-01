@@ -1185,7 +1185,7 @@ interface ExecOptions {
 `sessionId` lets you explicitly reuse a known session ID instead of the framework generating one or reusing the previous task's ID. This is useful when resuming a session across StepWise instances or processes.
 
 - When specified, the agent runs in resume mode (`--resume <sessionId>`) — treated as resuming an existing session
-- When specified together with `newSession: true`, this is **fork semantics**: a new session is derived from the given sessionId (the original is preserved, the new one runs independently). Under the hood this uses `--resume <sessionId> --fork-session` (Claude/CodeAgent) or `--session <sessionId> --fork` (OpenCode)
+- When specified together with `newSession: true`, this is **fork semantics**: a new session is derived from the given sessionId (the original is preserved, the new one runs independently). Under the hood this uses `--resume <sessionId> --fork-session` (Claude/CodeAgent), `--session <sessionId> --fork` (OpenCode), or `--fork <sessionId> --session-id <new-id>` (Pi, pre-assigning the derived ID)
 - Cannot be an empty string
 - When not specified, behavior is unchanged (reuse previous session or generate a new one per `newSession`)
 
@@ -1193,7 +1193,7 @@ interface ExecOptions {
 
 > **Resuming a fork after interruption**: while a fork runs, the derived new ID is written to `progress.json` as soon as it appears in the child process output (the `system/init` block). So even if the fork step is interrupted, `setResumePath` resumes with the derived ID (`--resume <derived-id>`) instead of deriving again. When the resume hits the step's `in_progress` record, the historical derived ID takes precedence over any `sessionId`+`newSession` passed again.
 >
-> **OpenCode limitation**: OpenCode's derived ID is only obtainable after execution completes (via `session list`), not mid-execution. So an interrupted OpenCode fork step will re-derive a new ID on resume (it cannot continue the original derived branch). Claude/CodeAgent are unaffected.
+> **OpenCode limitation**: OpenCode's derived ID is only obtainable after execution completes (via `session list`), not mid-execution. So an interrupted OpenCode fork step will re-derive a new ID on resume (it cannot continue the original derived branch). Claude/CodeAgent are unaffected. Additionally, OpenCode only attaches `--session`/`--fork` when the sessionId has the `ses_` prefix; a non-`ses_` sessionId causes `--fork` to be silently ignored with a warning (no fork occurs).
 
 **File Access Restriction**
 
