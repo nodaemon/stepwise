@@ -90,21 +90,12 @@ logs/<N_task>/usage.json
     "costUsd": 0.0834,
     "durationMs": 44800,
     "durationApiMs": 41200
-  },
-  "postCheckUsage": {
-    "inputTokens": 820,
-    "outputTokens": 95,
-    "cacheCreationTokens": 0,
-    "cacheReadTokens": 16200,
-    "costUsd": 0.0041,
-    "durationMs": 3800,
-    "durationApiMs": 3100
   }
 }
 ```
 
 - `duration` 为既有 wall-clock（毫秒）；`tokenUsage.durationMs/durationApiMs` 来自 Claude result 块。
-- **postCheckPrompt 的 usage**：`runPostCheck`（StepWise.ts:1215）当前丢弃 executor 返回值，改为接收 `ExecutionResult`，若其含 `tokenUsage` 则作为 `postCheckUsage` 字段并入同目录 usage.json（postCheck 与主任务共享 task 目录，不单独建文件）。无 postCheckPrompt 或无 tokenUsage 时该字段缺省。
+- **postCheckPrompt 不纳入导出**：`runPostCheck` 的 executor 返回值继续丢弃（维持现状），usage.json 只记录主任务的 token 数据。
 
 - 断点恢复跳过的步骤：不重写 usage.json（文件已存在，保持原样）——与 progress.json 跳过逻辑一致。
 
@@ -125,7 +116,7 @@ logs/<N_task>/usage.json
 
 - `ndjsonFormatter` 单测：对含 `result.usage` 的 NDJSON 样例，提取四个 token 数 + duration_api_ms 正确；缺字段的样例 `usage` 为 null
 - `base.ts` 单测：mock spawn 返回含 usage 的 NDJSON → `ExecutionResult.tokenUsage` 组装正确；纯文本输出 → 无 tokenUsage 字段
-- `StepWise` 单测：mock executor 返回 tokenUsage → usage.json 写入正确位置与结构；无 tokenUsage → 不写文件；带 postCheckPrompt 的执行 → usage.json 含 postCheckUsage 字段
+- `StepWise` 单测：mock executor 返回 tokenUsage → usage.json 写入正确位置与结构；无 tokenUsage → 不写文件
 - 既有 250 测试零回归（新字段全部可选，不破坏现有断言）
 
 ## 验收标准
