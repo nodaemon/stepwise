@@ -1,4 +1,4 @@
-import { formatNDJsonLine } from '../src/executors/ndjsonFormatter';
+import { formatNDJsonLine, parseAndFormatNDJson } from '../src/executors/ndjsonFormatter';
 
 describe('ndjsonFormatter', () => {
   describe('system subtype 忽略规则', () => {
@@ -551,5 +551,67 @@ describe('ndjsonFormatter', () => {
         expect(nonEmptyResult.formatted).toContain('Steering: 1');
       });
     });
+  });
+});
+
+describe('result 块 usage 提取', () => {
+  const makeResultLine = (withUsage: boolean) => JSON.stringify({
+    type: 'result',
+    subtype: 'success',
+    result: 'final answer text',
+    duration_ms: 44800,
+    duration_api_ms: 41200,
+    total_cost_usd: 0.0834,
+    ...(withUsage ? {
+      usage: {
+        input_tokens: 15230,
+        output_tokens: 1204,
+        cache_creation_input_tokens: 8002,
+        cache_read_input_tokens: 45210
+      }
+    } : {})
+  });
+
+  it('含 usage 的 result 块应提取完整 token 数据', () => {
+    const line = makeResultLine(true);
+    const result = formatNDJsonLine(line);
+
+    expect(result.usage).toEqual({
+      inputTokens: 15230,
+      outputTokens: 1204,
+      cacheCreationTokens: 8002,
+      cacheReadTokens: 45210,
+      costUsd: 0.0834,
+      durationMs: 44800,
+      durationApiMs: 41200
+    });
+  });
+
+  it('缺 usage 字段的 result 块应返回 usage: null（不抛错）', () => {
+    const result = formatNDJsonLine(makeResultLine(false));
+    expect(result.usage).toBeNull();
+  });
+
+  it('parseAndFormatNDJson 应聚合最后一条 result 的 usage', () => {
+    const raw = [
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 's-1' }),
+      makeResultLine(true)
+    ].join('\n');
+    const parsed = parseAndFormatNDJson(raw);
+
+    expect(parsed.usage).toEqual({
+      inputTokens: 15230,
+      outputTokens: 1204,
+      cacheCreationTokens: 8002,
+      cacheReadTokens: 45210,
+      costUsd: 0.0834,
+      durationMs: 44800,
+      durationApiMs: 41200
+    });
+  });
+
+  it('无 result 块时 parseAndFormatNDJson 的 usage 为 null', () => {
+    const raw = JSON.stringify({ type: 'system', subtype: 'init', session_id: 's-1' });
+    expect(parseAndFormatNDJson(raw).usage).toBeNull();
   });
 });

@@ -139,6 +139,28 @@ export interface JsonSchemaDef {
 }
 
 /**
+ * token 消耗与 AI 耗时
+ * 来自 Claude stream-json result 块的 usage/duration 字段
+ * 仅 NDJSON 执行器（Claude/CodeAgent）产出；Pi/OpenCode 不支持
+ */
+export interface TokenUsage {
+  /** 输入 token 数 */
+  inputTokens: number;
+  /** 输出 token 数 */
+  outputTokens: number;
+  /** 缓存创建 token 数 */
+  cacheCreationTokens: number;
+  /** 缓存读取 token 数 */
+  cacheReadTokens: number;
+  /** 总成本（美元） */
+  costUsd: number;
+  /** Claude result.duration_ms（总耗时，毫秒） */
+  durationMs: number;
+  /** Claude result.duration_api_ms（纯 API 耗时，毫秒） */
+  durationApiMs: number;
+}
+
+/**
  * 执行结果
  */
 export interface ExecutionResult {
@@ -154,6 +176,8 @@ export interface ExecutionResult {
   timestamp: number;
   /** 执行耗时（毫秒） */
   duration: number;
+  /** token 消耗与 AI 耗时（仅 NDJSON 执行器：Claude/CodeAgent；缺省表示该执行器不支持） */
+  tokenUsage?: TokenUsage;
 }
 
 /**
