@@ -1072,12 +1072,30 @@ export class StepWise {
   /**
    * 写入任务日志
    */
-  private writeTaskLogs(taskLogDir: string, result: ExecutionResult): void {
+  private writeTaskLogs(taskLogDir: string, result: ExecutionResult, taskIndex?: number): void {
     if (taskLogDir) {
       this.logger?.writeTaskLog(taskLogDir, 'output.txt', result.output);
       // verbose_output.txt 已由 executor 在子进程执行期间实时写入，此处不再重复
       if (result.error) {
         this.logger?.writeTaskLog(taskLogDir, 'error.txt', result.error);
+      }
+      // token 用量导出：仅 NDJSON 执行器（Claude/CodeAgent）的 result.tokenUsage 有值
+      // 结构：{ taskIndex, sessionId, duration, tokenUsage }
+      if (result.tokenUsage) {
+        this.logger?.writeTaskLog(
+          taskLogDir,
+          'usage.json',
+          JSON.stringify(
+            {
+              taskIndex: taskIndex ?? 0,
+              sessionId: result.sessionId,
+              duration: result.duration,
+              tokenUsage: result.tokenUsage
+            },
+            null,
+            2
+          )
+        );
       }
     }
   }
@@ -1355,7 +1373,7 @@ export class StepWise {
       onDerivedSessionId: (derivedId) => this.updateInProgressSessionId(taskIndex, taskType, derivedId)
     });
 
-    this.writeTaskLogs(taskLogDir, result);
+    this.writeTaskLogs(taskLogDir, result, taskIndex);
 
     // 重要：更新 currentSessionId 为实际使用的 sessionId
     // OpenCode 等执行器可能从 stdout 解析出真实的 sessionId
@@ -1488,7 +1506,7 @@ export class StepWise {
       onDerivedSessionId: (derivedId) => this.updateInProgressSessionId(taskIndex, taskType, derivedId)
     });
 
-    this.writeTaskLogs(taskLogDir, result);
+    this.writeTaskLogs(taskLogDir, result, taskIndex);
 
     // 重要：更新 currentSessionId 为实际使用的 sessionId
     if (result.success && result.sessionId !== sessionId) {
@@ -1643,7 +1661,7 @@ export class StepWise {
       onDerivedSessionId: (derivedId) => this.updateInProgressSessionId(taskIndex, taskType, derivedId)
     });
 
-    this.writeTaskLogs(taskLogDir, result);
+    this.writeTaskLogs(taskLogDir, result, taskIndex);
 
     // 重要：更新 currentSessionId 为实际使用的 sessionId
     if (result.success && result.sessionId !== sessionId) {
@@ -1797,7 +1815,7 @@ export class StepWise {
       onDerivedSessionId: (derivedId) => this.updateInProgressSessionId(taskIndex, taskType, derivedId)
     });
 
-    this.writeTaskLogs(taskLogDir, result);
+    this.writeTaskLogs(taskLogDir, result, taskIndex);
 
     // 重要：更新 currentSessionId 为实际使用的 sessionId
     if (result.success && result.sessionId !== sessionId) {
@@ -1950,7 +1968,7 @@ export class StepWise {
       onDerivedSessionId: (derivedId) => this.updateInProgressSessionId(taskIndex, taskType, derivedId)
     });
 
-    this.writeTaskLogs(taskLogDir, result);
+    this.writeTaskLogs(taskLogDir, result, taskIndex);
 
     // 重要：更新 currentSessionId 为实际使用的 sessionId
     if (result.success && result.sessionId !== sessionId) {

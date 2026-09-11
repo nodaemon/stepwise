@@ -214,7 +214,10 @@ export abstract class BaseExecutor implements AgentExecutor {
             output: outputText,
             success: true,
             timestamp: startTime,
-            duration
+            duration,
+            // token 用量透传：NDJSON result 块提取（Claude/CodeAgent）；
+            // 纯文本执行器（Pi/OpenCode）parsed.usage 为 null → 不设该字段
+            ...(parsed.usage ? { tokenUsage: parsed.usage } : {})
           };
         }
 

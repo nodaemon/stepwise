@@ -493,8 +493,25 @@ interface ExecutionResult {
   error?: string;       // 错误信息
   timestamp: number;    // 执行时间戳
   duration: number;     // 执行耗时（毫秒）
+  tokenUsage?: TokenUsage; // token 消耗与 AI 耗时（仅 Claude/CodeAgent；Pi/OpenCode 为 undefined）
 }
 ```
+
+**TokenUsage**
+
+```typescript
+interface TokenUsage {
+  inputTokens: number;         // 输入 token 数
+  outputTokens: number;        // 输出 token 数
+  cacheCreationTokens: number; // 缓存创建 token 数
+  cacheReadTokens: number;     // 缓存读取 token 数
+  costUsd: number;             // 总成本（美元）
+  durationMs: number;          // 总耗时（毫秒），来自 Claude result.duration_ms
+  durationApiMs: number;       // 纯 API 耗时（毫秒），来自 Claude result.duration_api_ms
+}
+```
+
+`tokenUsage` 仅由基于 NDJSON 的执行器（Claude/CodeAgent）上报；Pi/OpenCode 为 `undefined`。存在时会按步导出到 `logs/<N_task>/usage.json`（结构：`{ taskIndex, sessionId, duration, tokenUsage }`）。
 
 **示例**
 
@@ -1309,6 +1326,25 @@ interface ExecutionResult {
   error?: string;       // 错误信息
   timestamp: number;    // 执行时间戳
   duration: number;     // 执行耗时（毫秒）
+  tokenUsage?: TokenUsage; // token 消耗与 AI 耗时（仅 Claude/CodeAgent；Pi/OpenCode 为 undefined）
+}
+```
+
+---
+
+### TokenUsage
+
+token 消耗与 AI 耗时。仅由基于 NDJSON 的执行器（Claude/CodeAgent）上报；Pi/OpenCode 为 `undefined`。存在时会按步导出到 `logs/<N_task>/usage.json`（结构：`{ taskIndex, sessionId, duration, tokenUsage }`）。
+
+```typescript
+interface TokenUsage {
+  inputTokens: number;         // 输入 token 数
+  outputTokens: number;        // 输出 token 数
+  cacheCreationTokens: number; // 缓存创建 token 数
+  cacheReadTokens: number;     // 缓存读取 token 数
+  costUsd: number;             // 总成本（美元）
+  durationMs: number;          // 总耗时（毫秒），来自 Claude result.duration_ms
+  durationApiMs: number;       // 纯 API 耗时（毫秒），来自 Claude result.duration_api_ms
 }
 ```
 
@@ -1510,7 +1546,8 @@ stepwise_exec_infos/
     │   │   │   ├── verbose_output.txt      # 详细输出（AI思考过程、工具调用等）★关键调试文件
     │   │   │   ├── debug.log               # 调试日志
     │   │   │   ├── post_check_prompt.txt   # 后检查提示词（如有）
-    │   │   │   └── execution_info.json     # 执行信息
+    │   │   │   ├── execution_info.json     # 执行信息
+    │   │   │   └── usage.json              # token 用量与 AI 耗时（Claude/CodeAgent，有则写出）
     │   │   ├── 2_collect/
     │   │   │   ├── ...（同上）
     │   │   └── execute.log                 # 执行汇总日志

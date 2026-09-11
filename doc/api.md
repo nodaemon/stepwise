@@ -492,8 +492,25 @@ interface ExecutionResult {
   error?: string;       // Error message
   timestamp: number;    // Execution timestamp
   duration: number;     // Execution duration (milliseconds)
+  tokenUsage?: TokenUsage; // Token consumption & AI durations (Claude/CodeAgent only; undefined for Pi/OpenCode)
 }
 ```
+
+**TokenUsage**
+
+```typescript
+interface TokenUsage {
+  inputTokens: number;         // Input token count
+  outputTokens: number;        // Output token count
+  cacheCreationTokens: number; // Cache creation token count
+  cacheReadTokens: number;     // Cache read token count
+  costUsd: number;             // Total cost (USD)
+  durationMs: number;          // Total duration, from Claude result.duration_ms (milliseconds)
+  durationApiMs: number;       // Pure API duration, from Claude result.duration_api_ms (milliseconds)
+}
+```
+
+`tokenUsage` is only reported by NDJSON-based executors (Claude/CodeAgent); it is `undefined` for Pi/OpenCode. When present, it is also exported per step to `logs/<N_task>/usage.json` (structure: `{ taskIndex, sessionId, duration, tokenUsage }`).
 
 **Example**
 
@@ -1308,6 +1325,25 @@ interface ExecutionResult {
   error?: string;       // Error message
   timestamp: number;    // Execution timestamp
   duration: number;     // Execution duration (milliseconds)
+  tokenUsage?: TokenUsage; // Token consumption & AI durations (Claude/CodeAgent only; undefined for Pi/OpenCode)
+}
+```
+
+---
+
+### TokenUsage
+
+Token consumption and AI durations. Only reported by NDJSON-based executors (Claude/CodeAgent); `undefined` for Pi/OpenCode. When present, it is also exported per step to `logs/<N_task>/usage.json` (structure: `{ taskIndex, sessionId, duration, tokenUsage }`).
+
+```typescript
+interface TokenUsage {
+  inputTokens: number;         // Input token count
+  outputTokens: number;        // Output token count
+  cacheCreationTokens: number; // Cache creation token count
+  cacheReadTokens: number;     // Cache read token count
+  costUsd: number;             // Total cost (USD)
+  durationMs: number;          // Total duration, from Claude result.duration_ms (milliseconds)
+  durationApiMs: number;       // Pure API duration, from Claude result.duration_api_ms (milliseconds)
 }
 ```
 
@@ -1509,7 +1545,8 @@ stepwise_exec_infos/
     │   │   │   ├── verbose_output.txt      # Detailed output (AI thinking, tool calls, etc.) ★Key debug file
     │   │   │   ├── debug.log               # Debug log
     │   │   │   ├── post_check_prompt.txt   # Post-check prompt (if any)
-    │   │   │   └── execution_info.json     # Execution info
+    │   │   │   ├── execution_info.json     # Execution info
+    │   │   │   └── usage.json              # Token usage & AI durations (Claude/CodeAgent, written when available)
     │   │   ├── 2_collect/
     │   │   │   ├── ... (same as above)
     │   │   └── execute.log                 # Execution summary log
