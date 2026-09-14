@@ -395,7 +395,7 @@ function unrollLayer(nodeSchema: JsonSchemaDef, maxDepth: number, currentDepth: 
  * 2. recursiveFields 需要 recursive === true
  * 3. maxDepth 需要 recursive === true
  * 4. recursiveFields 中每个字段必须在 properties 中且为 type === 'array'
- * 5. recursiveFields 中每个字段不应定义 items
+ * 5. recursiveFields 中每个字段不应定义 items/prefixItems
  * 6. maxDepth 必须在 1~10 范围内
  *
  * @param schema 待校验的 JsonSchemaDef
@@ -441,9 +441,9 @@ export function validateRecursiveSchema(schema: JsonSchemaDef): void {
         throw new Error(`${prefix} recursiveFields 中的 "${fieldName}" 必须是 type="array"，当前 type="${propDef.type}"`);
       }
 
-      // 规则 5：recursiveFields 中每个字段不应定义 items
-      if (propDef.items !== undefined) {
-        throw new Error(`${prefix} recursiveFields 中的 "${fieldName}" 不应定义 items，框架在展开时自动填充`);
+      // 规则 5：recursiveFields 中每个字段不应定义 items/prefixItems（R1）
+      if (propDef.items !== undefined || propDef.prefixItems !== undefined) {
+        throw new Error(`${prefix} recursiveFields 中的 "${fieldName}" 不应定义 items/prefixItems，框架在展开时自动填充`);
       }
     }
 

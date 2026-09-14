@@ -1,5 +1,6 @@
 import { StepWise, setTaskName, _resetState } from '../src/index';
 import { JsonSchemaDef } from '../src/types';
+import { validateRecursiveSchema } from '../src/utils/validator';
 
 // Mock executor（沿用 StepWise.execPromptSchema.test.ts 的模式）
 jest.mock('../src/utils/executor', () => ({
@@ -191,6 +192,40 @@ describe('prefixItems 元组结构校验', () => {
       await expect(
         agent.execPromptSchema('测试', schema, 'out.json')
       ).rejects.toThrow('schema.prefixItems[0]');
+    });
+  });
+
+  describe('R1: 递归字段不得定义 items/prefixItems', () => {
+    test('递归字段带 prefixItems 应抛错', () => {
+      const schema: JsonSchemaDef = {
+        type: 'object',
+        recursive: true,
+        recursiveFields: ['children'],
+        properties: {
+          name: { type: 'string' },
+          children: {
+            type: 'array',
+            prefixItems: [{ type: 'string' }]
+          }
+        }
+      };
+      expect(() => validateRecursiveSchema(schema)).toThrow('不应定义 items/prefixItems');
+    });
+
+    test('递归字段带 items 仍应抛错（现有行为不回归）', () => {
+      const schema: JsonSchemaDef = {
+        type: 'object',
+        recursive: true,
+        recursiveFields: ['children'],
+        properties: {
+          name: { type: 'string' },
+          children: {
+            type: 'array',
+            items: { type: 'string' }
+          }
+        }
+      };
+      expect(() => validateRecursiveSchema(schema)).toThrow('不应定义 items');
     });
   });
 });
