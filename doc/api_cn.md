@@ -663,11 +663,18 @@ interface JsonSchemaDef {
   properties?: Record<string, JsonSchemaDef>;
   /** type === 'object'：必填字段名列表；不指定时默认所有字段必填 */
   required?: string[];
-  /** type === 'array'：数组元素结构，本身又是 JsonSchemaDef */
+  /** type === 'array'：数组元素结构，本身又是 JsonSchemaDef（与 prefixItems 互斥） */
   items?: JsonSchemaDef;
+  /** type === 'array'：元组定义（与 items 互斥）。按位置定义每个元素的类型，
+      分量可为任意 type；数组长度必须严格等于 prefixItems.length（固定长度元组）。
+      分量不可定义 recursive/recursiveFields/maxDepth（分量内可用独立递归树） */
+  prefixItems?: JsonSchemaDef[];
+  /** 固定值约束（仅 type === 'string' | 'number' | 'boolean' 时有效）：
+      输出中该字段的值必须严格等于 const 指定的值 */
+  const?: string | number | boolean;
   /** 仅 type === 'object' 时有效：标记为递归树形结构 */
   recursive?: boolean;
-  /** 仅 recursive === true 时有效：自引用的数组字段名列表（必须为 array 类型且不定义 items） */
+  /** 仅 recursive === true 时有效：自引用的数组字段名列表（必须为 array 类型且不定义 items/prefixItems） */
   recursiveFields?: string[];
   /** 仅 recursive === true 时有效：递归最大深度，默认 3，范围 1~10 */
   maxDepth?: number;
@@ -675,6 +682,10 @@ interface JsonSchemaDef {
 ```
 
 **递归树形结构**：在 object 上设置 `recursive: true` 后，将其自引用的数组字段列入 `recursiveFields`。框架自动把这些字段的 `items` 填充为自引用结构。超过 `maxDepth` 的节点成为叶子，递归字段为空数组。
+
+**元组（prefixItems）**：`type: 'array'` 时用 `prefixItems` 代替 `items` 定义固定长度元组——按位置声明每个元素的类型，数组长度必须严格等于 `prefixItems.length`。分量可为任意 type（含 object/array），但分量本身不可标记 `recursive`（分量内的嵌套字段可以用独立递归树）。与 `items` 互斥。
+
+**固定值（const）**：基础类型字段（string/number/boolean）可加 `const` 约束，输出值必须严格等于该值。常用于固定节点名、固定标签。
 
 **输出位置**：保存到 TaskName 目录的 `report/` 子目录（所有 agent 共享），文件名为 `outputFile`。
 
@@ -723,6 +734,52 @@ const result = await agent.execPromptSchema(
   'dir_tree.json'
 );
 // result.data 为树根；深度超过 maxDepth 的节点 children 为空数组
+```
+
+**示例（元组 + 固定值：固定骨架的树）**
+
+```typescript
+// 2/3 之下的递归树节点
+const treeNode: JsonSchemaDef = {
+  type: 'object',
+  recursive: true,
+  recursiveFields: ['children'],
+  maxDepth: 3,
+  properties: {
+    name: { type: 'string' },
+    children: { type: 'array' }
+  }
+};
+
+const result = await agent.execPromptSchema(
+  '生成固定骨架的树：根节点名为 "1"，恰好两个子节点 "2"、"3"，其下递归展开',
+  {
+    type: 'object',
+    properties: {
+      name: { type: 'string', const: '1' },          // 固定为 "1"
+      children: {
+        type: 'array',
+        prefixItems: [                               // 恰好两个子节点
+          {
+            type: 'object',
+            properties: {
+              name: { type: 'string', const: '2' },
+              children: { type: 'array', items: treeNode }   // 独立递归树
+            }
+          },
+          {
+            type: 'object',
+            properties: {
+              name: { type: 'string', const: '3' },
+              children: { type: 'array', items: treeNode }
+            }
+          }
+        ]
+      }
+    }
+  },
+  'fixed_tree.json'
+);
 ```
 
 **导出的 Schema 工具函数**（来自 `stepwise`）：

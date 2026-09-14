@@ -662,11 +662,19 @@ interface JsonSchemaDef {
   properties?: Record<string, JsonSchemaDef>;
   /** type === 'object': required field names; defaults to all fields required */
   required?: string[];
-  /** type === 'array': element structure, itself a JsonSchemaDef */
+  /** type === 'array': element structure, itself a JsonSchemaDef (mutually exclusive with prefixItems) */
   items?: JsonSchemaDef;
+  /** type === 'array': tuple definition (mutually exclusive with items). Declares each
+      element's type by position; components can be any type. Array length must strictly
+      equal prefixItems.length. Components cannot be recursive (use an independent
+      recursive tree inside a component instead) */
+  prefixItems?: JsonSchemaDef[];
+  /** Fixed-value constraint (type === 'string' | 'number' | 'boolean' only):
+      the output value must strictly equal const */
+  const?: string | number | boolean;
   /** type === 'object' only: marks a recursive tree structure */
   recursive?: boolean;
-  /** recursive === true only: names of self-referencing array fields (must be array-typed, no items) */
+  /** recursive === true only: names of self-referencing array fields (must be array-typed, no items/prefixItems) */
   recursiveFields?: string[];
   /** recursive === true only: max recursion depth, default 3, range 1~10 */
   maxDepth?: number;
@@ -674,6 +682,10 @@ interface JsonSchemaDef {
 ```
 
 **Recursive tree structure**: when `recursive: true` is set on an object, list its self-referencing array fields in `recursiveFields`. The framework auto-fills their `items` to self-reference. Nodes beyond `maxDepth` become leaves with empty recursive-field arrays.
+
+**Tuple (prefixItems)**: for `type: 'array'`, use `prefixItems` instead of `items` to define a fixed-length tuple — each element's type is declared by position, and the array length must strictly equal `prefixItems.length`. Components can be any type (including object/array) but cannot themselves be marked `recursive` (use an independent recursive tree inside a component). Mutually exclusive with `items`.
+
+**Fixed value (const)**: primitive fields (string/number/boolean) can carry a `const` constraint; the output value must strictly equal it. Useful for fixed node names or tags.
 
 **Output Location**: saved to the TaskName directory's `report/` subdirectory (shared by all agents), file named `outputFile`.
 
@@ -722,6 +734,52 @@ const result = await agent.execPromptSchema(
   'dir_tree.json'
 );
 // result.data is the tree root; nodes deeper than maxDepth have empty children arrays
+```
+
+**Example (tuple + fixed values: tree with a fixed skeleton)**
+
+```typescript
+// recursive tree node under 2/3
+const treeNode: JsonSchemaDef = {
+  type: 'object',
+  recursive: true,
+  recursiveFields: ['children'],
+  maxDepth: 3,
+  properties: {
+    name: { type: 'string' },
+    children: { type: 'array' }
+  }
+};
+
+const result = await agent.execPromptSchema(
+  'Generate a tree with a fixed skeleton: root node named "1", exactly two children "2" and "3", expanded recursively below',
+  {
+    type: 'object',
+    properties: {
+      name: { type: 'string', const: '1' },          // fixed to "1"
+      children: {
+        type: 'array',
+        prefixItems: [                               // exactly two children
+          {
+            type: 'object',
+            properties: {
+              name: { type: 'string', const: '2' },
+              children: { type: 'array', items: treeNode }   // independent recursive tree
+            }
+          },
+          {
+            type: 'object',
+            properties: {
+              name: { type: 'string', const: '3' },
+              children: { type: 'array', items: treeNode }
+            }
+          }
+        ]
+      }
+    }
+  },
+  'fixed_tree.json'
+);
 ```
 
 **Exported schema utilities** (from `stepwise`):
