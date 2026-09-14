@@ -293,7 +293,9 @@ export function convertToAjvSchema(schema: JsonSchemaDef): JsonSchema {
 
   const result: JsonSchema = {
     type: schema.type,
-    ...(schema.description && { description: schema.description })
+    ...(schema.description && { description: schema.description }),
+    // const 固定值约束透传（AJV 原生关键字）
+    ...(schema.const !== undefined && { const: schema.const })
   };
 
   if (schema.type === 'object' && schema.properties) {
@@ -311,8 +313,16 @@ export function convertToAjvSchema(schema: JsonSchemaDef): JsonSchema {
     }
   }
 
-  if (schema.type === 'array' && schema.items) {
-    result.items = convertToAjvSchema(schema.items);
+  if (schema.type === 'array') {
+    if (schema.items) {
+      // 同构数组：所有元素同一结构
+      result.items = convertToAjvSchema(schema.items);
+    } else if (schema.prefixItems) {
+      // 元组（draft-07 形式）：items 为数组按位置校验 + minItems/maxItems 钉死长度
+      result.items = schema.prefixItems.map(c => convertToAjvSchema(c));
+      result.minItems = schema.prefixItems.length;
+      result.maxItems = schema.prefixItems.length;
+    }
   }
 
   return result;

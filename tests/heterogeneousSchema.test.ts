@@ -1,6 +1,6 @@
 import { StepWise, setTaskName, _resetState } from '../src/index';
 import { JsonSchemaDef } from '../src/types';
-import { validateRecursiveSchema } from '../src/utils/validator';
+import { validateRecursiveSchema, convertToAjvSchema, validateJsonBySchema } from '../src/utils/validator';
 
 // Mock executor（沿用 StepWise.execPromptSchema.test.ts 的模式）
 jest.mock('../src/utils/executor', () => ({
@@ -227,5 +227,88 @@ describe('prefixItems 元组结构校验', () => {
       };
       expect(() => validateRecursiveSchema(schema)).toThrow('不应定义 items');
     });
+  });
+});
+
+describe('convertToAjvSchema 元组与 const 转换', () => {
+  test('元组转换为 items 数组 + minItems/maxItems', () => {
+    const schema: JsonSchemaDef = {
+      type: 'array',
+      prefixItems: [
+        { type: 'string', description: '姓名' },
+        { type: 'number', description: '年龄' },
+        { type: 'boolean' }
+      ]
+    };
+    const ajvSchema = convertToAjvSchema(schema);
+    expect(ajvSchema.type).toBe('array');
+    expect(Array.isArray(ajvSchema.items)).toBe(true);
+    expect((ajvSchema.items as any[]).length).toBe(3);
+    expect((ajvSchema.items as any[])[0]).toEqual({ type: 'string', description: '姓名' });
+    expect(ajvSchema.minItems).toBe(3);
+    expect(ajvSchema.maxItems).toBe(3);
+  });
+
+  test('const 透传到 AJV schema', () => {
+    const schema: JsonSchemaDef = {
+      type: 'object',
+      properties: {
+        name: { type: 'string', const: 'root' }
+      }
+    };
+    const ajvSchema = convertToAjvSchema(schema);
+    expect((ajvSchema.properties as any).name).toEqual({ type: 'string', const: 'root' });
+  });
+});
+
+describe('validateJsonBySchema 元组与 const 数据校验', () => {
+  const tupleSchema: JsonSchemaDef = {
+    type: 'array',
+    prefixItems: [
+      { type: 'string', description: '姓名' },
+      { type: 'number', description: '年龄' }
+    ]
+  };
+
+  test('合法元组通过', () => {
+    const result = validateJsonBySchema('["张三", 18]', tupleSchema);
+    expect(result.valid).toBe(true);
+  });
+
+  test('超长元组失败（maxItems）', () => {
+    const result = validateJsonBySchema('["张三", 18, true]', tupleSchema);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.keyword === 'maxItems')).toBe(true);
+  });
+
+  test('缺项元组失败（minItems）', () => {
+    const result = validateJsonBySchema('["张三"]', tupleSchema);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.keyword === 'minItems')).toBe(true);
+  });
+
+  test('位置类型错误失败', () => {
+    const result = validateJsonBySchema('[18, "张三"]', tupleSchema);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.keyword === 'type' && e.path === '/0')).toBe(true);
+  });
+
+  test('const 值不符失败', () => {
+    const schema: JsonSchemaDef = {
+      type: 'object',
+      properties: { name: { type: 'string', const: 'root' } }
+    };
+    const result = validateJsonBySchema('{"name": "other"}', schema);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.keyword === 'const')).toBe(true);
+  });
+
+  test('const 值相符通过', () => {
+    const schema: JsonSchemaDef = {
+      type: 'object',
+      properties: { name: { type: 'string', const: 'root' } }
+    };
+    const result = validateJsonBySchema('{"name": "root"}', schema);
+    expect(result.valid).toBe(true);
   });
 });
