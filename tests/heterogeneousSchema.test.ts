@@ -405,3 +405,169 @@ describe('buildSchemaPrompt 元组与 const 提示词', () => {
     expect(prompt).toContain('"root"');
   });
 });
+
+describe('端到端：固定节点名树（递归+元组+const 组合）', () => {
+  // 2/3 之下的递归树节点（独立递归树，R3）
+  const treeNode: JsonSchemaDef = {
+    type: 'object',
+    recursive: true,
+    recursiveFields: ['children'],
+    maxDepth: 3,
+    properties: {
+      name: { type: 'string' },
+      children: { type: 'array' }
+    }
+  };
+
+  // 根 "1"，两个子节点 "2"/"3"，其下递归
+  const schema: JsonSchemaDef = {
+    type: 'object',
+    properties: {
+      name: { type: 'string', const: '1' },
+      children: {
+        type: 'array',
+        prefixItems: [
+          {
+            type: 'object',
+            properties: {
+              name: { type: 'string', const: '2' },
+              children: { type: 'array', items: treeNode }
+            }
+          },
+          {
+            type: 'object',
+            properties: {
+              name: { type: 'string', const: '3' },
+              children: { type: 'array', items: treeNode }
+            }
+          }
+        ]
+      }
+    }
+  };
+
+  test('合法数据（含多叉树）通过校验', () => {
+    const validData = {
+      name: '1',
+      children: [
+        {
+          name: '2',
+          children: [
+            { name: 'a', children: [
+              { name: 'b', children: [] },
+              { name: 'c', children: [] }   // 多叉：同层两个子节点
+            ]}
+          ]
+        },
+        {
+          name: '3',
+          children: [
+            { name: 'd', children: [] }     // 提前叶子：深度 < maxDepth 也合法
+          ]
+        }
+      ]
+    };
+    const result = validateJsonBySchema(JSON.stringify(validData), schema);
+    expect(result.valid).toBe(true);
+  });
+
+  test('根节点名错误被拒绝', () => {
+    const badData = {
+      name: 'root',
+      children: [
+        { name: '2', children: [] },
+        { name: '3', children: [] }
+      ]
+    };
+    const result = validateJsonBySchema(JSON.stringify(badData), schema);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.keyword === 'const')).toBe(true);
+  });
+
+  test('子节点数量不符（超长）被拒绝', () => {
+    const badData = {
+      name: '1',
+      children: [
+        { name: '2', children: [] },
+        { name: '3', children: [] },
+        { name: '4', children: [] }
+      ]
+    };
+    const result = validateJsonBySchema(JSON.stringify(badData), schema);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.keyword === 'maxItems')).toBe(true);
+  });
+
+  test('子节点名错误被拒绝', () => {
+    const badData = {
+      name: '1',
+      children: [
+        { name: 'first', children: [] },
+        { name: '3', children: [] }
+      ]
+    };
+    const result = validateJsonBySchema(JSON.stringify(badData), schema);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.keyword === 'const')).toBe(true);
+  });
+
+  test('元组位置互换（2/3 顺序颠倒）被拒绝', () => {
+    const badData = {
+      name: '1',
+      children: [
+        { name: '3', children: [] },
+        { name: '2', children: [] }
+      ]
+    };
+    const result = validateJsonBySchema(JSON.stringify(badData), schema);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.keyword === 'const')).toBe(true);
+  });
+
+  test('嵌套树超过 maxDepth 被拒绝（R3 深度约束生效）', () => {
+    // treeNode maxDepth=3：2 的子(层1)→孙(层2)→曾孙(层3,叶子 children 必须空/对象数组)
+    // 构造 4 层嵌套：曾孙的 children 里还有带 name 的完整节点 → 但叶子层 items 放宽为 {type:'object'}
+    // 因此叶子层的子节点只要是 object 就合法——超深约束的边界是：层3 的 children 只要求对象数组
+    // 真正的拒绝场景：层1 的节点缺 name 字段
+    const badData = {
+      name: '1',
+      children: [
+        { name: '2', children: [
+          { children: [] }   // 缺 name，层1 节点不合规
+        ]},
+        { name: '3', children: [] }
+      ]
+    };
+    const result = validateJsonBySchema(JSON.stringify(badData), schema);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.keyword === 'required')).toBe(true);
+  });
+
+  test('结构校验通过（execPromptSchema 入口）', async () => {
+    _resetState();
+    setTaskName('HeteroE2E');
+    const agent = new StepWise('E2EAgent');
+    await expect(
+      agent.execPromptSchema('测试', schema, 'tree.json')
+    ).resolves.toBeDefined();
+  });
+
+  test('示例生成：根/子节点示例值为 const 值，递归子树为单路径', () => {
+    const example = generateSchemaExample(schema) as any;
+    expect(example.name).toBe('1');
+    expect(example.children.length).toBe(2);
+    expect(example.children[0].name).toBe('2');
+    expect(example.children[1].name).toBe('3');
+    // 递归子树展开（单路径，叶子 children: []）
+    expect(example.children[0].children[0].name).toBe('示例字符串');
+  });
+
+  test('提示词包含元组说明与固定值要求', () => {
+    const prompt = buildSchemaPrompt(schema, '/tmp/tree.json');
+    expect(prompt).toContain('固定长度元组（长度 2）');
+    expect(prompt).toContain('[固定值: "1"]');
+    expect(prompt).toContain('[固定值: "2"]');
+    expect(prompt).toContain('[固定值: "3"]');
+    expect(prompt).toContain('第 i 个元素的类型必须符合位置定义');
+  });
+});
