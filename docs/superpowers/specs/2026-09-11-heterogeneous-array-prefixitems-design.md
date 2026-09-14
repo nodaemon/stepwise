@@ -164,6 +164,7 @@ const schema: JsonSchemaDef = {
 | 文件 | 改动 |
 |---|---|
 | `src/types.ts` | 新增 `prefixItems?: JsonSchemaDef[]` 字段 |
+| `src/utils/schemaUtils.ts` | `JsonSchema` 接口的 `items` 扩展为 `JsonSchema \| JsonSchema[]`，新增 `minItems?`/`maxItems?` 字段（draft-07 元组形式所需） |
 | `src/StepWise.ts` `validateSchema` | array 分支二选一校验、互斥校验、分量递归校验（带位置）、R2 检查、嵌套递归节点校验 |
 | `src/utils/validator.ts` `validateRecursiveSchema` | R1：递归字段不得定义 items/prefixItems |
 | `src/utils/validator.ts` `convertToAjvSchema` | 元组 → draft-07 items 数组 + minItems/maxItems |
