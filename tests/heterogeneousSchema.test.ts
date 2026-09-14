@@ -196,7 +196,7 @@ describe('prefixItems 元组结构校验', () => {
     });
   });
 
-  describe('R1: 递归字段不得定义 items/prefixItems', () => {
+  describe('R1: 递归字段白名单（仅允许 type/description）', () => {
     test('递归字段带 prefixItems 应抛错', () => {
       const schema: JsonSchemaDef = {
         type: 'object',
@@ -210,7 +210,7 @@ describe('prefixItems 元组结构校验', () => {
           }
         }
       };
-      expect(() => validateRecursiveSchema(schema)).toThrow('不应定义 items/prefixItems');
+      expect(() => validateRecursiveSchema(schema)).toThrow('仅允许 type/description');
     });
 
     test('递归字段带 items 仍应抛错（现有行为不回归）', () => {
@@ -226,7 +226,50 @@ describe('prefixItems 元组结构校验', () => {
           }
         }
       };
-      expect(() => validateRecursiveSchema(schema)).toThrow('不应定义 items');
+      expect(() => validateRecursiveSchema(schema)).toThrow('仅允许 type/description');
+    });
+
+    test('递归字段带 const 应抛错（const 逃逸修复）', () => {
+      const schema: JsonSchemaDef = {
+        type: 'object',
+        recursive: true,
+        recursiveFields: ['children'],
+        properties: {
+          name: { type: 'string' },
+          children: { type: 'array', const: 'x' } as any
+        }
+      };
+      expect(() => validateRecursiveSchema(schema)).toThrow('仅允许 type/description');
+    });
+
+    test('递归字段带 const 经 execPromptSchema 入口端到端拒绝', async () => {
+      const agent = new StepWise('R1ConstE2E');
+      const schema: JsonSchemaDef = {
+        type: 'object',
+        recursive: true,
+        recursiveFields: ['children'],
+        properties: {
+          name: { type: 'string' },
+          children: { type: 'array', const: 'x' } as any
+        }
+      };
+      await expect(
+        agent.execPromptSchema('测试', schema, 'out.json')
+      ).rejects.toThrow('仅允许 type/description');
+    });
+
+    test('回归：递归对象的非递归字段带 const 仍合法（spec 支持的组合）', () => {
+      const schema: JsonSchemaDef = {
+        type: 'object',
+        recursive: true,
+        recursiveFields: ['children'],
+        properties: {
+          kind: { type: 'string', const: 'node' },
+          name: { type: 'string' },
+          children: { type: 'array' }
+        }
+      };
+      expect(() => validateRecursiveSchema(schema)).not.toThrow();
     });
   });
 });

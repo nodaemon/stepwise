@@ -274,7 +274,7 @@ describe('execPromptSchema 功能测试', () => {
             }
           }
         } as any, 'output.json')
-      ).rejects.toThrow('不应定义 items');
+      ).rejects.toThrow('仅允许 type/description');
     });
 
     test('maxDepth 超出范围应抛错', () => {

@@ -113,7 +113,7 @@ describe('recursiveSchema 递归树形结构', () => {
       });
     });
 
-    describe('规则 5: recursiveFields 不应定义 items', () => {
+    describe('规则 5: recursiveFields 白名单（仅允许 type/description）', () => {
       it('recursiveFields 字段定义了 items 应抛错', () => {
         const schema: JsonSchemaDef = {
           type: 'object',
@@ -127,7 +127,56 @@ describe('recursiveSchema 递归树形结构', () => {
             }
           }
         };
-        expect(() => validateRecursiveSchema(schema)).toThrow('不应定义 items');
+        expect(() => validateRecursiveSchema(schema)).toThrow('仅允许 type/description');
+      });
+
+      it('recursiveFields 字段定义了 const 应抛错', () => {
+        const schema: JsonSchemaDef = {
+          type: 'object',
+          recursive: true,
+          recursiveFields: ['children'],
+          properties: {
+            name: { type: 'string' },
+            children: {
+              type: 'array',
+              const: 'x'
+            } as any
+          }
+        };
+        expect(() => validateRecursiveSchema(schema)).toThrow('仅允许 type/description');
+      });
+
+      it('recursiveFields 字段带多余 keys 的错误消息应列出 keys', () => {
+        const schema: JsonSchemaDef = {
+          type: 'object',
+          recursive: true,
+          recursiveFields: ['children'],
+          properties: {
+            name: { type: 'string' },
+            children: {
+              type: 'array',
+              const: 'x',
+              maxDepth: 3
+            } as any
+          }
+        };
+        expect(() => validateRecursiveSchema(schema)).toThrow(/发现多余字段: const\/maxDepth/);
+      });
+
+      it('recursiveFields 字段仅带 description 不应抛错', () => {
+        const schema: JsonSchemaDef = {
+          type: 'object',
+          recursive: true,
+          recursiveFields: ['children'],
+          properties: {
+            name: { type: 'string' },
+            children: {
+              type: 'array',
+              description: '子节点列表（递归定义）'
+            }
+          }
+        };
+        expect(() => validateRecursiveSchema(schema)).not.toThrow();
       });
     });
 

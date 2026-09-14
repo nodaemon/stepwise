@@ -405,7 +405,7 @@ function unrollLayer(nodeSchema: JsonSchemaDef, maxDepth: number, currentDepth: 
  * 2. recursiveFields 需要 recursive === true
  * 3. maxDepth 需要 recursive === true
  * 4. recursiveFields 中每个字段必须在 properties 中且为 type === 'array'
- * 5. recursiveFields 中每个字段不应定义 items/prefixItems
+ * 5. recursiveFields 中每个字段仅允许 type/description（白名单）
  * 6. maxDepth 必须在 1~10 范围内
  *
  * @param schema 待校验的 JsonSchemaDef
@@ -451,9 +451,13 @@ export function validateRecursiveSchema(schema: JsonSchemaDef): void {
         throw new Error(`${prefix} recursiveFields 中的 "${fieldName}" 必须是 type="array"，当前 type="${propDef.type}"`);
       }
 
-      // 规则 5：recursiveFields 中每个字段不应定义 items/prefixItems（R1）
-      if (propDef.items !== undefined || propDef.prefixItems !== undefined) {
-        throw new Error(`${prefix} recursiveFields 中的 "${fieldName}" 不应定义 items/prefixItems，框架在展开时自动填充`);
+      // 规则 5：递归字段白名单——仅允许 type/description（R1）
+      // 递归字段的结构由框架展开时自动填充（items 自引用），其余字段要么被静默丢弃
+      // （prefixItems/const/recursive 等），要么语义不成立（递归字段必为 array，const 仅适用基础类型）。
+      // 白名单一次拦截整个家族，避免逐字段打补丁。
+      const extraKeys = Object.keys(propDef).filter(k => k !== 'type' && k !== 'description');
+      if (extraKeys.length > 0) {
+        throw new Error(`${prefix} recursiveFields 中的 "${fieldName}" 仅允许 type/description，发现多余字段: ${extraKeys.join('/')}（递归字段的结构由框架自动填充；固定值等约束请定义在节点的非递归字段上）`);
       }
     }
 
