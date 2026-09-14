@@ -385,6 +385,59 @@ export function buildFileAccessPrompt(
 // ============ Schema 输出提示词相关函数 ============
 
 /**
+ * 递归检测 schema 树中是否存在 prefixItems 元组定义
+ */
+function schemaHasTuple(schema: JsonSchemaDef): boolean {
+  if (schema.type === 'array' && schema.prefixItems) {
+    return true;
+  }
+  if (schema.type === 'object' && schema.properties) {
+    const recursiveFields = schema.recursive ? (schema.recursiveFields || []) : [];
+    for (const [name, propDef] of Object.entries(schema.properties)) {
+      if (recursiveFields.includes(name)) {
+        continue; // 递归字段的结构由框架填充，不需要检查
+      }
+      if (schemaHasTuple(propDef)) {
+        return true;
+      }
+    }
+  }
+  if (schema.type === 'array' && schema.items) {
+    return schemaHasTuple(schema.items);
+  }
+  return false;
+}
+
+/**
+ * 递归检测 schema 树中是否存在 const 固定值定义
+ * 跳过递归字段（与 schemaHasTuple 对称）：递归字段的结构由框架填充，
+ * 其上的 const 会被白名单校验拦截（validateRecursiveSchema 规则 5），不产生运行时约束
+ */
+function schemaHasConst(schema: JsonSchemaDef): boolean {
+  if (schema.const !== undefined) {
+    return true;
+  }
+  if (schema.type === 'object' && schema.properties) {
+    const recursiveFields = schema.recursive ? (schema.recursiveFields || []) : [];
+    for (const [name, propDef] of Object.entries(schema.properties)) {
+      if (recursiveFields.includes(name)) {
+        continue;
+      }
+      if (schemaHasConst(propDef)) {
+        return true;
+      }
+    }
+  }
+  if (schema.type === 'array' && schema.items) {
+    return schemaHasConst(schema.items);
+  }
+  if (schema.type === 'array' && schema.prefixItems) {
+    return schema.prefixItems.some(c => schemaHasConst(c));
+  }
+  return false;
+}
+
+/**
  * 构建 Schema 输出任务的提示词
  *
  * @param schema JsonSchemaDef 定义
@@ -421,6 +474,18 @@ export function buildSchemaPrompt(
     } else if (schema.type === 'array') {
       requirements.push('6. 输出 JSON 数组，每个元素符合 items 定义的结构');
     }
+  }
+
+  // 元组特定要求（递归进入任意嵌套层级检测）
+  // 序号衔接：前面递归/类型特定要求已占用 6（递归时还有 7），从当前长度 + 1 继续
+  let nextReqIndex = requirements.length + 1;
+  if (schemaHasTuple(schema)) {
+    requirements.push(`${nextReqIndex}. 输出中的元组数组（标注"固定长度元组"的字段）长度固定，第 i 个元素的类型必须符合位置定义`);
+    nextReqIndex++;
+  }
+  if (schemaHasConst(schema)) {
+    requirements.push(`${nextReqIndex}. 标注了固定值的字段，输出必须严格等于该固定值`);
+    nextReqIndex++;
   }
 
   const dirWarning = getDirWarning(cwd, outputFileName);
@@ -494,7 +559,9 @@ function generateSchemaDescription(schema: JsonSchemaDef, indent: string = ''): 
       const isRequired = schema.required?.includes(name) ?? true;
       const isRecursive = recursiveFields.includes(name);
       const recursiveTag = isRecursive ? ' 递归字段（树形结构）' : '';
-      lines.push(`${indent}  - ${name} (${propDef.type})${isRequired ? ' [必填]' : ' [可选]'}${recursiveTag}`);
+      // 递归字段的结构由框架填充，其上的 const 非法（白名单校验拦截），不渲染固定值标签
+      const constTag = !isRecursive && propDef.const !== undefined ? ` [固定值: ${JSON.stringify(propDef.const)}]` : '';
+      lines.push(`${indent}  - ${name} (${propDef.type})${isRequired ? ' [必填]' : ' [可选]'}${recursiveTag}${constTag}`);
       if ((propDef.type === 'object' || propDef.type === 'array') && !isRecursive) {
         lines.push(generateSchemaDescription(propDef, `${indent}    `));
       }
@@ -504,6 +571,18 @@ function generateSchemaDescription(schema: JsonSchemaDef, indent: string = ''): 
   if (schema.type === 'array' && schema.items) {
     lines.push(`${indent}数组元素结构:`);
     lines.push(generateSchemaDescription(schema.items, `${indent}  `));
+  }
+
+  if (schema.type === 'array' && schema.prefixItems) {
+    lines.push(`${indent}固定长度元组（长度 ${schema.prefixItems.length}）:`);
+    schema.prefixItems.forEach((component, idx) => {
+      const descTag = component.description ? `（${component.description}）` : '';
+      const constTag = component.const !== undefined ? ` [固定值: ${JSON.stringify(component.const)}]` : '';
+      lines.push(`${indent}  第 ${idx + 1} 个元素: ${component.type}${descTag}${constTag}`);
+      if (component.type === 'object' || component.type === 'array') {
+        lines.push(generateSchemaDescription(component, `${indent}    `));
+      }
+    });
   }
 
   return lines.join('\n');

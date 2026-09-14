@@ -3,6 +3,8 @@
  * 将 Claude Code 的 stream-json 输出解析并格式化为可读文本
  */
 
+import type { TokenUsage } from '../types';
+
 /**
  * NDJSON 解析结果
  */
@@ -19,6 +21,8 @@ export interface ParsedNDJsonResult {
   parseErrors: string[];
   /** 从 system/init 块提取的 session_id（fork 模式下为派生的新 ID） */
   sessionId: string | null;
+  /** result 块提取的 token 用量（无 result/usage 时为 null） */
+  usage: TokenUsage | null;
 }
 
 /** 工具输入参数截断阈值 */
@@ -133,6 +137,7 @@ export function parseAndFormatNDJson(rawStdout: string): ParsedNDJsonResult {
   let finalResultText = '';
   let lastAssistantText = '';
   let sessionId: string | null = null;
+  let usage: TokenUsage | null = null;
   let parsedAnyLine = false;
   const parseErrors: string[] = [];
 
@@ -163,6 +168,9 @@ export function parseAndFormatNDJson(rawStdout: string): ParsedNDJsonResult {
     if (result.sessionId && !sessionId) {
       sessionId = result.sessionId;
     }
+    if (result.usage) {
+      usage = result.usage;
+    }
   }
 
   return {
@@ -171,7 +179,8 @@ export function parseAndFormatNDJson(rawStdout: string): ParsedNDJsonResult {
     formattedTranscript: transcriptLines.join('\n'),
     parsedSuccessfully: parsedAnyLine,
     parseErrors,
-    sessionId
+    sessionId,
+    usage
   };
 }
 
@@ -187,6 +196,8 @@ export interface NDJsonLineResult {
   assistantText: string | null;
   /** 从 system/init 块提取的 session_id（fork 模式下为派生的新 ID） */
   sessionId: string | null;
+  /** result 块提取的 token 用量（无 usage 字段时为 null） */
+  usage: TokenUsage | null;
   /** JSON 是否解析成功（用于区分"解析失败"和"解析成功但无需格式化"） */
   isJsonParsed: boolean;
 }
@@ -201,20 +212,21 @@ export interface NDJsonLineResult {
 export function formatNDJsonLine(line: string): NDJsonLineResult {
   const trimmed = line.trim();
   if (!trimmed) {
-    return { formatted: null, finalResultText: null, assistantText: null, sessionId: null, isJsonParsed: false };
+    return { formatted: null, finalResultText: null, assistantText: null, sessionId: null, usage: null, isJsonParsed: false };
   }
 
   let parsed: any;
   try {
     parsed = JSON.parse(trimmed);
   } catch {
-    return { formatted: null, finalResultText: null, assistantText: null, sessionId: null, isJsonParsed: false };
+    return { formatted: null, finalResultText: null, assistantText: null, sessionId: null, usage: null, isJsonParsed: false };
   }
 
   const lines: string[] = [];
   let finalResultText: string | null = null;
   let assistantText: string | null = null;
   let sessionId: string | null = null;
+  let usage: TokenUsage | null = null;
 
   switch (parsed.type) {
     case 'system': {
@@ -373,6 +385,19 @@ export function formatNDJsonLine(line: string): NDJsonLineResult {
           (parsed.total_cost_usd !== undefined ? ` | Cost: $${parsed.total_cost_usd.toFixed(4)}` : ''));
       }
       lines.push('');
+      // 提取 token 用量（usage 对象 + 两种耗时口径），供 ExecutionResult.tokenUsage 使用
+      const u = parsed.usage;
+      usage = (u && typeof u.input_tokens === 'number' && typeof u.output_tokens === 'number')
+        ? {
+            inputTokens: u.input_tokens,
+            outputTokens: u.output_tokens,
+            cacheCreationTokens: u.cache_creation_input_tokens ?? 0,
+            cacheReadTokens: u.cache_read_input_tokens ?? 0,
+            costUsd: parsed.total_cost_usd ?? 0,
+            durationMs: parsed.duration_ms ?? 0,
+            durationApiMs: parsed.duration_api_ms ?? 0
+          }
+        : null;
       break;
     }
 
@@ -777,6 +802,7 @@ export function formatNDJsonLine(line: string): NDJsonLineResult {
     finalResultText,
     assistantText,
     sessionId,
+    usage,
     isJsonParsed: true
   };
 }

@@ -59,11 +59,11 @@ describe('execPromptSchema 功能测试', () => {
       ).rejects.toThrow('type="object" 时必须定义 properties');
     });
 
-    test('array schema 缺少 items 应该抛出错误', () => {
+    test('array schema 缺少 items 和 prefixItems 应该抛出错误', () => {
       const agent = new StepWise('TestAgent');
       expect(
         agent.execPromptSchema('test', { type: 'array' } as any, 'output.json')
-      ).rejects.toThrow('type="array" 时必须定义 items');
+      ).rejects.toThrow('type="array" 时必须定义 items 或 prefixItems');
     });
 
     test('嵌套 schema 校验应该递归执行', () => {
@@ -274,7 +274,7 @@ describe('execPromptSchema 功能测试', () => {
             }
           }
         } as any, 'output.json')
-      ).rejects.toThrow('不应定义 items');
+      ).rejects.toThrow('仅允许 type/description');
     });
 
     test('maxDepth 超出范围应抛错', () => {

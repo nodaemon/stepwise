@@ -30,6 +30,9 @@ StepWise 是一个高效构建具备稳定完成复杂代码任务智能体的�
 │  │  │ execReport  │ │ execShell   │ │  summarize  │   │   │
 │  │  │  (报告任务)  │ │ (Shell任务) │ │  (总结)     │   │   │
 │  │  └─────────────┘ └─────────────┘ └─────────────┘   │   │
+│  │  ┌─────────────────────────────────────────────┐    │   │
+│  │  │ execPromptSchema (Schema 驱动输出,递归树形) │    │   │
+│  │  └─────────────────────────────────────────────┘    │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                             │
 │  ┌─────────────────────────────────────────────────────┐   │
@@ -37,7 +40,7 @@ StepWise 是一个高效构建具备稳定完成复杂代码任务智能体的�
 │  │  - 自动创建 git worktree                             │   │
 │  │  - 自动绑定 worker 标识                              │   │
 │  │  - 自动处理 Resume 逻辑                              │   │
-│  │  - 自动合并分支和报告                                │   │
+│  │  - 确定性脚本收尾:提交到各自分支、保留分支、不自动合并 │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                             │
 │  ┌─────────────────────────────────────────────────────┐   │
@@ -45,6 +48,10 @@ StepWise 是一个高效构建具备稳定完成复杂代码任务智能体的�
 │  │  ┌──────────────────┐ ┌──────────────────┐         │   │
 │  │  │ Claude Executor  │ │ OpenCode Executor │         │   │
 │  │  └──────────────────┘ └──────────────────┘         │   │
+│  │  ┌──────────────────────┐ ┌──────────────────────┐ │   │
+│  │  │ CodeAgent Exec.      │ │  Pi Executor         │ │   │
+│  │  │ (继承 Claude)        │ │(@earendil-works/pi)  │ │   │
+│  │  └──────────────────────┘ └──────────────────────┘ │   │
 │  └─────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -64,6 +71,7 @@ src/
 │   ├── claude.ts      # Claude Code 执行器（同时作为 CodeAgent 基类）
 │   ├── codeagent.ts   # CodeAgent 执行器（继承 ClaudeExecutor）
 │   ├── opencode.ts    # OpenCode 执行器
+│   ├── pi.ts          # Pi 执行器 (@earendil-works/pi-coding-agent)
 │   └── types.ts       # 执行器类型定义
 └── utils/             # 工具函数目录
     ├── executor.ts    # 执行器工厂
@@ -166,7 +174,7 @@ StepWise.execPrompt(prompt: string, options?: ExecOptions): Promise<ExecutionRes
 - 支持 `$变量名` 格式的变量替换
 - 支持 `newSession` 控制会话复用
 - 支持 `sessionId` 指定已有会话 ID 直接复用（强制 resume 模式）；与 `newSession:true` 同时指定时为 fork 语义（从该会话派生新分支）
-- 支持 `checkPrompt` 进行结果验证
+- 支持 `postCheckPrompt` 进行结果验证
 
 ### 功能6: 收集任务 (execCollectPrompt)
 
@@ -482,7 +490,7 @@ claude --dangerously-skip-permissions --session-id <uuid> -p "prompt"
 
 4. **监控任务进度**：通过 `getTaskDir()` 和 `getTaskCounter()` 监控执行状态
 
-5. **使用 checkPrompt 验证结果**：确保收集的数据符合预期
+5. **使用 postCheckPrompt 验证结果**：确保收集的数据符合预期
 
 6. **并发任务隔离**：使用 `forEachParallel` 时确保每个 Worker 有独立的分支名
 

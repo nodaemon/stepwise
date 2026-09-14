@@ -137,7 +137,7 @@ async function collectAPIs() {
     `收集项目中的所有数据库模型定义`,
     outputFormat,
     {
-      checkPrompt: '检查收集结果是否完整，补充遗漏的模型定义'
+      postCheckPrompt: '检查收集结果是否完整，补充遗漏的模型定义'
     }
   );
 
@@ -203,6 +203,62 @@ generateReport();
 ```
 
 ---
+
+### Schema 驱动输出（execPromptSchema）
+
+`execPromptSchema` 让你定义一个 JSON Schema，让 AI 输出符合该 Schema 的 JSON——支持任意嵌套与递归树形结构。输出保存到任务共享的 `report/` 目录。
+
+**基础版：嵌套对象**
+
+```typescript
+import { setTaskName, StepWise } from 'stepwise';
+
+setTaskName('ProjectOverview');
+const agent = new StepWise('OverviewAgent');
+
+const result = await agent.execPromptSchema(
+  '生成项目概览（单个对象）',
+  {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: '项目名' },
+      version: { type: 'string', description: '版本' },
+      dependencies: {
+        type: 'array',
+        items: { type: 'string', description: '依赖名' }
+      }
+    }
+  },
+  'project_overview.json'
+);
+
+console.log(result.data); // 生成的对象
+```
+
+**递归版：目录树**
+
+```typescript
+setTaskName('DirTree');
+const treeAgent = new StepWise('TreeAgent');
+
+const tree = await treeAgent.execPromptSchema(
+  '生成本项目的目录树',
+  {
+    type: 'object',
+    recursive: true,        // 标记为递归树
+    recursiveFields: ['children'], // 自引用的数组字段
+    maxDepth: 5,            // 限制递归深度
+    properties: {
+      name: { type: 'string', description: '文件或目录名' },
+      type: { type: 'string', description: "'file' 或 'directory'" },
+      children: { type: 'array', description: '子条目（递归定义）' }
+    }
+  },
+  'dir_tree.json'
+);
+
+// 深度超过 maxDepth 的节点成为叶子，其 children 为空数组。
+```
 
 ## Shell 命令
 
@@ -501,14 +557,14 @@ console.log('任务目录:', agent.getTaskDir());
 console.log('已执行任务数:', agent.getTaskCounter());
 ```
 
-### 5. 使用 checkPrompt 验证结果
+### 5. 使用 postCheckPrompt 验证结果
 
 ```typescript
 const result = await agent.execCollectPrompt(
   '收集 API 定义',
   format,
   {
-    checkPrompt: '检查收集结果是否完整，补充遗漏的 API'
+    postCheckPrompt: '检查收集结果是否完整，补充遗漏的 API'
   }
 );
 ```

@@ -293,7 +293,9 @@ export function convertToAjvSchema(schema: JsonSchemaDef): JsonSchema {
 
   const result: JsonSchema = {
     type: schema.type,
-    ...(schema.description && { description: schema.description })
+    ...(schema.description && { description: schema.description }),
+    // const 固定值约束透传（AJV 原生关键字）
+    ...(schema.const !== undefined && { const: schema.const })
   };
 
   if (schema.type === 'object' && schema.properties) {
@@ -311,8 +313,16 @@ export function convertToAjvSchema(schema: JsonSchemaDef): JsonSchema {
     }
   }
 
-  if (schema.type === 'array' && schema.items) {
-    result.items = convertToAjvSchema(schema.items);
+  if (schema.type === 'array') {
+    if (schema.items) {
+      // 同构数组：所有元素同一结构
+      result.items = convertToAjvSchema(schema.items);
+    } else if (schema.prefixItems) {
+      // 元组（draft-07 形式）：items 为数组按位置校验 + minItems/maxItems 钉死长度
+      result.items = schema.prefixItems.map(c => convertToAjvSchema(c));
+      result.minItems = schema.prefixItems.length;
+      result.maxItems = schema.prefixItems.length;
+    }
   }
 
   return result;
@@ -395,7 +405,7 @@ function unrollLayer(nodeSchema: JsonSchemaDef, maxDepth: number, currentDepth: 
  * 2. recursiveFields 需要 recursive === true
  * 3. maxDepth 需要 recursive === true
  * 4. recursiveFields 中每个字段必须在 properties 中且为 type === 'array'
- * 5. recursiveFields 中每个字段不应定义 items
+ * 5. recursiveFields 中每个字段仅允许 type/description（白名单）
  * 6. maxDepth 必须在 1~10 范围内
  *
  * @param schema 待校验的 JsonSchemaDef
@@ -441,9 +451,13 @@ export function validateRecursiveSchema(schema: JsonSchemaDef): void {
         throw new Error(`${prefix} recursiveFields 中的 "${fieldName}" 必须是 type="array"，当前 type="${propDef.type}"`);
       }
 
-      // 规则 5：recursiveFields 中每个字段不应定义 items
-      if (propDef.items !== undefined) {
-        throw new Error(`${prefix} recursiveFields 中的 "${fieldName}" 不应定义 items，框架在展开时自动填充`);
+      // 规则 5：递归字段白名单——仅允许 type/description（R1）
+      // 递归字段的结构由框架展开时自动填充（items 自引用），其余字段要么被静默丢弃
+      // （prefixItems/const/recursive 等），要么语义不成立（递归字段必为 array，const 仅适用基础类型）。
+      // 白名单一次拦截整个家族，避免逐字段打补丁。
+      const extraKeys = Object.keys(propDef).filter(k => k !== 'type' && k !== 'description');
+      if (extraKeys.length > 0) {
+        throw new Error(`${prefix} recursiveFields 中的 "${fieldName}" 仅允许 type/description，发现多余字段: ${extraKeys.join('/')}（递归字段的结构由框架自动填充；固定值等约束请定义在节点的非递归字段上）`);
       }
     }
 
@@ -554,6 +568,11 @@ export function generateSchemaExample(schema: JsonSchemaDef, currentDepth?: numb
     return generateRecursiveExample(schema, schema.maxDepth ?? 3, 1);
   }
 
+  // const 字段：直接用 const 值作为示例值
+  if (schema.const !== undefined) {
+    return schema.const;
+  }
+
   if (schema.type === 'string') {
     return schema.description || '示例字符串';
   }
@@ -579,6 +598,10 @@ export function generateSchemaExample(schema: JsonSchemaDef, currentDepth?: numb
   if (schema.type === 'array') {
     if (schema.items) {
       return [generateSchemaExample(schema.items)];
+    }
+    if (schema.prefixItems) {
+      // 元组：按位置生成每个分量的示例
+      return schema.prefixItems.map(c => generateSchemaExample(c));
     }
     return [];
   }

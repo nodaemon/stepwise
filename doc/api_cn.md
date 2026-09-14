@@ -7,6 +7,7 @@
 ## 目录
 
 - [全局函数](#全局函数)
+  - [initTask](#inittasktaskname-string-resumepath-string-void)
   - [setTaskName](#settasknametaskname-string-void)
   - [setResumePath](#setresumepathpath-string-void)
   - [enableDebugMode](#enabledebugmodeenabled-boolean-void)
@@ -27,6 +28,7 @@
   - [forEachParallel](#foreachparallelt-items-t-workerconfigs-workerconfig-handler-promisevoid-options-foreachparalleloptions-promisevoid)
   - [WorkerConfig](#workerconfig)
   - [WorkerContext](#workercontextt)
+  - [cleanWorktreeSessionLinks](#cleanworktreesessionlinksconfigsubdir-string-worktreecwd-string-void)
 - [类型定义](#类型定义)
 
 ---
@@ -247,7 +249,7 @@ const data = loadCollectData('/abs/path/my_data.json');
 
 | 参数 | 类型 | 描述 |
 |------|------|------|
-| type | AgentType | 智能体类型：`'claude'`、`'opencode'` 或 `'codeagent'` |
+| type | AgentType | 智能体类型：`'claude'`、`'opencode'`、`'codeagent'` 或 `'pi'` |
 
 **行为**
 
@@ -255,6 +257,7 @@ const data = loadCollectData('/abs/path/my_data.json');
 - 同一任务内所有 Agent 使用相同智能体类型
 - 默认使用 `'claude'`（Claude Code 智能体）
 - `'codeagent'` 的命令行参数和输出格式与 `'claude'` 完全一致，仅可执行程序名（`codeagent`）不同
+- `'pi'` 使用 Pi 智能体（`@earendil-works/pi-coding-agent`）；纯文本输出，无需权限标志，session 通过 `--session-id` 自动判断创建/恢复。Pi 的配置目录默认为 `~/.pi/agent`，可通过 `PI_CODING_AGENT_DIR` 环境变量覆盖
 
 **示例**
 
@@ -490,8 +493,25 @@ interface ExecutionResult {
   error?: string;       // 错误信息
   timestamp: number;    // 执行时间戳
   duration: number;     // 执行耗时（毫秒）
+  tokenUsage?: TokenUsage; // token 消耗与 AI 耗时（仅 Claude/CodeAgent；Pi/OpenCode 为 undefined）
 }
 ```
+
+**TokenUsage**
+
+```typescript
+interface TokenUsage {
+  inputTokens: number;         // 输入 token 数
+  outputTokens: number;        // 输出 token 数
+  cacheCreationTokens: number; // 缓存创建 token 数
+  cacheReadTokens: number;     // 缓存读取 token 数
+  costUsd: number;             // 总成本（美元）
+  durationMs: number;          // 总耗时（毫秒），来自 Claude result.duration_ms
+  durationApiMs: number;       // 纯 API 耗时（毫秒），来自 Claude result.duration_api_ms
+}
+```
+
+`tokenUsage` 仅由基于 NDJSON 的执行器（Claude/CodeAgent）上报；Pi/OpenCode 为 `undefined`。存在时会按步导出到 `logs/<N_task>/usage.json`（结构：`{ taskIndex, sessionId, duration, tokenUsage }`）。
 
 **示例**
 
@@ -637,6 +657,170 @@ await agent.execReport(
 
 ---
 
+#### execPromptSchema(prompt: string, schema: JsonSchemaDef, outputFile: string, options?: ExecOptions): Promise\<SchemaResult\>
+
+执行 Schema 驱动任务：AI 按用户定义的 JSON Schema 输出 JSON，支持任意嵌套与递归树形结构。
+
+**参数**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| prompt | string | 提示词内容，支持变量替换 |
+| schema | JsonSchemaDef | Schema 定义（见 `JsonSchemaDef` 类型）。顶层 `type` 可为 `object`、`array`、`string`、`number`、`boolean` |
+| outputFile | string | 输出文件名（保存到任务的 `report/` 目录，所有 agent 共享） |
+| options | ExecOptions | 执行选项（可选） |
+
+**Schema（JsonSchemaDef）**
+
+```typescript
+interface JsonSchemaDef {
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  description?: string;
+  /** type === 'object'：字段定义，每个字段又是 JsonSchemaDef，支持任意嵌套 */
+  properties?: Record<string, JsonSchemaDef>;
+  /** type === 'object'：必填字段名列表；不指定时默认所有字段必填 */
+  required?: string[];
+  /** type === 'array'：数组元素结构，本身又是 JsonSchemaDef（与 prefixItems 互斥） */
+  items?: JsonSchemaDef;
+  /** type === 'array'：元组定义（与 items 互斥）。按位置定义每个元素的类型，
+      分量可为任意 type；数组长度必须严格等于 prefixItems.length（固定长度元组）。
+      分量不可定义 recursive/recursiveFields/maxDepth（分量内可用独立递归树） */
+  prefixItems?: JsonSchemaDef[];
+  /** 固定值约束（仅 type === 'string' | 'number' | 'boolean' 时有效）：
+      输出中该字段的值必须严格等于 const 指定的值 */
+  const?: string | number | boolean;
+  /** 仅 type === 'object' 时有效：标记为递归树形结构 */
+  recursive?: boolean;
+  /** 仅 recursive === true 时有效：自引用的数组字段名列表（必须为 array 类型，仅允许 type/description） */
+  recursiveFields?: string[];
+  /** 仅 recursive === true 时有效：递归最大深度，默认 3，范围 1~10 */
+  maxDepth?: number;
+}
+```
+
+**递归树形结构**：在 object 上设置 `recursive: true` 后，将其自引用的数组字段列入 `recursiveFields`。框架自动把这些字段的 `items` 填充为自引用结构。超过 `maxDepth` 的节点成为叶子，递归字段为空数组。
+
+**元组（prefixItems）**：`type: 'array'` 时用 `prefixItems` 代替 `items` 定义固定长度元组——按位置声明每个元素的类型，数组长度必须严格等于 `prefixItems.length`。分量可为任意 type（含 object/array），但分量本身不可标记 `recursive`（分量内的嵌套字段可以用独立递归树）。与 `items` 互斥。
+
+**固定值（const）**：基础类型字段（string/number/boolean）可加 `const` 约束，输出值必须严格等于该值。常用于固定节点名、固定标签。
+
+**输出位置**：保存到 TaskName 目录的 `report/` 子目录（所有 agent 共享），文件名为 `outputFile`。
+
+**SchemaResult**
+
+```typescript
+interface SchemaResult extends ExecutionResult {
+  data: unknown; // 类型由 schema.type 决定：object→单个对象，array→数组，标量→对应基础类型
+}
+```
+
+**示例（基础版）**
+
+```typescript
+const result = await agent.execPromptSchema(
+  '生成项目概览（单个对象）',
+  {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: '项目名' },
+      version: { type: 'string', description: '版本' },
+      dependencies: { type: 'array', items: { type: 'string', description: '依赖名' } }
+    }
+  },
+  'project_overview.json'
+);
+// result.data 为生成的对象
+```
+
+**示例（递归树）**
+
+```typescript
+const result = await agent.execPromptSchema(
+  '生成本项目的目录树',
+  {
+    type: 'object',
+    recursive: true,
+    recursiveFields: ['children'],
+    maxDepth: 5,
+    properties: {
+      name: { type: 'string', description: '文件或目录名' },
+      type: { type: 'string', description: "'file' 或 'directory'" },
+      children: { type: 'array', description: '子条目（递归定义）' }
+    }
+  },
+  'dir_tree.json'
+);
+// result.data 为树根；深度超过 maxDepth 的节点 children 为空数组
+```
+
+**示例（元组 + 固定值：固定骨架的树）**
+
+```typescript
+// 2/3 之下的递归树节点
+const treeNode: JsonSchemaDef = {
+  type: 'object',
+  recursive: true,
+  recursiveFields: ['children'],
+  maxDepth: 3,
+  properties: {
+    name: { type: 'string' },
+    children: { type: 'array' }
+  }
+};
+
+const result = await agent.execPromptSchema(
+  '生成固定骨架的树：根节点名为 "1"，恰好两个子节点 "2"、"3"，其下递归展开',
+  {
+    type: 'object',
+    properties: {
+      name: { type: 'string', const: '1' },          // 固定为 "1"
+      children: {
+        type: 'array',
+        prefixItems: [                               // 恰好两个子节点
+          {
+            type: 'object',
+            properties: {
+              name: { type: 'string', const: '2' },
+              children: { type: 'array', items: treeNode }   // 独立递归树
+            }
+          },
+          {
+            type: 'object',
+            properties: {
+              name: { type: 'string', const: '3' },
+              children: { type: 'array', items: treeNode }
+            }
+          }
+        ]
+      }
+    }
+  },
+  'fixed_tree.json'
+);
+```
+
+**导出的 Schema 工具函数**（来自 `stepwise`）：
+
+```typescript
+// Schema 构建与检查
+buildJsonSchema(format: OutputFormat): JsonSchema
+getFirstRequiredField(format: OutputFormat): string | null
+getRequiredFields(format: OutputFormat): string[]
+checkDuplicateKeys(...): ...
+validateAgainstSchema(...): ...
+formatValidationErrors(errors: SchemaValidationError[]): string
+
+// 递归 Schema 校验与转换
+convertToAjvSchema(schema: JsonSchemaDef): JsonSchema
+unrollRecursiveSchema(schema: JsonSchemaDef): JsonSchema
+validateRecursiveSchema(schema: JsonSchemaDef): void
+validateJsonBySchema(...): ...
+buildSchemaFixPrompt(...): string
+generateSchemaExample(schema: JsonSchemaDef, currentDepth?: number): unknown
+```
+
+---
+
 #### execShell(command: string, options?: ShellOptions): Promise\<ShellResult\>
 
 执行 Shell 命令，用于运行系统命令或脚本。
@@ -654,7 +838,7 @@ await agent.execReport(
 interface ShellOptions {
   cwd?: string;        // 工作目录，未指定则使用 process.cwd()
   timeout?: number;    // 超时时间（毫秒），默认 5 分钟 (300000ms)
-  env?: Record<string, string>; // 环境变量，会与 process.env 合并
+  env?: string[];      // 环境变量，格式 "KEY=VALUE"，会与 process.env 合并
 }
 ```
 
@@ -693,7 +877,7 @@ const result = await agent.execShell('npm test', {
 
 // 使用环境变量
 const result = await agent.execShell('npm run deploy', {
-  env: { NODE_ENV: 'production' }
+  env: ['NODE_ENV=production']
 });
 ```
 
@@ -965,6 +1149,13 @@ interface ForEachParallelOptions {
    * @default process.cwd()
    */
   cwd?: string;
+  /**
+   * 跳过收尾脚本（把各 worktree 的改动提交到各自分支的确定性脚本）
+   * - true: 跳过收尾（worktree 的改动不会提交到分支）
+   * - false 或 undefined: 执行确定性收尾脚本（把各 worktree 的改动提交到各自分支、保留分支、删除 worktree；不会自动合并到主分支）
+   * @default false
+   */
+  skipBranchMerge?: boolean;
 }
 ```
 
@@ -1030,6 +1221,30 @@ interface WorkerContext<T> {
 
 ---
 
+### cleanWorktreeSessionLinks(configSubdir: string, worktreeCwd: string): void
+
+清理 worktree 在其 projects 目录残留的 session 软链。当 `fork` 跨 worktree 派生会话时，框架会把主仓库的 session 文件软链到 worktree 的 projects 目录（`~/.claude/projects/`、`~/.cac/projects/` 或 `~/.pi/agent/sessions/`）。删除 worktree 时**不会**清除这些软链——它们无害（悬空软链会被当作"找不到会话"），但会堆积。调用此函数可清理。
+
+**参数**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| configSubdir | string | 按执行器类型决定的 config 目录名：`'claude'`（→ `~/.claude`）、`'codeagent'`（→ `~/.cac`）或 `'pi'`（→ `~/.pi/agent`） |
+| worktreeCwd | string | 需清理残留软链的 worktree 目录绝对路径 |
+
+**示例**
+
+```typescript
+import { cleanWorktreeSessionLinks } from 'stepwise';
+
+// forEachParallel 结束后，清理某 Claude worktree 残留的 fork 软链
+cleanWorktreeSessionLinks('claude', '/abs/path/to/worktree');
+```
+
+> **何时调用**：可选。软链无害，仅在残留堆积时调用。`codeagent` 用 `'codeagent'`（→ `~/.cac`）；`pi` 用 `'pi'`（→ `~/.pi/agent`）。
+
+---
+
 ## 类型定义
 
 ### AgentType
@@ -1037,12 +1252,13 @@ interface WorkerContext<T> {
 智能体类型。
 
 ```typescript
-type AgentType = 'claude' | 'opencode' | 'codeagent';
+type AgentType = 'claude' | 'opencode' | 'codeagent' | 'pi';
 ```
 
 - `'claude'`: 使用 Claude Code 智能体（默认）
 - `'opencode'`: 使用 OpenCode 智能体
 - `'codeagent'`: 使用 CodeAgent 智能体（命令行参数与 claude 一致，仅可执行程序名不同）
+- `'pi'`: 使用 Pi 智能体（`@earendil-works/pi-coding-agent`；纯文本输出，无需权限标志，session 通过 `--session-id` 自动判断创建/恢复）
 
 ---
 
@@ -1069,7 +1285,7 @@ interface ExecOptions {
 `sessionId` 允许显式复用一个已知的会话 ID，而非由框架生成或复用上一个任务的 ID。适用于跨 StepWise 实例或跨进程恢复某个会话的场景。
 
 - 指定后，agent 以 resume 模式执行（`--resume <sessionId>`），即视为恢复一个已存在的会话
-- 与 `newSession: true` 同时指定时为 **fork 语义**：从指定 sessionId 派生一个新会话（原会话保留，新会话独立），底层用 `--resume <sessionId> --fork-session`（Claude/CodeAgent）或 `--session <sessionId> --fork`（OpenCode）
+- 与 `newSession: true` 同时指定时为 **fork 语义**：从指定 sessionId 派生一个新会话（原会话保留，新会话独立），底层用 `--resume <sessionId> --fork-session`（Claude/CodeAgent）、`--session <sessionId> --fork`（OpenCode）或 `--fork <sessionId> --session-id <新ID>`（Pi，预先指定派生 ID）
 - 不能为空字符串
 - 不指定时行为不变（按 `newSession` 复用上一个会话或创建新会话）
 
@@ -1077,7 +1293,7 @@ interface ExecOptions {
 
 > **fork 中断恢复**：fork 执行期间，派生的新 ID 一旦从子进程输出（system/init 块）即被实时写入 `progress.json`。因此即使 fork 步骤中断，`setResumePath` 恢复时也会用派生 ID 续传（`--resume <派生ID>`），不会重新派生。恢复命中该步骤的 in_progress 记录时，历史派生 ID 优先于再次传入的 `sessionId`+`newSession`。
 >
-> **OpenCode 限制**：OpenCode 的派生 ID 仅在执行结束后通过 `session list` 可取，无法在执行中途获取。故 OpenCode 的 fork 步骤若中断，恢复时会重新派生新 ID（无法续传原派生分支）。Claude/CodeAgent 不受此限。
+> **OpenCode 限制**：OpenCode 的派生 ID 仅在执行结束后通过 `session list` 可取，无法在执行中途获取。故 OpenCode 的 fork 步骤若中断，恢复时会重新派生新 ID（无法续传原派生分支）。Claude/CodeAgent 不受此限。此外，OpenCode 仅当 sessionId 为 `ses_` 前缀时才附加 `--session`/`--fork`；非 `ses_` 前缀的 sessionId 会导致 `--fork` 被忽略并打印警告（fork 不生效）。
 
 **文件访问限制**
 
@@ -1118,6 +1334,7 @@ JSON 输出校验选项。
 interface ValidateOptions {
   enabled?: boolean;   // 是否启用校验，默认 true
   maxRetries?: number; // 最大重试次数，默认 3
+  retryOnFileMissing?: boolean; // 输出文件不存在时是否触发重试，默认 true
 }
 ```
 
@@ -1166,6 +1383,25 @@ interface ExecutionResult {
   error?: string;       // 错误信息
   timestamp: number;    // 执行时间戳
   duration: number;     // 执行耗时（毫秒）
+  tokenUsage?: TokenUsage; // token 消耗与 AI 耗时（仅 Claude/CodeAgent；Pi/OpenCode 为 undefined）
+}
+```
+
+---
+
+### TokenUsage
+
+token 消耗与 AI 耗时。仅由基于 NDJSON 的执行器（Claude/CodeAgent）上报；Pi/OpenCode 为 `undefined`。存在时会按步导出到 `logs/<N_task>/usage.json`（结构：`{ taskIndex, sessionId, duration, tokenUsage }`）。
+
+```typescript
+interface TokenUsage {
+  inputTokens: number;         // 输入 token 数
+  outputTokens: number;        // 输出 token 数
+  cacheCreationTokens: number; // 缓存创建 token 数
+  cacheReadTokens: number;     // 缓存读取 token 数
+  costUsd: number;             // 总成本（美元）
+  durationMs: number;          // 总耗时（毫秒），来自 Claude result.duration_ms
+  durationApiMs: number;       // 纯 API 耗时（毫秒），来自 Claude result.duration_api_ms
 }
 ```
 
@@ -1203,7 +1439,7 @@ Shell 执行选项。
 interface ShellOptions {
   cwd?: string;        // 工作目录
   timeout?: number;    // 超时时间（毫秒），默认 300000
-  env?: Record<string, string>; // 环境变量
+  env?: string[];      // 环境变量，格式 "KEY=VALUE"
 }
 ```
 
@@ -1261,7 +1497,7 @@ type TaskStatusType = 'pending' | 'in_progress' | 'completed';
 任务类型。
 
 ```typescript
-type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell';
+type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell' | 'schema';
 ```
 
 ---
@@ -1353,6 +1589,9 @@ interface SchemaValidationResult<T> {
 stepwise_exec_infos/
 └── {task-name}_{timestamp1}/              # TaskName 目录
     ├── report/                             # 报告输出（execReport）
+    ├── logs/                               # 任务级日志
+    │   ├── performance.json                # 性能统计（单步执行 ≥3s 时自动写出）
+    │   └── performance.txt                 # 可读的性能报告
     ├── {agent-name}_{timestamp2}/          # StepWise Agent 目录
     │   ├── data/                           # 执行状态
     │   │   └── progress.json
@@ -1364,7 +1603,8 @@ stepwise_exec_infos/
     │   │   │   ├── verbose_output.txt      # 详细输出（AI思考过程、工具调用等）★关键调试文件
     │   │   │   ├── debug.log               # 调试日志
     │   │   │   ├── post_check_prompt.txt   # 后检查提示词（如有）
-    │   │   │   └── execution_info.json     # 执行信息
+    │   │   │   ├── execution_info.json     # 执行信息
+    │   │   │   └── usage.json              # token 用量与 AI 耗时（Claude/CodeAgent，有则写出）
     │   │   ├── 2_collect/
     │   │   │   ├── ...（同上）
     │   │   └── execute.log                 # 执行汇总日志
@@ -1378,6 +1618,7 @@ stepwise_exec_infos/
 - 记录 AI 的完整思考过程、工具调用、返回结果等详细信息
 - 是分析执行过程、调试问题的最关键文件
 - 当有 postCheckPrompt 时，会在文件末尾追加后检查的输出（带分隔标记）
+- 每个输出块的首行附加实时时间戳前缀，形如 `[YYYY-MM-DD HH:mm:ss.SSS]`，标记子进程输出该块的时刻。`stderr` 行标记为 `[stderr]`（同样附加时间戳），便于区分输出与错误流
 
 **目录命名规则**：
 - TaskName 目录：`{taskName}_{YYYYMMDD}_{HHmmss}_{毫秒}`
@@ -1405,4 +1646,6 @@ const EXECUTE_LOG = 'execute.log';     // 汇总日志文件
 
 // 其他常量
 const MAX_RETRIES = 3; // 最大重试次数
+const MAX_PROBE_ATTEMPTS = 10; // 429 探测恢复：最大探测次数（探测耗尽不抛错）
+const PROBE_TIMEOUT_MS = 30000; // 429 探测恢复：单次探测超时（毫秒）
 ```

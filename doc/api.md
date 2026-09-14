@@ -7,6 +7,7 @@ This document provides detailed API reference for StepWise.
 ## Table of Contents
 
 - [Global Functions](#global-functions)
+  - [initTask](#inittasktaskname-string-resumepath-string-void)
   - [setTaskName](#settasknametaskname-string-void)
   - [setResumePath](#setresumepathpath-string-void)
   - [enableDebugMode](#enabledebugmodeenabled-boolean-void)
@@ -27,6 +28,7 @@ This document provides detailed API reference for StepWise.
   - [forEachParallel](#foreachparallelt-items-t-workerconfigs-workerconfig-handler-promisevoid-options-foreachparalleloptions-promisevoid)
   - [WorkerConfig](#workerconfig)
   - [WorkerContext](#workercontextt)
+  - [cleanWorktreeSessionLinks](#cleanworktreesessionlinksconfigsubdir-string-worktreecwd-string-void)
 - [Type Definitions](#type-definitions)
 
 ---
@@ -246,7 +248,7 @@ Sets the agent type, determining which agent will execute tasks.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| type | AgentType | Agent type: `'claude'`, `'opencode'`, or `'codeagent'` |
+| type | AgentType | Agent type: `'claude'`, `'opencode'`, `'codeagent'`, or `'pi'` |
 
 **Behavior**
 
@@ -254,6 +256,7 @@ Sets the agent type, determining which agent will execute tasks.
 - All agents within a task use the same agent type
 - Defaults to `'claude'` (Claude Code agent)
 - `'codeagent'` uses the same command-line arguments and output format as `'claude'`; only the executable name (`codeagent`) differs
+- `'pi'` uses the Pi agent (`@earendil-works/pi-coding-agent`); plain-text output, no permission flags needed, session auto-detected via `--session-id`. Pi's config directory defaults to `~/.pi/agent`; override with the `PI_CODING_AGENT_DIR` environment variable
 
 **Example**
 
@@ -489,8 +492,25 @@ interface ExecutionResult {
   error?: string;       // Error message
   timestamp: number;    // Execution timestamp
   duration: number;     // Execution duration (milliseconds)
+  tokenUsage?: TokenUsage; // Token consumption & AI durations (Claude/CodeAgent only; undefined for Pi/OpenCode)
 }
 ```
+
+**TokenUsage**
+
+```typescript
+interface TokenUsage {
+  inputTokens: number;         // Input token count
+  outputTokens: number;        // Output token count
+  cacheCreationTokens: number; // Cache creation token count
+  cacheReadTokens: number;     // Cache read token count
+  costUsd: number;             // Total cost (USD)
+  durationMs: number;          // Total duration, from Claude result.duration_ms (milliseconds)
+  durationApiMs: number;       // Pure API duration, from Claude result.duration_api_ms (milliseconds)
+}
+```
+
+`tokenUsage` is only reported by NDJSON-based executors (Claude/CodeAgent); it is `undefined` for Pi/OpenCode. When present, it is also exported per step to `logs/<N_task>/usage.json` (structure: `{ taskIndex, sessionId, duration, tokenUsage }`).
 
 **Example**
 
@@ -636,6 +656,171 @@ await agent.execReport(
 
 ---
 
+#### execPromptSchema(prompt: string, schema: JsonSchemaDef, outputFile: string, options?: ExecOptions): Promise\<SchemaResult\>
+
+Executes a schema-driven task: the AI outputs JSON conforming to a user-defined JSON Schema, supporting arbitrary nesting and recursive tree structures.
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| prompt | string | Prompt content, supports variable substitution |
+| schema | JsonSchemaDef | Schema definition (see `JsonSchemaDef` type). Top-level `type` can be `object`, `array`, `string`, `number`, or `boolean` |
+| outputFile | string | Output file name (saved to the task's `report/` directory, shared by all agents) |
+| options | ExecOptions | Execution options (optional) |
+
+**Schema (JsonSchemaDef)**
+
+```typescript
+interface JsonSchemaDef {
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  description?: string;
+  /** type === 'object': field definitions, each a JsonSchemaDef (arbitrary nesting) */
+  properties?: Record<string, JsonSchemaDef>;
+  /** type === 'object': required field names; defaults to all fields required */
+  required?: string[];
+  /** type === 'array': element structure, itself a JsonSchemaDef (mutually exclusive with prefixItems) */
+  items?: JsonSchemaDef;
+  /** type === 'array': tuple definition (mutually exclusive with items). Declares each
+      element's type by position; components can be any type. Array length must strictly
+      equal prefixItems.length. Components cannot be recursive (use an independent
+      recursive tree inside a component instead) */
+  prefixItems?: JsonSchemaDef[];
+  /** Fixed-value constraint (type === 'string' | 'number' | 'boolean' only):
+      the output value must strictly equal const */
+  const?: string | number | boolean;
+  /** type === 'object' only: marks a recursive tree structure */
+  recursive?: boolean;
+  /** recursive === true only: names of self-referencing array fields (must be array-typed, only type/description allowed) */
+  recursiveFields?: string[];
+  /** recursive === true only: max recursion depth, default 3, range 1~10 */
+  maxDepth?: number;
+}
+```
+
+**Recursive tree structure**: when `recursive: true` is set on an object, list its self-referencing array fields in `recursiveFields`. The framework auto-fills their `items` to self-reference. Nodes beyond `maxDepth` become leaves with empty recursive-field arrays.
+
+**Tuple (prefixItems)**: for `type: 'array'`, use `prefixItems` instead of `items` to define a fixed-length tuple — each element's type is declared by position, and the array length must strictly equal `prefixItems.length`. Components can be any type (including object/array) but cannot themselves be marked `recursive` (use an independent recursive tree inside a component). Mutually exclusive with `items`.
+
+**Fixed value (const)**: primitive fields (string/number/boolean) can carry a `const` constraint; the output value must strictly equal it. Useful for fixed node names or tags.
+
+**Output Location**: saved to the TaskName directory's `report/` subdirectory (shared by all agents), file named `outputFile`.
+
+**SchemaResult**
+
+```typescript
+interface SchemaResult extends ExecutionResult {
+  data: unknown; // type determined by schema.type: object→single object, array→array, scalar→primitive
+}
+```
+
+**Example (basic)**
+
+```typescript
+const result = await agent.execPromptSchema(
+  'Generate a project overview as a single object',
+  {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: 'Project name' },
+      version: { type: 'string', description: 'Version' },
+      dependencies: { type: 'array', items: { type: 'string', description: 'Dependency name' } }
+    }
+  },
+  'project_overview.json'
+);
+// result.data is the generated object
+```
+
+**Example (recursive tree)**
+
+```typescript
+const result = await agent.execPromptSchema(
+  'Generate the directory tree of this project',
+  {
+    type: 'object',
+    recursive: true,
+    recursiveFields: ['children'],
+    maxDepth: 5,
+    properties: {
+      name: { type: 'string', description: 'File or directory name' },
+      type: { type: 'string', description: "'file' or 'directory'" },
+      children: { type: 'array', description: 'Sub-entries (recursively defined)' }
+    }
+  },
+  'dir_tree.json'
+);
+// result.data is the tree root; nodes deeper than maxDepth have empty children arrays
+```
+
+**Example (tuple + fixed values: tree with a fixed skeleton)**
+
+```typescript
+// recursive tree node under 2/3
+const treeNode: JsonSchemaDef = {
+  type: 'object',
+  recursive: true,
+  recursiveFields: ['children'],
+  maxDepth: 3,
+  properties: {
+    name: { type: 'string' },
+    children: { type: 'array' }
+  }
+};
+
+const result = await agent.execPromptSchema(
+  'Generate a tree with a fixed skeleton: root node named "1", exactly two children "2" and "3", expanded recursively below',
+  {
+    type: 'object',
+    properties: {
+      name: { type: 'string', const: '1' },          // fixed to "1"
+      children: {
+        type: 'array',
+        prefixItems: [                               // exactly two children
+          {
+            type: 'object',
+            properties: {
+              name: { type: 'string', const: '2' },
+              children: { type: 'array', items: treeNode }   // independent recursive tree
+            }
+          },
+          {
+            type: 'object',
+            properties: {
+              name: { type: 'string', const: '3' },
+              children: { type: 'array', items: treeNode }
+            }
+          }
+        ]
+      }
+    }
+  },
+  'fixed_tree.json'
+);
+```
+
+**Exported schema utilities** (from `stepwise`):
+
+```typescript
+// Schema construction & inspection
+buildJsonSchema(format: OutputFormat): JsonSchema
+getFirstRequiredField(format: OutputFormat): string | null
+getRequiredFields(format: OutputFormat): string[]
+checkDuplicateKeys(...): ...
+validateAgainstSchema(...): ...
+formatValidationErrors(errors: SchemaValidationError[]): string
+
+// Recursive schema validation & conversion
+convertToAjvSchema(schema: JsonSchemaDef): JsonSchema
+unrollRecursiveSchema(schema: JsonSchemaDef): JsonSchema
+validateRecursiveSchema(schema: JsonSchemaDef): void
+validateJsonBySchema(...): ...
+buildSchemaFixPrompt(...): string
+generateSchemaExample(schema: JsonSchemaDef, currentDepth?: number): unknown
+```
+
+---
+
 #### execShell(command: string, options?: ShellOptions): Promise\<ShellResult\>
 
 Executes a Shell command for running system commands or scripts.
@@ -653,7 +838,7 @@ Executes a Shell command for running system commands or scripts.
 interface ShellOptions {
   cwd?: string;        // Working directory, uses process.cwd() if not specified
   timeout?: number;    // Timeout in milliseconds, default 5 minutes (300000ms)
-  env?: Record<string, string>; // Environment variables, merged with process.env
+  env?: string[];      // Environment variables, format "KEY=VALUE", merged with process.env
 }
 ```
 
@@ -692,7 +877,7 @@ const result = await agent.execShell('npm test', {
 
 // Using environment variables
 const result = await agent.execShell('npm run deploy', {
-  env: { NODE_ENV: 'production' }
+  env: ['NODE_ENV=production']
 });
 ```
 
@@ -964,6 +1149,13 @@ interface ForEachParallelOptions {
    * @default process.cwd()
    */
   cwd?: string;
+  /**
+   * Skip the finalization script that commits each worktree's changes to its own branch.
+   * - true: Skip finalization (worktree changes will NOT be committed to branches)
+   * - false or undefined: Run the deterministic finalization script (commits each worktree's changes to its own branch, keeps the branch, removes the worktree; does NOT auto-merge into the main branch)
+   * @default false
+   */
+  skipBranchMerge?: boolean;
 }
 ```
 
@@ -1029,6 +1221,30 @@ interface WorkerContext<T> {
 
 ---
 
+### cleanWorktreeSessionLinks(configSubdir: string, worktreeCwd: string): void
+
+Removes leftover session symlinks a worktree left in its projects directory. When `fork` branches a session across worktrees, the framework symlinks the main repo's session file into the worktree's projects directory (`~/.claude/projects/`, `~/.cac/projects/`, or `~/.pi/agent/sessions/`). These links are **not** removed when the worktree is deleted — they are harmless (a dangling link is treated as "conversation not found"), but they accumulate. Call this to clean them up.
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| configSubdir | string | Config directory name by executor type: `'claude'` (→ `~/.claude`), `'codeagent'` (→ `~/.cac`), or `'pi'` (→ `~/.pi/agent`) |
+| worktreeCwd | string | Absolute path of the worktree directory whose leftover symlinks should be removed |
+
+**Example**
+
+```typescript
+import { cleanWorktreeSessionLinks } from 'stepwise';
+
+// After forEachParallel finishes, clean leftover fork symlinks in a Claude worktree
+cleanWorktreeSessionLinks('claude', '/abs/path/to/worktree');
+```
+
+> **When to call**: optional. Symlinks are harmless; call only if leftover links pile up. For `codeagent` use `'codeagent'` (→ `~/.cac`); for `pi` use `'pi'` (→ `~/.pi/agent`).
+
+---
+
 ## Type Definitions
 
 ### AgentType
@@ -1036,12 +1252,13 @@ interface WorkerContext<T> {
 Agent type.
 
 ```typescript
-type AgentType = 'claude' | 'opencode' | 'codeagent';
+type AgentType = 'claude' | 'opencode' | 'codeagent' | 'pi';
 ```
 
 - `'claude'`: Use Claude Code agent (default)
 - `'opencode'`: Use OpenCode agent
 - `'codeagent'`: Use CodeAgent agent (command-line args identical to claude, only the executable name differs)
+- `'pi'`: Use Pi agent (`@earendil-works/pi-coding-agent`; plain-text output, no permission flags, session auto-detected via `--session-id`)
 
 ---
 
@@ -1068,7 +1285,7 @@ interface ExecOptions {
 `sessionId` lets you explicitly reuse a known session ID instead of the framework generating one or reusing the previous task's ID. This is useful when resuming a session across StepWise instances or processes.
 
 - When specified, the agent runs in resume mode (`--resume <sessionId>`) — treated as resuming an existing session
-- When specified together with `newSession: true`, this is **fork semantics**: a new session is derived from the given sessionId (the original is preserved, the new one runs independently). Under the hood this uses `--resume <sessionId> --fork-session` (Claude/CodeAgent) or `--session <sessionId> --fork` (OpenCode)
+- When specified together with `newSession: true`, this is **fork semantics**: a new session is derived from the given sessionId (the original is preserved, the new one runs independently). Under the hood this uses `--resume <sessionId> --fork-session` (Claude/CodeAgent), `--session <sessionId> --fork` (OpenCode), or `--fork <sessionId> --session-id <new-id>` (Pi, pre-assigning the derived ID)
 - Cannot be an empty string
 - When not specified, behavior is unchanged (reuse previous session or generate a new one per `newSession`)
 
@@ -1076,7 +1293,7 @@ interface ExecOptions {
 
 > **Resuming a fork after interruption**: while a fork runs, the derived new ID is written to `progress.json` as soon as it appears in the child process output (the `system/init` block). So even if the fork step is interrupted, `setResumePath` resumes with the derived ID (`--resume <derived-id>`) instead of deriving again. When the resume hits the step's `in_progress` record, the historical derived ID takes precedence over any `sessionId`+`newSession` passed again.
 >
-> **OpenCode limitation**: OpenCode's derived ID is only obtainable after execution completes (via `session list`), not mid-execution. So an interrupted OpenCode fork step will re-derive a new ID on resume (it cannot continue the original derived branch). Claude/CodeAgent are unaffected.
+> **OpenCode limitation**: OpenCode's derived ID is only obtainable after execution completes (via `session list`), not mid-execution. So an interrupted OpenCode fork step will re-derive a new ID on resume (it cannot continue the original derived branch). Claude/CodeAgent are unaffected. Additionally, OpenCode only attaches `--session`/`--fork` when the sessionId has the `ses_` prefix; a non-`ses_` sessionId causes `--fork` to be silently ignored with a warning (no fork occurs).
 
 **File Access Restriction**
 
@@ -1117,6 +1334,7 @@ JSON output validation options.
 interface ValidateOptions {
   enabled?: boolean;   // Whether to enable validation, default true
   maxRetries?: number; // Maximum retry count, default 3
+  retryOnFileMissing?: boolean; // Whether to trigger retry when the output file is missing, default true
 }
 ```
 
@@ -1165,6 +1383,25 @@ interface ExecutionResult {
   error?: string;       // Error message
   timestamp: number;    // Execution timestamp
   duration: number;     // Execution duration (milliseconds)
+  tokenUsage?: TokenUsage; // Token consumption & AI durations (Claude/CodeAgent only; undefined for Pi/OpenCode)
+}
+```
+
+---
+
+### TokenUsage
+
+Token consumption and AI durations. Only reported by NDJSON-based executors (Claude/CodeAgent); `undefined` for Pi/OpenCode. When present, it is also exported per step to `logs/<N_task>/usage.json` (structure: `{ taskIndex, sessionId, duration, tokenUsage }`).
+
+```typescript
+interface TokenUsage {
+  inputTokens: number;         // Input token count
+  outputTokens: number;        // Output token count
+  cacheCreationTokens: number; // Cache creation token count
+  cacheReadTokens: number;     // Cache read token count
+  costUsd: number;             // Total cost (USD)
+  durationMs: number;          // Total duration, from Claude result.duration_ms (milliseconds)
+  durationApiMs: number;       // Pure API duration, from Claude result.duration_api_ms (milliseconds)
 }
 ```
 
@@ -1202,7 +1439,7 @@ Shell execution options.
 interface ShellOptions {
   cwd?: string;        // Working directory
   timeout?: number;    // Timeout (milliseconds), default 300000
-  env?: Record<string, string>; // Environment variables
+  env?: string[];      // Environment variables, format "KEY=VALUE"
 }
 ```
 
@@ -1260,7 +1497,7 @@ type TaskStatusType = 'pending' | 'in_progress' | 'completed';
 Task type.
 
 ```typescript
-type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell';
+type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell' | 'schema';
 ```
 
 ---
@@ -1352,6 +1589,9 @@ interface SchemaValidationResult<T> {
 stepwise_exec_infos/
 └── {task-name}_{timestamp1}/              # TaskName directory
     ├── report/                             # Report output (execReport)
+    ├── logs/                               # Task-level logs
+    │   ├── performance.json                # Performance stats (auto-written when a step runs ≥3s)
+    │   └── performance.txt                 # Human-readable performance report
     ├── {agent-name}_{timestamp2}/          # StepWise Agent directory
     │   ├── data/                           # Execution state
     │   │   └── progress.json
@@ -1363,7 +1603,8 @@ stepwise_exec_infos/
     │   │   │   ├── verbose_output.txt      # Detailed output (AI thinking, tool calls, etc.) ★Key debug file
     │   │   │   ├── debug.log               # Debug log
     │   │   │   ├── post_check_prompt.txt   # Post-check prompt (if any)
-    │   │   │   └── execution_info.json     # Execution info
+    │   │   │   ├── execution_info.json     # Execution info
+    │   │   │   └── usage.json              # Token usage & AI durations (Claude/CodeAgent, written when available)
     │   │   ├── 2_collect/
     │   │   │   ├── ... (same as above)
     │   │   └── execute.log                 # Execution summary log
@@ -1377,6 +1618,7 @@ stepwise_exec_infos/
 - Records AI's complete thinking process, tool calls, return results, and other detailed information
 - The most critical file for analyzing execution process and debugging issues
 - When postCheckPrompt exists, the post-check output is appended at the end (with a separator)
+- Each output block is prefixed with a real-time timestamp on its first line, in the form `[YYYY-MM-DD HH:mm:ss.SSS]`, marking when the child process emitted that block. `stderr` lines are tagged `[stderr]` (with the same timestamp) so output and error streams are distinguishable
 
 **Directory Naming Rules**:
 - TaskName directory: `{taskName}_{YYYYMMDD}_{HHmmss}_{milliseconds}`
@@ -1404,4 +1646,6 @@ const EXECUTE_LOG = 'execute.log';     // Summary log file
 
 // Other constants
 const MAX_RETRIES = 3; // Maximum retry count
+const MAX_PROBE_ATTEMPTS = 10; // 429 probe recovery: max probe attempts (probe exhaustion does not throw)
+const PROBE_TIMEOUT_MS = 30000; // 429 probe recovery: per-probe timeout (ms)
 ```

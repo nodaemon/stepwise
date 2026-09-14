@@ -4,7 +4,8 @@ import {
   getRequiredFields,
   checkDuplicateKeys,
   validateAgainstSchema,
-  formatValidationErrors
+  formatValidationErrors,
+  JsonSchema
 } from '../src/utils/schemaUtils';
 import { OutputFormat } from '../src/types';
 
@@ -20,13 +21,15 @@ describe('schemaUtils', () => {
       const schema = buildJsonSchema(format);
 
       expect(schema.type).toBe('array');
-      expect(schema.items?.type).toBe('object');
-      expect(schema.items?.properties).toEqual({
+      // buildJsonSchema 的 items 恒为单值（JsonSchema），收窄联合类型
+      const items = schema.items as JsonSchema;
+      expect(items?.type).toBe('object');
+      expect(items?.properties).toEqual({
         id: { type: 'string', description: 'User ID' },
         name: { type: 'string', description: 'User name' },
         age: { type: 'number', description: 'Age' }
       });
-      expect(schema.items?.required).toEqual(['id', 'name']);
+      expect(items?.required).toEqual(['id', 'name']);
     });
 
     it('should handle all required: false', () => {
@@ -37,7 +40,9 @@ describe('schemaUtils', () => {
 
       const schema = buildJsonSchema(format);
 
-      expect(schema.items?.required).toBeUndefined();
+      // buildJsonSchema 的 items 恒为单值（JsonSchema），收窄联合类型
+      const items = schema.items as JsonSchema;
+      expect(items?.required).toBeUndefined();
     });
   });
 

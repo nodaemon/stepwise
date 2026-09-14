@@ -137,7 +137,7 @@ async function collectAPIs() {
     `Collect all database model definitions in the project`,
     outputFormat,
     {
-      checkPrompt: 'Check if collection results are complete, add missing models'
+      postCheckPrompt: 'Check if collection results are complete, add missing models'
     }
   );
 
@@ -203,6 +203,62 @@ generateReport();
 ```
 
 ---
+
+### Schema-Driven Output (execPromptSchema)
+
+`execPromptSchema` lets you define a JSON Schema and have the AI output conforming JSON — supporting arbitrary nesting and recursive tree structures. Output is saved to the task's shared `report/` directory.
+
+**Basic: nested object**
+
+```typescript
+import { setTaskName, StepWise } from 'stepwise';
+
+setTaskName('ProjectOverview');
+const agent = new StepWise('OverviewAgent');
+
+const result = await agent.execPromptSchema(
+  'Generate a project overview as a single object',
+  {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: 'Project name' },
+      version: { type: 'string', description: 'Version' },
+      dependencies: {
+        type: 'array',
+        items: { type: 'string', description: 'Dependency name' }
+      }
+    }
+  },
+  'project_overview.json'
+);
+
+console.log(result.data); // the generated object
+```
+
+**Recursive: directory tree**
+
+```typescript
+setTaskName('DirTree');
+const treeAgent = new StepWise('TreeAgent');
+
+const tree = await treeAgent.execPromptSchema(
+  'Generate the directory tree of this project',
+  {
+    type: 'object',
+    recursive: true,        // mark as a recursive tree
+    recursiveFields: ['children'], // self-referencing array field
+    maxDepth: 5,            // cap recursion depth
+    properties: {
+      name: { type: 'string', description: 'File or directory name' },
+      type: { type: 'string', description: "'file' or 'directory'" },
+      children: { type: 'array', description: 'Sub-entries (recursively defined)' }
+    }
+  },
+  'dir_tree.json'
+);
+
+// Nodes deeper than maxDepth become leaves with empty `children` arrays.
+```
 
 ## Shell Commands
 
@@ -510,14 +566,14 @@ console.log('Task directory:', agent.getTaskDir());
 console.log('Executed tasks:', agent.getTaskCounter());
 ```
 
-### 5. Use checkPrompt to Validate Results
+### 5. Use postCheckPrompt to Validate Results
 
 ```typescript
 const result = await agent.execCollectPrompt(
   'Collect API definitions',
   format,
   {
-    checkPrompt: 'Check if collection results are complete, add missing APIs'
+    postCheckPrompt: 'Check if collection results are complete, add missing APIs'
   }
 );
 ```

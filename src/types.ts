@@ -120,13 +120,25 @@ export interface JsonSchemaDef {
    */
   items?: JsonSchemaDef;
   /**
+   * type === 'array' 时的元组定义（与 items 互斥）
+   * 按位置定义每个元素的类型，分量可为任意 type
+   * 数组长度必须严格等于 prefixItems.length（固定长度元组）
+   */
+  prefixItems?: JsonSchemaDef[];
+  /**
+   * 固定值约束（仅 type === 'string' | 'number' | 'boolean' 时有效）
+   * 输出中该字段的值必须严格等于 const 指定的值
+   * 典型场景：固定节点名（如树的根/分支节点名为 "1"/"2"/"3"）、固定标签
+   */
+  const?: string | number | boolean;
+  /**
    * 是否为递归树形结构（仅 type === 'object' 时有效）
    * 标记后，该对象的某些字段可以自引用，形成树形嵌套
    */
   recursive?: boolean;
   /**
    * 递归字段名称列表（仅 recursive === true 时有效）
-   * 列出的字段必须是 type === 'array' 的属性，且不应定义 items
+   * 列出的字段必须是 type === 'array' 的属性，且仅允许 type/description（白名单）
    * 框架在 schema 展开时自动填充 items 为自引用结构
    */
   recursiveFields?: string[];
@@ -136,6 +148,28 @@ export interface JsonSchemaDef {
    * 超过最大深度的节点为叶子节点，递归字段为空数组
    */
   maxDepth?: number;
+}
+
+/**
+ * token 消耗与 AI 耗时
+ * 来自 Claude stream-json result 块的 usage/duration 字段
+ * 仅 NDJSON 执行器（Claude/CodeAgent）产出；Pi/OpenCode 不支持
+ */
+export interface TokenUsage {
+  /** 输入 token 数 */
+  inputTokens: number;
+  /** 输出 token 数 */
+  outputTokens: number;
+  /** 缓存创建 token 数 */
+  cacheCreationTokens: number;
+  /** 缓存读取 token 数 */
+  cacheReadTokens: number;
+  /** 总成本（美元） */
+  costUsd: number;
+  /** Claude result.duration_ms（总耗时，毫秒） */
+  durationMs: number;
+  /** Claude result.duration_api_ms（纯 API 耗时，毫秒） */
+  durationApiMs: number;
 }
 
 /**
@@ -154,6 +188,8 @@ export interface ExecutionResult {
   timestamp: number;
   /** 执行耗时（毫秒） */
   duration: number;
+  /** token 消耗与 AI 耗时（仅 NDJSON 执行器：Claude/CodeAgent；缺省表示该执行器不支持） */
+  tokenUsage?: TokenUsage;
 }
 
 /**

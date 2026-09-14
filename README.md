@@ -148,6 +148,43 @@ if (!checkResult.result) {
 }
 ```
 
+### Example 4.5: Schema-Driven Output with execPromptSchema
+
+Output JSON conforming to a user-defined schema — supports arbitrary nesting and recursive tree structures:
+
+```typescript
+// Basic: a single nested object
+const result = await agent.execPromptSchema(
+  'Generate a project overview',
+  {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: 'Project name' },
+      dependencies: { type: 'array', items: { type: 'string', description: 'Dependency name' } }
+    }
+  },
+  'project_overview.json'
+);
+// result.data is the generated object, saved to the shared report/ directory
+
+// Recursive tree: directory structure (depth-limited)
+const tree = await agent.execPromptSchema(
+  'Generate the directory tree of this project',
+  {
+    type: 'object',
+    recursive: true,
+    recursiveFields: ['children'],
+    maxDepth: 5,
+    properties: {
+      name: { type: 'string', description: 'File or directory name' },
+      type: { type: 'string', description: "'file' or 'directory'" },
+      children: { type: 'array', description: 'Sub-entries (recursively defined)' }
+    }
+  },
+  'dir_tree.json'
+);
+```
+
 ### Example 5: Skill Auto-Generation
 
 After multiple successful attempts, auto-summarize Skills:
@@ -256,6 +293,7 @@ const r5 = await agent.execPrompt('Try an alternative implementation approach', 
 | `execCollectPrompt` | Collection task | Collect structured data with built-in validation and retry |
 | `execCheckPrompt` | Routing node | Check condition and return true/false for branch routing |
 | `execReport` | Report task | Generate summary report |
+| `execPromptSchema` | Schema-driven task | Output JSON conforming to a user-defined schema (arbitrary nesting + recursive trees); returns `SchemaResult` |
 | `execShell` | Shell command | Execute Shell commands (build, test, etc.) |
 | `summarize` | Skill generation | Summarize session and generate Skill |
 
@@ -288,6 +326,9 @@ Automatic task directory generation:
 stepwise_exec_infos/
 └── TaskName_20260315_143000_123/     # TaskName directory (timestamp with ms)
     ├── report/                        # Report output (shared by all agents)
+    ├── logs/                          # Task-level logs
+    │   ├── performance.json           # Performance stats (auto-written when a step runs ≥3s)
+    │   └── performance.txt            # Human-readable performance report
     ├── Agent1_20260315_143001_456/    # StepWise Agent directory
     │   ├── data/                      # Execution state
     │   │   └── progress.json
@@ -327,7 +368,7 @@ StepWise implements step control through task sequence numbers and progress pers
 - Field completeness validation
 - Type matching validation
 - Auto-generate fix prompts on validation failure
-- `checkPrompt` option for custom validation
+- `postCheckPrompt` option for custom validation
 
 ### Branch Routing Mechanism
 

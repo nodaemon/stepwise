@@ -147,6 +147,43 @@ if (!checkResult.result) {
 }
 ```
 
+### 示例 4.5：使用 execPromptSchema 按 Schema 输出
+
+按用户定义的 Schema 输出 JSON——支持任意嵌套与递归树形结构：
+
+```typescript
+// 基础版：单个嵌套对象
+const result = await agent.execPromptSchema(
+  '生成项目概览',
+  {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: '项目名' },
+      dependencies: { type: 'array', items: { type: 'string', description: '依赖名' } }
+    }
+  },
+  'project_overview.json'
+);
+// result.data 为生成的对象，保存到共享的 report/ 目录
+
+// 递归树：目录结构（有深度限制）
+const tree = await agent.execPromptSchema(
+  '生成本项目的目录树',
+  {
+    type: 'object',
+    recursive: true,
+    recursiveFields: ['children'],
+    maxDepth: 5,
+    properties: {
+      name: { type: 'string', description: '文件或目录名' },
+      type: { type: 'string', description: "'file' 或 'directory'" },
+      children: { type: 'array', description: '子条目（递归定义）' }
+    }
+  },
+  'dir_tree.json'
+);
+```
+
 ### 示例 5：Skill 自动生成
 
 多次尝试成功后，自动总结生成 Skill：
@@ -251,6 +288,7 @@ const r5 = await agent.execPrompt('尝试另一种实现思路', {
 | `execCollectPrompt` | 收集任务 | 收集结构化数据，内置校验和重试 |
 | `execCheckPrompt` | 路由节点 | 检查条件返回 true/false，用于分支路由 |
 | `execReport` | 报告任务 | 生成汇总报告 |
+| `execPromptSchema` | Schema 驱动任务 | 按用户定义的 Schema 输出 JSON（支持任意嵌套与递归树形结构）；返回 `SchemaResult` |
 | `execShell` | Shell 命令 | 执行 Shell 命令（构建、测试等） |
 | `summarize` | Skill 生成 | 总结会话生成 Skill |
 
@@ -283,6 +321,9 @@ const r5 = await agent.execPrompt('尝试另一种实现思路', {
 stepwise_exec_infos/
 └── TaskName_20260315_143000_123/     # TaskName 目录（时间戳精确到毫秒）
     ├── report/                        # 报告输出（所有 Agent 共享）
+    ├── logs/                          # 任务级日志
+    │   ├── performance.json           # 性能统计（单步执行 ≥3s 时自动写出）
+    │   └── performance.txt            # 可读的性能报告
     ├── Agent1_20260315_143001_456/    # StepWise Agent 目录
     │   ├── data/                      # 执行状态
     │   │   └── progress.json
@@ -322,7 +363,7 @@ StepWise 通过任务序号和进度持久化实现步骤控制：
 - 字段完整性校验
 - 类型匹配校验
 - 校验失败自动生成修复提示词
-- `checkPrompt` 选项支持自定义校验
+- `postCheckPrompt` 选项支持自定义校验
 
 ### 分支路由机制
 
