@@ -1,6 +1,7 @@
 import { StepWise, setTaskName, _resetState } from '../src/index';
 import { JsonSchemaDef } from '../src/types';
 import { validateRecursiveSchema, convertToAjvSchema, validateJsonBySchema, generateSchemaExample } from '../src/utils/validator';
+import { buildSchemaPrompt } from '../src/utils/promptBuilder';
 
 // Mock executor（沿用 StepWise.execPromptSchema.test.ts 的模式）
 jest.mock('../src/utils/executor', () => ({
@@ -359,5 +360,48 @@ describe('generateSchemaExample 元组与 const 示例', () => {
     };
     const example = generateSchemaExample(schema);
     expect(example).toEqual(['root', 0]);
+  });
+});
+
+describe('buildSchemaPrompt 元组与 const 提示词', () => {
+  test('元组 schema 提示词含固定长度要求与结构说明', () => {
+    const schema: JsonSchemaDef = {
+      type: 'array',
+      prefixItems: [
+        { type: 'string', description: '姓名' },
+        { type: 'number', description: '年龄' }
+      ]
+    };
+    const prompt = buildSchemaPrompt(schema, '/tmp/out.json');
+    expect(prompt).toContain('长度固定');
+    expect(prompt).toContain('第 i 个元素的类型必须符合位置定义');
+    expect(prompt).toContain('固定长度元组（长度 2）');
+    expect(prompt).toContain('第 1 个元素: string（姓名）');
+    expect(prompt).toContain('第 2 个元素: number（年龄）');
+  });
+
+  test('const schema 提示词含固定值要求', () => {
+    const schema: JsonSchemaDef = {
+      type: 'object',
+      properties: {
+        name: { type: 'string', const: '1' }
+      }
+    };
+    const prompt = buildSchemaPrompt(schema, '/tmp/out.json');
+    expect(prompt).toContain('固定值');
+    expect(prompt).toContain('[固定值: "1"]');
+  });
+
+  test('示例区块展示元组示例与 const 值', () => {
+    const schema: JsonSchemaDef = {
+      type: 'array',
+      prefixItems: [
+        { type: 'string', const: 'root' },
+        { type: 'number' }
+      ]
+    };
+    const prompt = buildSchemaPrompt(schema, '/tmp/out.json');
+    // 示例来自 Task 5 的 generateSchemaExample：['root', 0]
+    expect(prompt).toContain('"root"');
   });
 });
