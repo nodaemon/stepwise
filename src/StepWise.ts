@@ -2020,27 +2020,55 @@ export class StepWise {
 
   /**
    * 校验 Schema 参数
-   * 递归校验 JsonSchemaDef 的合法性
+   * 递归校验 JsonSchemaDef 的合法性（含 prefixItems 元组与 const 固定值）
    * @param schema 待校验 schema
    */
   private validateSchema(schema: JsonSchemaDef): void {
+    const PREFIX = '[StepWise.execPromptSchema]';
     if (!schema || !schema.type) {
-      throw new Error('[StepWise.execPromptSchema] schema 必须包含 type 属性');
+      throw new Error(`${PREFIX} schema 必须包含 type 属性`);
     }
 
     const validTypes = ['string', 'number', 'boolean', 'object', 'array'];
     if (!validTypes.includes(schema.type)) {
-      throw new Error(`[StepWise.execPromptSchema] schema.type 必须是 ${validTypes.join(' | ')}`);
+      throw new Error(`${PREFIX} schema.type 必须是 ${validTypes.join(' | ')}`);
+    }
+
+    // prefixItems 仅在 array 上有效
+    if (schema.prefixItems !== undefined && schema.type !== 'array') {
+      throw new Error(`${PREFIX} prefixItems 仅在 type="array" 时有效，当前 type="${schema.type}"`);
+    }
+
+    // const 仅在基础类型上有效，且值类型必须匹配
+    if (schema.const !== undefined) {
+      if (schema.type === 'object' || schema.type === 'array') {
+        throw new Error(`${PREFIX} const 仅在 type="string"|"number"|"boolean" 时有效，当前 type="${schema.type}"`);
+      }
+      const constType = typeof schema.const;
+      if (constType !== schema.type) {
+        throw new Error(`${PREFIX} const 值类型必须与 type 一致，type="${schema.type}" 但 const 为 ${constType}`);
+      }
     }
 
     if (schema.type === 'object') {
       if (!schema.properties || Object.keys(schema.properties).length === 0) {
-        throw new Error('[StepWise.execPromptSchema] type="object" 时必须定义 properties');
+        throw new Error(`${PREFIX} type="object" 时必须定义 properties`);
+      }
+      // 嵌套递归节点：同步校验其递归定义合法性（R3 场景，validateRecursiveSchema 原本只校验顶层）
+      if (schema.recursive) {
+        try {
+          validateRecursiveSchema(schema);
+        } catch (error) {
+          if (error instanceof Error) {
+            throw new Error(`${PREFIX} ${error.message.replace(/^\[StepWise\.execPromptSchema\] /, '')}`);
+          }
+          throw error;
+        }
       }
       // 递归校验 properties（排除递归字段，因为递归字段的 items 由框架自动填充）
       const recursiveFields = schema.recursive ? (schema.recursiveFields || []) : [];
       for (const [name, propDef] of Object.entries(schema.properties)) {
-        // 递归字段跳过递归校验（validateRecursiveSchema 已单独校验其类型为 array 且无 items）
+        // 递归字段跳过递归校验（validateRecursiveSchema 已单独校验其类型为 array 且无 items/prefixItems）
         if (recursiveFields.includes(name)) {
           continue;
         }
@@ -2048,7 +2076,7 @@ export class StepWise {
           this.validateSchema(propDef);
         } catch (error) {
           if (error instanceof Error) {
-            throw new Error(`[StepWise.execPromptSchema] schema.properties.${name}: ${error.message}`);
+            throw new Error(`${PREFIX} schema.properties.${name}: ${error.message.replace(/^\[StepWise\.execPromptSchema\] /, '')}`);
           }
           throw error;
         }
@@ -2056,17 +2084,41 @@ export class StepWise {
     }
 
     if (schema.type === 'array') {
-      if (!schema.items) {
-        throw new Error('[StepWise.execPromptSchema] type="array" 时必须定义 items');
+      // items 与 prefixItems 互斥，二选一
+      if (schema.items && schema.prefixItems) {
+        throw new Error(`${PREFIX} items 与 prefixItems 互斥，只能定义其一`);
+      }
+      if (!schema.items && !schema.prefixItems) {
+        throw new Error(`${PREFIX} type="array" 时必须定义 items 或 prefixItems`);
       }
       if (schema.items) {
         try {
           this.validateSchema(schema.items);
         } catch (error) {
           if (error instanceof Error) {
-            throw new Error(`[StepWise.execPromptSchema] schema.items: ${error.message}`);
+            throw new Error(`${PREFIX} schema.items: ${error.message.replace(/^\[StepWise\.execPromptSchema\] /, '')}`);
           }
           throw error;
+        }
+      }
+      if (schema.prefixItems) {
+        if (schema.prefixItems.length === 0) {
+          throw new Error(`${PREFIX} prefixItems 不能为空数组`);
+        }
+        for (let i = 0; i < schema.prefixItems.length; i++) {
+          const component = schema.prefixItems[i];
+          // R2：分量不可成为树节点（分量内的嵌套节点可以声明独立递归树，走 R3）
+          if (component.recursive || (component.recursiveFields && component.recursiveFields.length > 0) || component.maxDepth !== undefined) {
+            throw new Error(`${PREFIX} schema.prefixItems[${i}]: prefixItems 分量不能定义 recursive/recursiveFields/maxDepth（分量不可成为树节点，请在分量内用独立递归树代替）`);
+          }
+          try {
+            this.validateSchema(component);
+          } catch (error) {
+            if (error instanceof Error) {
+              throw new Error(`${PREFIX} schema.prefixItems[${i}]: ${error.message.replace(/^\[StepWise\.execPromptSchema\] /, '')}`);
+            }
+            throw error;
+          }
         }
       }
     }
