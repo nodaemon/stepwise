@@ -293,7 +293,9 @@ export function convertToAjvSchema(schema: JsonSchemaDef): JsonSchema {
 
   const result: JsonSchema = {
     type: schema.type,
-    ...(schema.description && { description: schema.description })
+    ...(schema.description && { description: schema.description }),
+    // const 固定值约束透传（AJV 原生关键字）
+    ...(schema.const !== undefined && { const: schema.const })
   };
 
   if (schema.type === 'object' && schema.properties) {
@@ -311,8 +313,16 @@ export function convertToAjvSchema(schema: JsonSchemaDef): JsonSchema {
     }
   }
 
-  if (schema.type === 'array' && schema.items) {
-    result.items = convertToAjvSchema(schema.items);
+  if (schema.type === 'array') {
+    if (schema.items) {
+      // 同构数组：所有元素同一结构
+      result.items = convertToAjvSchema(schema.items);
+    } else if (schema.prefixItems) {
+      // 元组（draft-07 形式）：items 为数组按位置校验 + minItems/maxItems 钉死长度
+      result.items = schema.prefixItems.map(c => convertToAjvSchema(c));
+      result.minItems = schema.prefixItems.length;
+      result.maxItems = schema.prefixItems.length;
+    }
   }
 
   return result;
@@ -395,7 +405,7 @@ function unrollLayer(nodeSchema: JsonSchemaDef, maxDepth: number, currentDepth: 
  * 2. recursiveFields 需要 recursive === true
  * 3. maxDepth 需要 recursive === true
  * 4. recursiveFields 中每个字段必须在 properties 中且为 type === 'array'
- * 5. recursiveFields 中每个字段不应定义 items
+ * 5. recursiveFields 中每个字段不应定义 items/prefixItems
  * 6. maxDepth 必须在 1~10 范围内
  *
  * @param schema 待校验的 JsonSchemaDef
@@ -441,9 +451,9 @@ export function validateRecursiveSchema(schema: JsonSchemaDef): void {
         throw new Error(`${prefix} recursiveFields 中的 "${fieldName}" 必须是 type="array"，当前 type="${propDef.type}"`);
       }
 
-      // 规则 5：recursiveFields 中每个字段不应定义 items
-      if (propDef.items !== undefined) {
-        throw new Error(`${prefix} recursiveFields 中的 "${fieldName}" 不应定义 items，框架在展开时自动填充`);
+      // 规则 5：recursiveFields 中每个字段不应定义 items/prefixItems（R1）
+      if (propDef.items !== undefined || propDef.prefixItems !== undefined) {
+        throw new Error(`${prefix} recursiveFields 中的 "${fieldName}" 不应定义 items/prefixItems，框架在展开时自动填充`);
       }
     }
 
@@ -554,6 +564,11 @@ export function generateSchemaExample(schema: JsonSchemaDef, currentDepth?: numb
     return generateRecursiveExample(schema, schema.maxDepth ?? 3, 1);
   }
 
+  // const 字段：直接用 const 值作为示例值
+  if (schema.const !== undefined) {
+    return schema.const;
+  }
+
   if (schema.type === 'string') {
     return schema.description || '示例字符串';
   }
@@ -579,6 +594,10 @@ export function generateSchemaExample(schema: JsonSchemaDef, currentDepth?: numb
   if (schema.type === 'array') {
     if (schema.items) {
       return [generateSchemaExample(schema.items)];
+    }
+    if (schema.prefixItems) {
+      // 元组：按位置生成每个分量的示例
+      return schema.prefixItems.map(c => generateSchemaExample(c));
     }
     return [];
   }

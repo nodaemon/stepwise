@@ -14,7 +14,13 @@ export interface JsonSchema {
   type: string;
   properties?: Record<string, JsonSchema | { type: string; description?: string }>;
   required?: string[];
-  items?: JsonSchema;
+  /** 单值：同构数组元素；数组：draft-07 元组形式（按位置校验） */
+  items?: JsonSchema | JsonSchema[];
+  /** 元组形式下与 maxItems 一起钉死数组长度 */
+  minItems?: number;
+  maxItems?: number;
+  /** 固定值约束（AJV 原生关键字，透传） */
+  const?: string | number | boolean;
   description?: string;
 }
 
