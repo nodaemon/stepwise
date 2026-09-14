@@ -564,6 +564,11 @@ export function generateSchemaExample(schema: JsonSchemaDef, currentDepth?: numb
     return generateRecursiveExample(schema, schema.maxDepth ?? 3, 1);
   }
 
+  // const 字段：直接用 const 值作为示例值
+  if (schema.const !== undefined) {
+    return schema.const;
+  }
+
   if (schema.type === 'string') {
     return schema.description || '示例字符串';
   }
@@ -589,6 +594,10 @@ export function generateSchemaExample(schema: JsonSchemaDef, currentDepth?: numb
   if (schema.type === 'array') {
     if (schema.items) {
       return [generateSchemaExample(schema.items)];
+    }
+    if (schema.prefixItems) {
+      // 元组：按位置生成每个分量的示例
+      return schema.prefixItems.map(c => generateSchemaExample(c));
     }
     return [];
   }

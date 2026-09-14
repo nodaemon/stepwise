@@ -1,6 +1,6 @@
 import { StepWise, setTaskName, _resetState } from '../src/index';
 import { JsonSchemaDef } from '../src/types';
-import { validateRecursiveSchema, convertToAjvSchema, validateJsonBySchema } from '../src/utils/validator';
+import { validateRecursiveSchema, convertToAjvSchema, validateJsonBySchema, generateSchemaExample } from '../src/utils/validator';
 
 // Mock executor（沿用 StepWise.execPromptSchema.test.ts 的模式）
 jest.mock('../src/utils/executor', () => ({
@@ -310,5 +310,54 @@ describe('validateJsonBySchema 元组与 const 数据校验', () => {
     };
     const result = validateJsonBySchema('{"name": "root"}', schema);
     expect(result.valid).toBe(true);
+  });
+});
+
+describe('generateSchemaExample 元组与 const 示例', () => {
+  test('元组按位置生成分量示例', () => {
+    const schema: JsonSchemaDef = {
+      type: 'array',
+      prefixItems: [
+        { type: 'string', description: '姓名' },
+        { type: 'number' },
+        { type: 'boolean' }
+      ]
+    };
+    const example = generateSchemaExample(schema);
+    expect(example).toEqual(['姓名', 0, true]);
+  });
+
+  test('const 字段示例值取 const 值', () => {
+    const schema: JsonSchemaDef = {
+      type: 'object',
+      properties: {
+        name: { type: 'string', const: '1' }
+      }
+    };
+    const example = generateSchemaExample(schema) as any;
+    expect(example.name).toBe('1');
+  });
+
+  test('number const 示例值取 const 值', () => {
+    const schema: JsonSchemaDef = {
+      type: 'object',
+      properties: {
+        level: { type: 'number', const: 3 }
+      }
+    };
+    const example = generateSchemaExample(schema) as any;
+    expect(example.level).toBe(3);
+  });
+
+  test('元组分量带 const 时分量示例取 const 值', () => {
+    const schema: JsonSchemaDef = {
+      type: 'array',
+      prefixItems: [
+        { type: 'string', const: 'root' },
+        { type: 'number' }
+      ]
+    };
+    const example = generateSchemaExample(schema);
+    expect(example).toEqual(['root', 0]);
   });
 });
