@@ -691,7 +691,7 @@ interface JsonSchemaDef {
   const?: string | number | boolean;
   /** 仅 type === 'object' 时有效：标记为递归树形结构 */
   recursive?: boolean;
-  /** 仅 recursive === true 时有效：自引用的数组字段名列表（必须为 array 类型且不定义 items/prefixItems） */
+  /** 仅 recursive === true 时有效：自引用的数组字段名列表（必须为 array 类型，仅允许 type/description） */
   recursiveFields?: string[];
   /** 仅 recursive === true 时有效：递归最大深度，默认 3，范围 1~10 */
   maxDepth?: number;

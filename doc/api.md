@@ -691,7 +691,7 @@ interface JsonSchemaDef {
   const?: string | number | boolean;
   /** type === 'object' only: marks a recursive tree structure */
   recursive?: boolean;
-  /** recursive === true only: names of self-referencing array fields (must be array-typed, no items/prefixItems) */
+  /** recursive === true only: names of self-referencing array fields (must be array-typed, only type/description allowed) */
   recursiveFields?: string[];
   /** recursive === true only: max recursion depth, default 3, range 1~10 */
   maxDepth?: number;

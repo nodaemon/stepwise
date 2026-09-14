@@ -410,13 +410,19 @@ function schemaHasTuple(schema: JsonSchemaDef): boolean {
 
 /**
  * 递归检测 schema 树中是否存在 const 固定值定义
+ * 跳过递归字段（与 schemaHasTuple 对称）：递归字段的结构由框架填充，
+ * 其上的 const 会被白名单校验拦截（validateRecursiveSchema 规则 5），不产生运行时约束
  */
 function schemaHasConst(schema: JsonSchemaDef): boolean {
   if (schema.const !== undefined) {
     return true;
   }
   if (schema.type === 'object' && schema.properties) {
-    for (const propDef of Object.values(schema.properties)) {
+    const recursiveFields = schema.recursive ? (schema.recursiveFields || []) : [];
+    for (const [name, propDef] of Object.entries(schema.properties)) {
+      if (recursiveFields.includes(name)) {
+        continue;
+      }
       if (schemaHasConst(propDef)) {
         return true;
       }
@@ -553,7 +559,8 @@ function generateSchemaDescription(schema: JsonSchemaDef, indent: string = ''): 
       const isRequired = schema.required?.includes(name) ?? true;
       const isRecursive = recursiveFields.includes(name);
       const recursiveTag = isRecursive ? ' 递归字段（树形结构）' : '';
-      const constTag = propDef.const !== undefined ? ` [固定值: ${JSON.stringify(propDef.const)}]` : '';
+      // 递归字段的结构由框架填充，其上的 const 非法（白名单校验拦截），不渲染固定值标签
+      const constTag = !isRecursive && propDef.const !== undefined ? ` [固定值: ${JSON.stringify(propDef.const)}]` : '';
       lines.push(`${indent}  - ${name} (${propDef.type})${isRequired ? ' [必填]' : ' [可选]'}${recursiveTag}${constTag}`);
       if ((propDef.type === 'object' || propDef.type === 'array') && !isRecursive) {
         lines.push(generateSchemaDescription(propDef, `${indent}    `));

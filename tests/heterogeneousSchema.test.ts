@@ -447,6 +447,23 @@ describe('buildSchemaPrompt 元组与 const 提示词', () => {
     // 示例来自 Task 5 的 generateSchemaExample：['root', 0]
     expect(prompt).toContain('"root"');
   });
+
+  test('递归字段上的 const 不应触发固定值要求（结构非法，主路径已被白名单拦截）', () => {
+    // 模拟公共 API 直调（绕过 execPromptSchema 的 validateSchema）：
+    // schemaHasConst 不应把递归字段上的 const 算进去
+    const schema: JsonSchemaDef = {
+      type: 'object',
+      recursive: true,
+      recursiveFields: ['children'],
+      properties: {
+        name: { type: 'string' },
+        children: { type: 'array', const: 'x' } as any
+      }
+    };
+    const prompt = buildSchemaPrompt(schema, '/tmp/out.json');
+    expect(prompt).not.toContain('[固定值: "x"]');
+    expect(prompt).not.toContain('标注了固定值的字段');
+  });
 });
 
 describe('端到端：固定节点名树（递归+元组+const 组合）', () => {

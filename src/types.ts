@@ -138,7 +138,7 @@ export interface JsonSchemaDef {
   recursive?: boolean;
   /**
    * 递归字段名称列表（仅 recursive === true 时有效）
-   * 列出的字段必须是 type === 'array' 的属性，且不应定义 items/prefixItems
+   * 列出的字段必须是 type === 'array' 的属性，且仅允许 type/description（白名单）
    * 框架在 schema 展开时自动填充 items 为自引用结构
    */
   recursiveFields?: string[];
