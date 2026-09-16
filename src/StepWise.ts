@@ -36,7 +36,8 @@ import {
   buildSchemaFixPrompt,
   ValidationResult,
   unrollRecursiveSchema,
-  validateRecursiveSchema
+  validateRecursiveSchema,
+  validateRefsAndDefs
 } from './utils/validator';
 import { SchemaValidationError } from './utils/schemaUtils';
 import {
@@ -1871,6 +1872,7 @@ export class StepWise {
   ): Promise<SchemaResult> {
     this.validatePrompt(prompt);
     validateRecursiveSchema(schema);
+    validateRefsAndDefs(schema);
     this.validateSchema(schema);
     this.validateOutputFileName(outputFile, 'execPromptSchema');
     this.validateSessionIdOption(options);
@@ -2090,6 +2092,10 @@ export class StepWise {
         if (recursiveFields.includes(name)) {
           continue;
         }
+        // ref 字段仅允许 ref + description（validateRefsAndDefs 已校验），跳过常规结构校验
+        if (propDef.ref !== undefined) {
+          continue;
+        }
         try {
           this.validateSchema(propDef);
         } catch (error) {
@@ -2110,13 +2116,16 @@ export class StepWise {
         throw new Error(`${PREFIX} type="array" 时必须定义 items 或 prefixItems`);
       }
       if (schema.items) {
-        try {
-          this.validateSchema(schema.items);
-        } catch (error) {
-          if (error instanceof Error) {
-            throw new Error(`${PREFIX} schema.items: ${error.message.replace(/^\[StepWise\.execPromptSchema\] /, '')}`);
+        // ref 字段跳过常规校验（validateRefsAndDefs 已覆盖存在性与白名单）
+        if (schema.items.ref === undefined) {
+          try {
+            this.validateSchema(schema.items);
+          } catch (error) {
+            if (error instanceof Error) {
+              throw new Error(`${PREFIX} schema.items: ${error.message.replace(/^\[StepWise\.execPromptSchema\] /, '')}`);
+            }
+            throw error;
           }
-          throw error;
         }
       }
       if (schema.prefixItems) {

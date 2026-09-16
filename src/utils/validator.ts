@@ -300,7 +300,7 @@ export function convertToAjvSchema(schema: JsonSchemaDef): JsonSchema {
     ...(schema.ref !== undefined && { $ref: schema.ref })
   };
 
-  // defs → 标准 $defs（仅顶层有效；嵌套层的 defs 在 Task 4 白名单校验中拦截，此处仅映射）
+  // defs → 标准 $defs（仅顶层有效；嵌套层的 defs 由 validateRefsAndDefs 构建期校验拦截/警告，此处仅映射）
   if (schema.defs) {
     result.$defs = {};
     for (const [name, defSchema] of Object.entries(schema.defs)) {
@@ -478,6 +478,102 @@ export function validateRecursiveSchema(schema: JsonSchemaDef): void {
       }
     }
   }
+}
+
+/** ref 字段白名单：仅允许 ref + description */
+const REF_ALLOWED_KEYS = new Set(['ref', 'description']);
+
+/**
+ * 校验 ref/defs 的构建期合法性（execPromptSchema 入口调用）
+ *
+ * 规则：
+ * 1. ref 节点白名单：仅允许 ref + description（AJV 中 type 与 $ref 为 AND 语义，绝不混用）
+ * 2. ref 必须指向顶层 defs 中存在的组件（'#/$defs/<name>'）
+ * 3. 组件间循环引用抛异常并附引用链（如 A -> B -> A）；
+ *    自引用递归（组件引用自身，如 TreeNode.children -> TreeNode）合法，AJV 惰性解引用
+ * 4. recursive 机制与 ref/defs 混用抛异常（递归 schema 节点自身，或递归子树的直接字段上出现 ref/defs）
+ * 5. 嵌套层 defs 被忽略 + console.warn（仅顶层 schema 的 defs 有效）
+ *
+ * 实现说明：walk 以 seen 栈追踪当前展开的组件链，currentComponent 为当前所在组件。
+ * ref 指向的组件已在链中时：目标是 currentComponent → 合法自引用，直接返回；
+ * 目标是链中更早的其它组件 → 抛循环引用异常并附完整引用链。
+ *
+ * @param schema 用户原始 def
+ * @throws Error 构建期错误
+ */
+export function validateRefsAndDefs(schema: JsonSchemaDef): void {
+  const prefix = '[StepWise.execPromptSchema]';
+  // 当前正在展开的组件引用链（用于跨组件循环引用检测）
+  const seen: string[] = [];
+
+  const walk = (
+    node: JsonSchemaDef,
+    topDefs: Record<string, JsonSchemaDef> | undefined,
+    inRecursive: boolean,
+    isTop: boolean,
+    currentComponent: string | undefined
+  ): void => {
+    // 规则 4：recursive 机制与 ref/defs 混用（同一 schema 节点，或递归子树的直接字段）
+    if ((node.recursive === true || inRecursive) && (node.ref !== undefined || node.defs !== undefined)) {
+      throw new Error(`${prefix} recursive 机制与 ref/defs 不能在同一 schema 上混用，请改用 defs + $ref 自引用（标准、无限深度）`);
+    }
+
+    // 规则 1：ref 节点白名单（仅 ref + description；type 与 $ref 在 AJV 中为 AND 语义）
+    if (node.ref !== undefined) {
+      const extraKeys = Object.keys(node).filter(k => !REF_ALLOWED_KEYS.has(k));
+      if (extraKeys.length > 0) {
+        throw new Error(`${prefix} ref 字段仅允许 ref + description，发现多余字段: ${extraKeys.join('/')}`);
+      }
+
+      // 规则 2：引用存在性（统一解析到顶层 defs）
+      const refName = node.ref.startsWith('#/$defs/') ? node.ref.slice('#/$defs/'.length) : null;
+      if (!refName || !topDefs || !(refName in topDefs)) {
+        throw new Error(`${prefix} ref "${node.ref}" 指向的组件不存在（顶层 defs 中未定义）`);
+      }
+
+      // 规则 3：循环引用检测（自引用合法，AJV 惰性解引用）
+      if (refName === currentComponent) {
+        return;
+      }
+      if (seen.includes(refName)) {
+        throw new Error(`${prefix} $defs 循环引用: ${[...seen, refName].join(' -> ')}`);
+      }
+      seen.push(refName);
+      walk(topDefs[refName], topDefs, false, false, refName);
+      seen.pop();
+      return;
+    }
+
+    // 规则 5：嵌套层 defs 忽略 + 警告（仅顶层 schema 自身的 defs 有效）
+    if (node.defs !== undefined && !isTop) {
+      console.warn(`[StepWise] 嵌套层的 defs 被忽略（仅顶层 schema 的 defs 有效）: ${Object.keys(node.defs).join(', ')}`);
+    }
+
+    if (node.type === 'object' && node.properties) {
+      for (const propDef of Object.values(node.properties)) {
+        walk(propDef, topDefs, node.recursive === true, false, currentComponent);
+      }
+    }
+    if (node.type === 'array' && node.items) {
+      walk(node.items, topDefs, node.recursive === true, false, currentComponent);
+    }
+    if (node.type === 'array' && node.prefixItems) {
+      for (const c of node.prefixItems) {
+        walk(c, topDefs, node.recursive === true, false, currentComponent);
+      }
+    }
+  };
+
+  // 组件内不允许再嵌套 defs（组件仅可引用顶层 defs）
+  if (schema.defs) {
+    for (const [name, def] of Object.entries(schema.defs)) {
+      if (def.defs !== undefined) {
+        throw new Error(`${prefix} 组件 "${name}" 内不允许嵌套 defs（组件仅可引用顶层 defs）`);
+      }
+    }
+  }
+
+  walk(schema, schema.defs, false, true, undefined);
 }
 
 /**
