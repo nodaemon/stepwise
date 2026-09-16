@@ -138,8 +138,8 @@ prompt 中 `$ref` 是给模型看的标记。模型输出不符合展开结构�
 ### 边界规则
 
 - ref 字段白名单：仅 `ref` + `description`，其它字段出现即抛异常（构建期）
-- 循环引用检测：构建期抛异常，附引用链（如 `A → B → A`）
-- **recursive 机制与 ref/defs 互斥**：同一 schema 混用两套机制抛异常（validateRecursiveSchema 新规则）
+- 循环引用检测：构建期抛异常，附引用链（如 `A → B → A`）；**$defs 内的自引用递归（TreeNode.children → TreeNode）合法**——AJV 惰性解引用，无限深度校验不爆栈
+- **同一字段/schema 上 recursive 机制与 ref/defs 混用抛异常**（validateRecursiveSchema 新规则）；但推荐用法是：递归树节点直接在 defs 里用 `$ref` 自引用（标准、无限深度、结构精确），多处复用同一节点也走 ref。现有 recursive 机制保留向后兼容，新用例引导走 defs/$ref
 - 嵌套层 `defs`：忽略 + console.warn
 - prefixItems / items / properties / recursive 白名单字段内都可用 ref
 
@@ -154,7 +154,7 @@ prompt 中 `$ref` 是给模型看的标记。模型输出不符合展开结构�
 ### 单元测试
 
 - `expandRefs`：循环引用检测及引用链 / ref 白名单拦截 / 嵌套 defs 警告 / 去重视图渲染（$defs 一次 + 引用点标记）
-- `defToStandardSchema`：ref → $ref 映射 / defs → $defs / 与 const/prefixItems/recursive 字段共存
+- `defToStandardSchema`：ref → $ref 映射 / defs → $defs / **$defs 内自引用递归（TreeNode 自引用）** / 与 const/prefixItems 共存
 - 瘦身后 `buildSchemaPrompt`：无「结构说明」小节 / 递归示例单节点 / 紧凑 JSON / $defs 渲染一次
 - `generateRecursiveExample`：单节点 + 占位说明，不再按 maxDepth 展开
 - OutputFormat 路径：buildJsonSchema 支持 PropertyDef ref/defs
