@@ -295,8 +295,18 @@ export function convertToAjvSchema(schema: JsonSchemaDef): JsonSchema {
     type: schema.type,
     ...(schema.description && { description: schema.description }),
     // const 固定值约束透传（AJV 原生关键字）
-    ...(schema.const !== undefined && { const: schema.const })
+    ...(schema.const !== undefined && { const: schema.const }),
+    // ref → 标准 $ref 透传（AJV 惰性解引用，支持自引用递归）
+    ...(schema.ref !== undefined && { $ref: schema.ref })
   };
+
+  // defs → 标准 $defs（仅顶层有效；嵌套层的 defs 在 Task 4 白名单校验中拦截，此处仅映射）
+  if (schema.defs) {
+    result.$defs = {};
+    for (const [name, defSchema] of Object.entries(schema.defs)) {
+      result.$defs[name] = convertToAjvSchema(defSchema);
+    }
+  }
 
   if (schema.type === 'object' && schema.properties) {
     result.properties = {};

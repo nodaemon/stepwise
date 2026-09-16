@@ -83,6 +83,10 @@ export interface PropertyDef {
   description?: string;
   /** 是否必填，默认 true */
   required?: boolean;
+  /** 可复用子结构定义，语义同 JsonSchemaDef.defs（仅顶层 OutputFormat 有效） */
+  defs?: Record<string, PropertyDef>;
+  /** JSON Pointer 引用（如 '#/$defs/Dependency'），语义同 JsonSchemaDef.ref */
+  ref?: string;
 }
 
 /**
@@ -100,8 +104,11 @@ export type OutputFormat = Record<string, PropertyDef>;
  * 用于 execPromptSchema 接口定义输出结构
  */
 export interface JsonSchemaDef {
-  /** 字段类型 */
-  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  /**
+   * 字段类型
+   * ref 引用节点可省略（结构由所引用的 defs 组件决定）
+   */
+  type?: 'string' | 'number' | 'boolean' | 'object' | 'array';
   /** 字段描述（可选） */
   description?: string;
   /**
@@ -148,6 +155,16 @@ export interface JsonSchemaDef {
    * 超过最大深度的节点为叶子节点，递归字段为空数组
    */
   maxDepth?: number;
+  /**
+   * 可复用子结构定义（仅顶层 schema 有效，嵌套层的 defs 被忽略 + console.warn）
+   * 对应 JSON Schema 标准的 $defs；组件可互相 ref（含自引用递归），禁止循环引用（构建期检测）
+   */
+  defs?: Record<string, JsonSchemaDef>;
+  /**
+   * JSON Pointer 引用（如 '#/$defs/Dependency'）
+   * 含 ref 的字段上仅允许 ref + description，其它字段出现即抛异常（白名单校验）
+   */
+  ref?: string;
 }
 
 /**

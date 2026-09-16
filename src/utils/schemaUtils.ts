@@ -11,7 +11,8 @@ const ajv = new Ajv({
  * JSON Schema 类型定义
  */
 export interface JsonSchema {
-  type: string;
+  /** 字段类型（$ref 节点可省略，结构由所引用的 $defs 组件决定） */
+  type?: string;
   properties?: Record<string, JsonSchema | { type: string; description?: string }>;
   required?: string[];
   /** 单值：同构数组元素；数组：draft-07 元组形式（按位置校验） */
@@ -22,6 +23,10 @@ export interface JsonSchema {
   /** 固定值约束（AJV 原生关键字，透传） */
   const?: string | number | boolean;
   description?: string;
+  /** JSON Schema 标准 $defs（AJV 8 原生关键字，透传） */
+  $defs?: Record<string, JsonSchema>;
+  /** JSON Schema 标准 $ref（AJV 8 原生关键字，透传） */
+  $ref?: string;
 }
 
 /**
