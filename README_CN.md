@@ -182,6 +182,30 @@ const tree = await agent.execPromptSchema(
   },
   'dir_tree.json'
 );
+
+// 共享子结构：在 `defs` 中定义一次，通过 `ref` 引用（$defs/$ref）
+// ——重复结构在提示词中只渲染一次并去重
+const wbs = await agent.execPromptSchema(
+  '生成工作分解结构',
+  {
+    type: 'object',
+    defs: {
+      TreeNode: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: '节点编号（WBS-XXX）' },
+          detail: { type: 'string', description: '工作内容' },
+          children: { type: 'array', description: '子节点', items: { ref: '#/$defs/TreeNode' } }
+        }
+      }
+    },
+    properties: {
+      root: { type: 'array', description: '根层节点', items: { ref: '#/$defs/TreeNode' } },
+      riskTree: { ref: '#/$defs/TreeNode', description: '风险树' }
+    }
+  },
+  'wbs.json'
+);
 ```
 
 ### 示例 5：Skill 自动生成
@@ -288,7 +312,7 @@ const r5 = await agent.execPrompt('尝试另一种实现思路', {
 | `execCollectPrompt` | 收集任务 | 收集结构化数据，内置校验和重试 |
 | `execCheckPrompt` | 路由节点 | 检查条件返回 true/false，用于分支路由 |
 | `execReport` | 报告任务 | 生成汇总报告 |
-| `execPromptSchema` | Schema 驱动任务 | 按用户定义的 Schema 输出 JSON（支持任意嵌套与递归树形结构）；返回 `SchemaResult` |
+| `execPromptSchema` | Schema 驱动任务 | 按用户定义的 Schema 输出 JSON（支持任意嵌套、递归树形结构与 `$defs`/`$ref` 共享子结构）；返回 `SchemaResult` |
 | `execShell` | Shell 命令 | 执行 Shell 命令（构建、测试等） |
 | `summarize` | Skill 生成 | 总结会话生成 Skill |
 

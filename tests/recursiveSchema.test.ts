@@ -445,95 +445,57 @@ describe('recursiveSchema 递归树形结构', () => {
 
   // ============ generateSchemaExample 递归测试 ============
   describe('generateSchemaExample (递归)', () => {
-    describe('maxDepth=2 示例', () => {
-      it('应生成两层嵌套，叶子节点 children=[]', () => {
-        const schema: JsonSchemaDef = {
-          type: 'object',
-          recursive: true,
-          recursiveFields: ['children'],
-          maxDepth: 2,
-          properties: {
-            name: { type: 'string' },
-            children: { type: 'array' }
-          }
-        };
+    it('单节点：递归字段为空数组占位', () => {
+      const schema: JsonSchemaDef = {
+        type: 'object',
+        recursive: true,
+        recursiveFields: ['children'],
+        maxDepth: 2,
+        properties: {
+          name: { type: 'string' },
+          children: { type: 'array' }
+        }
+      };
 
-        const example = generateSchemaExample(schema) as Record<string, unknown>;
+      const example = generateSchemaExample(schema) as Record<string, unknown>;
 
-        expect(example.name).toBe('示例字符串');
-        const children = example.children as Record<string, unknown>[];
-        expect(children.length).toBe(1);
-        // 第 2 层（叶子层）
-        expect(children[0].name).toBe('示例字符串');
-        expect(children[0].children).toEqual([]);
-      });
+      expect(example.name).toBe('示例字符串');
+      expect(example.children).toEqual([]);
     });
 
-    describe('maxDepth=1 示例', () => {
-      it('应生成单层，children=[]（叶子）', () => {
-        const schema: JsonSchemaDef = {
-          type: 'object',
-          recursive: true,
-          recursiveFields: ['children'],
-          maxDepth: 1,
-          properties: {
-            name: { type: 'string' },
-            children: { type: 'array' }
-          }
-        };
+    it('多个递归字段都是空数组占位', () => {
+      const schema: JsonSchemaDef = {
+        type: 'object',
+        recursive: true,
+        recursiveFields: ['children', 'subItems'],
+        maxDepth: 2,
+        properties: {
+          name: { type: 'string' },
+          children: { type: 'array' },
+          subItems: { type: 'array' }
+        }
+      };
 
-        const example = generateSchemaExample(schema) as Record<string, unknown>;
+      const example = generateSchemaExample(schema) as Record<string, unknown>;
 
-        expect(example.name).toBe('示例字符串');
-        expect(example.children).toEqual([]);
-      });
+      expect(example.children).toEqual([]);
+      expect(example.subItems).toEqual([]);
     });
 
-    describe('多个递归字段示例', () => {
-      it('children 和 subItems 都应嵌套，叶子层为空数组', () => {
-        const schema: JsonSchemaDef = {
-          type: 'object',
-          recursive: true,
-          recursiveFields: ['children', 'subItems'],
-          maxDepth: 2,
-          properties: {
-            name: { type: 'string' },
-            children: { type: 'array' },
-            subItems: { type: 'array' }
-          }
-        };
+    it('非递归 schema 示例不变', () => {
+      const schema: JsonSchemaDef = {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          count: { type: 'number' }
+        }
+      };
 
-        const example = generateSchemaExample(schema) as Record<string, unknown>;
+      const example = generateSchemaExample(schema);
 
-        expect(example.name).toBe('示例字符串');
-        const children = example.children as Record<string, unknown>[];
-        const subItems = example.subItems as Record<string, unknown>[];
-        expect(children.length).toBe(1);
-        expect(subItems.length).toBe(1);
-        // 叶子层：两个递归字段都是空数组
-        expect(children[0].children).toEqual([]);
-        expect(children[0].subItems).toEqual([]);
-        expect(subItems[0].children).toEqual([]);
-        expect(subItems[0].subItems).toEqual([]);
-      });
-    });
-
-    describe('非递归 schema 示例不变', () => {
-      it('普通 object 示例应与原有逻辑一致', () => {
-        const schema: JsonSchemaDef = {
-          type: 'object',
-          properties: {
-            name: { type: 'string' },
-            count: { type: 'number' }
-          }
-        };
-
-        const example = generateSchemaExample(schema);
-
-        expect(example).toEqual({
-          name: '示例字符串',
-          count: 0
-        });
+      expect(example).toEqual({
+        name: '示例字符串',
+        count: 0
       });
     });
   });
@@ -716,7 +678,6 @@ describe('recursiveSchema 递归树形结构', () => {
 
       const prompt = buildSchemaPrompt(schema, '/path/to/output.json');
 
-      expect(prompt).toContain('递归字段（树形结构）');
       expect(prompt).toContain('children');
     });
 

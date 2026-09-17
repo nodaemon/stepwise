@@ -8,6 +8,7 @@ import {
   SchemaValidationResult,
   JsonSchema
 } from './schemaUtils';
+import { expandRefs } from './schemaUtils';
 
 /** 校验结果 - 直接复用 SchemaValidationResult */
 export type ValidationResult<T = unknown> = SchemaValidationResult<T>;
@@ -295,8 +296,18 @@ export function convertToAjvSchema(schema: JsonSchemaDef): JsonSchema {
     type: schema.type,
     ...(schema.description && { description: schema.description }),
     // const 固定值约束透传（AJV 原生关键字）
-    ...(schema.const !== undefined && { const: schema.const })
+    ...(schema.const !== undefined && { const: schema.const }),
+    // ref → 标准 $ref 透传（AJV 惰性解引用，支持自引用递归）
+    ...(schema.ref !== undefined && { $ref: schema.ref })
   };
+
+  // defs → 标准 $defs（仅顶层有效；嵌套层的 defs 由 validateRefsAndDefs 构建期校验拦截/警告，此处仅映射）
+  if (schema.defs) {
+    result.$defs = {};
+    for (const [name, defSchema] of Object.entries(schema.defs)) {
+      result.$defs[name] = convertToAjvSchema(defSchema);
+    }
+  }
 
   if (schema.type === 'object' && schema.properties) {
     result.properties = {};
@@ -470,6 +481,102 @@ export function validateRecursiveSchema(schema: JsonSchemaDef): void {
   }
 }
 
+/** ref 字段白名单：仅允许 ref + description */
+const REF_ALLOWED_KEYS = new Set(['ref', 'description']);
+
+/**
+ * 校验 ref/defs 的构建期合法性（execPromptSchema 入口调用）
+ *
+ * 规则：
+ * 1. ref 节点白名单：仅允许 ref + description（AJV 中 type 与 $ref 为 AND 语义，绝不混用）
+ * 2. ref 必须指向顶层 defs 中存在的组件（'#/$defs/<name>'）
+ * 3. 组件间循环引用抛异常并附引用链（如 A -> B -> A）；
+ *    自引用递归（组件引用自身，如 TreeNode.children -> TreeNode）合法，AJV 惰性解引用
+ * 4. recursive 机制与 ref/defs 混用抛异常（递归 schema 节点自身，或递归子树的直接字段上出现 ref/defs）
+ * 5. 嵌套层 defs 被忽略 + console.warn（仅顶层 schema 的 defs 有效）
+ *
+ * 实现说明：walk 以 seen 栈追踪当前展开的组件链，currentComponent 为当前所在组件。
+ * ref 指向的组件已在链中时：目标是 currentComponent → 合法自引用，直接返回；
+ * 目标是链中更早的其它组件 → 抛循环引用异常并附完整引用链。
+ *
+ * @param schema 用户原始 def
+ * @throws Error 构建期错误
+ */
+export function validateRefsAndDefs(schema: JsonSchemaDef): void {
+  const prefix = '[StepWise.execPromptSchema]';
+  // 当前正在展开的组件引用链（用于跨组件循环引用检测）
+  const seen: string[] = [];
+
+  const walk = (
+    node: JsonSchemaDef,
+    topDefs: Record<string, JsonSchemaDef> | undefined,
+    inRecursive: boolean,
+    isTop: boolean,
+    currentComponent: string | undefined
+  ): void => {
+    // 规则 4：recursive 机制与 ref/defs 混用（同一 schema 节点，或递归子树的直接字段）
+    if ((node.recursive === true || inRecursive) && (node.ref !== undefined || node.defs !== undefined)) {
+      throw new Error(`${prefix} recursive 机制与 ref/defs 不能在同一 schema 上混用，请改用 defs + $ref 自引用（标准、无限深度）`);
+    }
+
+    // 规则 1：ref 节点白名单（仅 ref + description；type 与 $ref 在 AJV 中为 AND 语义）
+    if (node.ref !== undefined) {
+      const extraKeys = Object.keys(node).filter(k => !REF_ALLOWED_KEYS.has(k));
+      if (extraKeys.length > 0) {
+        throw new Error(`${prefix} ref 字段仅允许 ref + description，发现多余字段: ${extraKeys.join('/')}`);
+      }
+
+      // 规则 2：引用存在性（统一解析到顶层 defs）
+      const refName = node.ref.startsWith('#/$defs/') ? node.ref.slice('#/$defs/'.length) : null;
+      if (!refName || !topDefs || !(refName in topDefs)) {
+        throw new Error(`${prefix} ref "${node.ref}" 指向的组件不存在（顶层 defs 中未定义）`);
+      }
+
+      // 规则 3：循环引用检测（自引用合法，AJV 惰性解引用）
+      if (refName === currentComponent) {
+        return;
+      }
+      if (seen.includes(refName)) {
+        throw new Error(`${prefix} $defs 循环引用: ${[...seen, refName].join(' -> ')}`);
+      }
+      seen.push(refName);
+      walk(topDefs[refName], topDefs, false, false, refName);
+      seen.pop();
+      return;
+    }
+
+    // 规则 5：嵌套层 defs 忽略 + 警告（仅顶层 schema 自身的 defs 有效）
+    if (node.defs !== undefined && !isTop) {
+      console.warn(`[StepWise] 嵌套层的 defs 被忽略（仅顶层 schema 的 defs 有效）: ${Object.keys(node.defs).join(', ')}`);
+    }
+
+    if (node.type === 'object' && node.properties) {
+      for (const propDef of Object.values(node.properties)) {
+        walk(propDef, topDefs, node.recursive === true, false, currentComponent);
+      }
+    }
+    if (node.type === 'array' && node.items) {
+      walk(node.items, topDefs, node.recursive === true, false, currentComponent);
+    }
+    if (node.type === 'array' && node.prefixItems) {
+      for (const c of node.prefixItems) {
+        walk(c, topDefs, node.recursive === true, false, currentComponent);
+      }
+    }
+  };
+
+  // 组件内不允许再嵌套 defs（组件仅可引用顶层 defs）
+  if (schema.defs) {
+    for (const [name, def] of Object.entries(schema.defs)) {
+      if (def.defs !== undefined) {
+        throw new Error(`${prefix} 组件 "${name}" 内不允许嵌套 defs（组件仅可引用顶层 defs）`);
+      }
+    }
+  }
+
+  walk(schema, schema.defs, false, true, undefined);
+}
+
 /**
  * 校验 JSON 内容是否符合 JsonSchemaDef 定义
  * @param content JSON 文件内容字符串
@@ -520,6 +627,9 @@ export function buildSchemaFixPrompt(
   // 生成正确格式示例
   const formatExample = generateSchemaExample(schema);
 
+  // 去重渲染：defs schema 渲染为标准 $defs/$ref 形态（与主 prompt 一致）
+  const schemaJson = expandRefs(schema);
+
   // 递归树形结构特定说明
   let recursiveNote = '';
   if (schema.recursive) {
@@ -541,12 +651,12 @@ ${errorDescriptions}
 ${recursiveNote}
 ## 期望的 Schema 结构
 \`\`\`json
-${JSON.stringify(schema, null, 2)}
+${schemaJson}
 \`\`\`
 
 ## 正确格式示例
 \`\`\`json
-${JSON.stringify(formatExample, null, 2)}
+${JSON.stringify(formatExample)}
 \`\`\`
 
 ## 修复要求
@@ -554,13 +664,13 @@ ${JSON.stringify(formatExample, null, 2)}
 2. 根据错误信息修复 JSON 格式
 3. 确保输出直接符合 Schema 结构（不要额外包裹）
 4. 修复后重新写入文件
-5. 使用 Read 工具验证修复结果`;
+5. 使用 Read 工具验证修复结果${schema.defs ? `\n6. "$ref" 引用按名称回查上方 $defs 中的公共子结构定义，修复时按其结构展开，不要在输出中重复定义这些结构` : ''}`;
 }
 
 /**
  * 生成 Schema 示例数据
  * 用于 buildSchemaFixPrompt 和 buildSchemaPrompt 中的示例展示
- * 支持递归树形结构：按最大深度展开，叶子节点递归字段为空数组
+ * 支持递归树形结构：递归 schema 返回单节点，递归字段为空数组占位（不再按 maxDepth 展开整棵树）
  */
 export function generateSchemaExample(schema: JsonSchemaDef, currentDepth?: number): unknown {
   // 递归树形结构处理
@@ -610,31 +720,24 @@ export function generateSchemaExample(schema: JsonSchemaDef, currentDepth?: numb
 }
 
 /**
- * 生成递归树形结构的示例数据
+ * 生成递归树形结构的示例数据（单节点形态）
+ *
+ * 递归字段不再按 maxDepth 展开整棵树，而是以空数组占位，
+ * 避免示例体积随 maxDepth 爆炸；叶子节点空数组要求与之一致。
  *
  * @param nodeSchema 递归节点 schema
- * @param maxDepth 最大递归深度
- * @param currentDepth 当前深度（从 1 开始）
  * @returns 示例数据对象
  */
 function generateRecursiveExample(nodeSchema: JsonSchemaDef, maxDepth: number, currentDepth: number): Record<string, unknown> {
   const obj: Record<string, unknown> = {};
   const recursiveFields = nodeSchema.recursiveFields || [];
-  const isLeafLayer = currentDepth >= maxDepth;
 
   if (nodeSchema.properties) {
     for (const [name, propDef] of Object.entries(nodeSchema.properties)) {
       if (recursiveFields.includes(name)) {
-        // 递归字段
-        if (isLeafLayer) {
-          // 叶子节点：递归字段为空数组
-          obj[name] = [];
-        } else {
-          // 中间节点：递归字段包含下一层节点
-          obj[name] = [generateRecursiveExample(nodeSchema, maxDepth, currentDepth + 1)];
-        }
+        // 单节点形态：递归字段为空数组占位（不再按 maxDepth 展开整棵树，避免示例体积爆炸）
+        obj[name] = [];
       } else {
-        // 非递归字段：正常生成
         obj[name] = generateSchemaExample(propDef);
       }
     }

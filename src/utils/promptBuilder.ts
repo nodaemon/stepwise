@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 import { OutputFormat, PropertyDef, JsonSchemaDef } from '../types';
-import { buildJsonSchema, getFirstRequiredField } from './schemaUtils';
+import { buildJsonSchema, getFirstRequiredField, expandRefs } from './schemaUtils';
 import { generateSchemaExample } from './validator';
 
 /**
@@ -67,7 +67,7 @@ ${introText}，并写入到 ${outputFileName} 文件中：
 ## 输出格式（JSON Schema）
 
 \`\`\`json
-${JSON.stringify(schema, null, 2)}
+${JSON.stringify(schema)}
 \`\`\`
 
 ## 禁止的格式
@@ -384,6 +384,9 @@ export function buildFileAccessPrompt(
 
 // ============ Schema 输出提示词相关函数 ============
 
+// expandRefs 实现在 schemaUtils.ts（validator.ts 也要用，避免 promptBuilder → validator 循环依赖）；此处 re-export 保持原 import 路径兼容
+export { expandRefs };
+
 /**
  * 递归检测 schema 树中是否存在 prefixItems 元组定义
  */
@@ -450,7 +453,6 @@ export function buildSchemaPrompt(
   outputFileName: string,
   cwd?: string
 ): string {
-  const schemaDescription = generateSchemaDescription(schema);
   const formatExample = generateSchemaExample(schema);
 
   const requirements: string[] = [
@@ -488,6 +490,12 @@ export function buildSchemaPrompt(
     nextReqIndex++;
   }
 
+  // defs 存在时追加 $ref 回查引导（序号顺延）
+  if (schema.defs) {
+    requirements.push(`${nextReqIndex}. "$ref" 引用按名称回查上方 $defs 中的公共子结构定义，输出时按其结构展开，不要在输出中重复定义这些结构`);
+    nextReqIndex++;
+  }
+
   const dirWarning = getDirWarning(cwd, outputFileName);
   if (dirWarning) {
     requirements.push(dirWarning);
@@ -498,23 +506,22 @@ export function buildSchemaPrompt(
     ? '- ❌ { "data": { ... } }\n- ❌ { "result": { ... } }'
     : '- ❌ { "items": [...] }\n- ❌ { "results": [...] }';
 
+  // defs 存在时走去重渲染（$defs 一次 + 引用点 $ref 标记）
+  const schemaJson = expandRefs(schema);
+
   return `
 请按照以下 Schema 结构输出数据，并写入到 ${outputFileName} 文件中：
 
 ## 输出 Schema
 
 \`\`\`json
-${JSON.stringify(schema, null, 2)}
+${schemaJson}
 \`\`\`
-
-## 结构说明
-
-${schemaDescription}
 
 ## 正确格式示例
 
 \`\`\`json
-${JSON.stringify(formatExample, null, 2)}
+${JSON.stringify(formatExample)}
 \`\`\`
 
 ## 禁止的格式

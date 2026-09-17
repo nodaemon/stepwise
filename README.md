@@ -183,6 +183,30 @@ const tree = await agent.execPromptSchema(
   },
   'dir_tree.json'
 );
+
+// Shared subschemas: define once in `defs`, reference via `ref` ($defs/$ref)
+// — repeated structures are rendered once and deduplicated in the prompt
+const wbs = await agent.execPromptSchema(
+  'Generate a work breakdown structure',
+  {
+    type: 'object',
+    defs: {
+      TreeNode: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Node ID (WBS-XXX)' },
+          detail: { type: 'string', description: 'Work description' },
+          children: { type: 'array', description: 'Child nodes', items: { ref: '#/$defs/TreeNode' } }
+        }
+      }
+    },
+    properties: {
+      root: { type: 'array', description: 'Root nodes', items: { ref: '#/$defs/TreeNode' } },
+      riskTree: { ref: '#/$defs/TreeNode', description: 'Risk tree' }
+    }
+  },
+  'wbs.json'
+);
 ```
 
 ### Example 5: Skill Auto-Generation
@@ -293,7 +317,7 @@ const r5 = await agent.execPrompt('Try an alternative implementation approach', 
 | `execCollectPrompt` | Collection task | Collect structured data with built-in validation and retry |
 | `execCheckPrompt` | Routing node | Check condition and return true/false for branch routing |
 | `execReport` | Report task | Generate summary report |
-| `execPromptSchema` | Schema-driven task | Output JSON conforming to a user-defined schema (arbitrary nesting + recursive trees); returns `SchemaResult` |
+| `execPromptSchema` | Schema-driven task | Output JSON conforming to a user-defined schema (arbitrary nesting + recursive trees + `$defs`/`$ref` shared subschemas); returns `SchemaResult` |
 | `execShell` | Shell command | Execute Shell commands (build, test, etc.) |
 | `summarize` | Skill generation | Summarize session and generate Skill |
 
