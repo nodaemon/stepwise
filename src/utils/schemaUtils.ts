@@ -1,5 +1,5 @@
 import Ajv, { ErrorObject } from 'ajv';
-import { OutputFormat } from '../types';
+import { OutputFormat, PropertyDef } from '../types';
 
 // 创建 AJV 实例（单例）
 const ajv = new Ajv({
@@ -59,17 +59,44 @@ export interface SchemaValidationResult<T> {
  * 将 OutputFormat 转换为 JSON Schema
  * @param format 输出格式定义（直接是 Record<string, PropertyDef>）
  * @returns JSON Schema 对象
+ * @remarks OutputFormat 是扁平的 Record<string, PropertyDef>，没有顶层容器的位置放 $defs。
+ * 约定：任一字段携带 defs 时，合并进产物的 $defs（多字段都带 defs 时按序合并，
+ * 重名后者优先并 console.warn）。字段携带 ref 时透传为标准 $ref（仅发射 $ref 节点，
+ * 不带 type —— AJV 中 type + $ref 是 AND 语义）。因 PropertyDef 无 items 槽位，
+ * array 字段收集的 defs 组件按"数组元素"语义包装为 { type: 'array', items: ... }，
+ * 使属性层 $ref 解析后可直接校验数组数据。
  */
 export function buildJsonSchema(format: OutputFormat): JsonSchema {
   const required: string[] = [];
-  const properties: Record<string, { type: string; description?: string }> = {};
+  const properties: Record<string, JsonSchema | { type: string; description?: string }> = {};
+  const collectedDefs: Record<string, JsonSchema> = {};
 
   for (const [name, def] of Object.entries(format)) {
-    properties[name] = {
-      type: def.type,
-      ...(def.description && { description: def.description })
-    };
-    // required 默认为 true，只有显式设置为 false 时才不是必填
+    // ref 透传为标准 $ref（AJV 8 原生支持）
+    if (def.ref !== undefined) {
+      properties[name] = { $ref: def.ref };
+    } else {
+      properties[name] = {
+        type: def.type,
+        ...(def.description && { description: def.description })
+      };
+    }
+
+    // 字段携带 defs 时收集合并（仅顶层 OutputFormat 有效）
+    if (def.defs) {
+      for (const [defName, defSchema] of Object.entries(def.defs)) {
+        if (defName in collectedDefs) {
+          console.warn(`[StepWise] OutputFormat 多个字段定义了同名 defs "${defName}"，后者覆盖前者`);
+        }
+        const converted = propertyDefToAjvSchema(defSchema);
+        // PropertyDef 无 items 槽位：array 字段的 defs 组件按"数组元素"语义包装，
+        // 使属性层 $ref（如 '#/$defs/Dep'）解析后可直接校验数组数据
+        collectedDefs[defName] = def.type === 'array'
+          ? { type: 'array', items: converted }
+          : converted;
+      }
+    }
+
     if (def.required !== false) {
       required.push(name);
     }
@@ -81,8 +108,42 @@ export function buildJsonSchema(format: OutputFormat): JsonSchema {
       type: 'object',
       properties,
       ...(required.length > 0 && { required })
-    }
+    },
+    ...(Object.keys(collectedDefs).length > 0 && { $defs: collectedDefs })
   };
+}
+
+/** PropertyDef → AJV JSON Schema（处理嵌套 ref/defs，供 buildJsonSchema 的 defs 组件转换） */
+function propertyDefToAjvSchema(def: PropertyDef): JsonSchema {
+  if (def.ref !== undefined) {
+    return { $ref: def.ref };
+  }
+  if (def.type === 'array') {
+    // PropertyDef 无 items 概念（扁平结构），array 视为 string[] 兜底
+    return { type: 'array', items: { type: 'string' } };
+  }
+  if (def.type === 'object') {
+    // 嵌套 properties 存在时递归转换（与 buildJsonSchema 同样的 ref/defs 约定）；
+    // PropertyDef 类型本身无 properties 槽位，调用方以扩展字段传入，此处经局部类型收窄读取
+    const nested = (def as PropertyDef & { properties?: Record<string, PropertyDef> }).properties;
+    if (nested) {
+      const nestedProps: Record<string, JsonSchema> = {};
+      const nestedRequired: string[] = [];
+      for (const [n, pd] of Object.entries(nested)) {
+        nestedProps[n] = propertyDefToAjvSchema(pd);
+        if (pd.required !== false) {
+          nestedRequired.push(n);
+        }
+      }
+      return {
+        type: 'object',
+        properties: nestedProps,
+        ...(nestedRequired.length > 0 && { required: nestedRequired })
+      };
+    }
+    return { type: 'object' };
+  }
+  return { type: def.type, ...(def.description && { description: def.description }) };
 }
 
 /**

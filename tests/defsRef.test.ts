@@ -1,5 +1,5 @@
 import { JsonSchemaDef, OutputFormat } from '../src/types';
-import { buildJsonSchema } from '../src/utils/schemaUtils';
+import { buildJsonSchema, validateAgainstSchema } from '../src/utils/schemaUtils';
 import { convertToAjvSchema, validateJsonBySchema, validateRefsAndDefs } from '../src/utils/validator';
 import { StepWise } from '../src/StepWise';
 import { setTaskName, _resetState } from '../src/globalState';
@@ -82,6 +82,39 @@ describe('defs/ref 类型扩展', () => {
     // buildJsonSchema 的 ref 支持在 Task 3 实现；本测试先锁定类型层不报错
     const schema = buildJsonSchema(format);
     expect(schema).toBeDefined();
+  });
+});
+
+describe('buildJsonSchema 支持 PropertyDef ref/defs', () => {
+  test('ref 映射为 $ref，defs 映射为 $defs', () => {
+    const format: OutputFormat = {
+      deps: { type: 'array', ref: '#/$defs/Dep' },
+      name: { type: 'string' }
+    };
+    const schema: any = buildJsonSchema(format as any);
+    // buildJsonSchema 本身不做 defs 承载——defs 挂在 OutputFormat 顶层无法表达，
+    // 约定：OutputFormat 路径的 defs 定义在首个字段的 defs 上（或直接使用 JsonSchemaDef 路径）
+    // 此处只断言 ref 透传
+    expect(schema.items.properties.deps.$ref).toBe('#/$defs/Dep');
+  });
+
+  test('字段携带 defs 时合并进产物 $defs，AJV 可校验', () => {
+    const format: OutputFormat = {
+      deps: {
+        type: 'array',
+        ref: '#/$defs/Dep',
+        defs: { Dep: { type: 'object', properties: { module: { type: 'string' } } } }
+      } as any,
+      name: { type: 'string' }
+    };
+    const schema: any = buildJsonSchema(format as any);
+    expect(schema.$defs.Dep).toBeDefined();
+    expect(schema.items.properties.deps.$ref).toBe('#/$defs/Dep');
+
+    const ok = [{ deps: [{ module: 'a' }], name: 'x' }];
+    expect(validateAgainstSchema(ok, schema).valid).toBe(true);
+    const bad = [{ deps: [{ module: 1 }], name: 'x' }];
+    expect(validateAgainstSchema(bad, schema).valid).toBe(false);
   });
 });
 
