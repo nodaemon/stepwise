@@ -361,3 +361,73 @@ describe('expandRefs 去重视图', () => {
     expect(prompt).toContain('按名称回查');
   });
 });
+
+describe('端到端：defs 定义递归节点 + 多处 ref 引用', () => {
+  beforeEach(() => {
+    _resetState();
+    setTaskName('DefsRefE2E');
+  });
+
+  test('用户场景：wbs/riskTree 引用同一递归 TreeNode，构建期不抛错且 prompt 含 $defs', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const agent = new StepWise('DefsRefE2EAgent');
+
+    const schema: JsonSchemaDef = {
+      type: 'object',
+      description: 'WBS 分析',
+      defs: {
+        TreeNode: {
+          type: 'object',
+          description: '树节点',
+          properties: {
+            id: { type: 'string', description: '节点编号' },
+            detail: { type: 'string', description: '工作内容' },
+            children: { type: 'array', description: '子节点', items: { ref: '#/$defs/TreeNode' } }
+          }
+        }
+      },
+      properties: {
+        wbs: { type: 'array', description: '工作树', items: { ref: '#/$defs/TreeNode' } },
+        riskTree: { ref: '#/$defs/TreeNode', description: '风险树' }
+      }
+    };
+
+    // 构建期校验通过（执行被 mock，不真正跑 agent）
+    const prompt = buildSchemaPrompt(schema, '/tmp/e2e.json');
+    expect(prompt).toContain('$defs');
+    expect(prompt).toContain('TreeNode');
+
+    // 去重生效：TreeNode 组件全文只出现一次
+    const rendered = expandRefs(schema);
+    expect((rendered.match(/"TreeNode":/g) || []).length).toBe(1);
+
+    warnSpy.mockRestore();
+  });
+
+  test('AJV 校验该 schema 的真实数据（合法/违规路径）', () => {
+    const schema: JsonSchemaDef = {
+      type: 'object',
+      defs: {
+        TreeNode: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            children: { type: 'array', items: { ref: '#/$defs/TreeNode' } }
+          }
+        }
+      },
+      properties: {
+        wbs: { type: 'array', items: { ref: '#/$defs/TreeNode' } }
+      }
+    };
+
+    const ok = { wbs: [{ id: '1', children: [{ id: '1.1', children: [] }] }] };
+    expect(validateJsonBySchema(JSON.stringify(ok), schema).valid).toBe(true);
+
+    const bad = { wbs: [{ id: 1, children: [] }] };
+    const badResult = validateJsonBySchema(JSON.stringify(bad), schema);
+    expect(badResult.valid).toBe(false);
+    // 错误路径指向引用展开位置
+    expect(badResult.errors[0].path).toBe('/wbs/0/id');
+  });
+});
