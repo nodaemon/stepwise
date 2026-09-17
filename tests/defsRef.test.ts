@@ -1,7 +1,7 @@
 import { JsonSchemaDef, OutputFormat } from '../src/types';
 import { buildSchemaPrompt } from '../src/utils/promptBuilder';
 import { buildJsonSchema, validateAgainstSchema } from '../src/utils/schemaUtils';
-import { convertToAjvSchema, validateJsonBySchema, validateRefsAndDefs } from '../src/utils/validator';
+import { convertToAjvSchema, validateJsonBySchema, validateRefsAndDefs, generateSchemaExample, buildSchemaFixPrompt } from '../src/utils/validator';
 import { StepWise } from '../src/StepWise';
 import { setTaskName, _resetState } from '../src/globalState';
 
@@ -253,5 +253,58 @@ describe('buildSchemaPrompt 瘦身', () => {
     // 经验断言：防回归阈值，非精确值
     const prompt = buildSchemaPrompt(schema, '/tmp/out.json');
     expect(prompt.length).toBeLessThan(1200);
+  });
+});
+
+describe('递归示例单节点化', () => {
+  const schema: JsonSchemaDef = {
+    type: 'object',
+    recursive: true,
+    recursiveFields: ['children'],
+    maxDepth: 8,
+    properties: {
+      id: { type: 'string', description: '节点编号' },
+      detail: { type: 'string', description: '工作内容' },
+      children: { type: 'array' }
+    }
+  };
+
+  test('单节点：递归字段为占位数组而非按 maxDepth 展开', () => {
+    const example = generateSchemaExample(schema) as any;
+    expect(example.id).toBe('节点编号');
+    // 占位：空数组（单节点形态）
+    expect(example.children).toEqual([]);
+  });
+
+  test('示例体积不随 maxDepth 增长', () => {
+    const s1 = { ...schema, maxDepth: 2 };
+    const s2 = { ...schema, maxDepth: 8 };
+    const len1 = JSON.stringify(generateSchemaExample(s1)).length;
+    const len2 = JSON.stringify(generateSchemaExample(s2)).length;
+    expect(len1).toBe(len2);
+  });
+
+  test('多个递归字段都是占位数组', () => {
+    const multi: JsonSchemaDef = {
+      type: 'object',
+      recursive: true,
+      recursiveFields: ['children', 'subItems'],
+      maxDepth: 5,
+      properties: {
+        name: { type: 'string' },
+        children: { type: 'array' },
+        subItems: { type: 'array' }
+      }
+    };
+    const example = generateSchemaExample(multi) as any;
+    expect(example.children).toEqual([]);
+    expect(example.subItems).toEqual([]);
+  });
+
+  test('buildSchemaFixPrompt 的示例同样单节点化', () => {
+    const errors = [{ path: '/children/0', message: 'should be object', keyword: 'type', params: {}, data: 'x' }];
+    const prompt = buildSchemaFixPrompt(errors, '/f.json', schema);
+    // 不含多层嵌套示例（maxDepth=8 若展开会非常长）
+    expect(prompt.length).toBeLessThan(2500);
   });
 });

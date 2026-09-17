@@ -716,31 +716,24 @@ export function generateSchemaExample(schema: JsonSchemaDef, currentDepth?: numb
 }
 
 /**
- * 生成递归树形结构的示例数据
+ * 生成递归树形结构的示例数据（单节点形态）
+ *
+ * 递归字段不再按 maxDepth 展开整棵树，而是以空数组占位，
+ * 避免示例体积随 maxDepth 爆炸；叶子节点空数组要求与之一致。
  *
  * @param nodeSchema 递归节点 schema
- * @param maxDepth 最大递归深度
- * @param currentDepth 当前深度（从 1 开始）
  * @returns 示例数据对象
  */
 function generateRecursiveExample(nodeSchema: JsonSchemaDef, maxDepth: number, currentDepth: number): Record<string, unknown> {
   const obj: Record<string, unknown> = {};
   const recursiveFields = nodeSchema.recursiveFields || [];
-  const isLeafLayer = currentDepth >= maxDepth;
 
   if (nodeSchema.properties) {
     for (const [name, propDef] of Object.entries(nodeSchema.properties)) {
       if (recursiveFields.includes(name)) {
-        // 递归字段
-        if (isLeafLayer) {
-          // 叶子节点：递归字段为空数组
-          obj[name] = [];
-        } else {
-          // 中间节点：递归字段包含下一层节点
-          obj[name] = [generateRecursiveExample(nodeSchema, maxDepth, currentDepth + 1)];
-        }
+        // 单节点形态：递归字段为空数组占位（不再按 maxDepth 展开整棵树，避免示例体积爆炸）
+        obj[name] = [];
       } else {
-        // 非递归字段：正常生成
         obj[name] = generateSchemaExample(propDef);
       }
     }
