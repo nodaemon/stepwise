@@ -1,5 +1,5 @@
 import Ajv, { ErrorObject } from 'ajv';
-import { OutputFormat, PropertyDef } from '../types';
+import { OutputFormat, PropertyDef, JsonSchemaDef } from '../types';
 
 // 创建 AJV 实例（单例）
 const ajv = new Ajv({
@@ -144,6 +144,60 @@ function propertyDefToAjvSchema(def: PropertyDef): JsonSchema {
     return { type: 'object' };
   }
   return { type: def.type, ...(def.description && { description: def.description }) };
+}
+
+/**
+ * 生成 schema 的去重渲染 JSON
+ * 含 defs 时：$defs 组件全文渲染一次，引用点保留 $ref 标记（模型按名称回查 $defs）
+ * 不含 defs 时：等价 JSON.stringify(schema)
+ * 注意：ref 在渲染时保持 '#/$defs/X' 原样（与标准 JSON Schema 一致），
+ * 但键名 ref → $ref 以匹配模型熟悉的引用语法
+ *
+ * @param schema 用户原始 def（含 defs/ref 简写）
+ * @returns 去重后的紧凑 JSON 字符串
+ */
+export function expandRefs(schema: JsonSchemaDef): string {
+  if (!schema.defs) {
+    return JSON.stringify(schema);
+  }
+
+  const { defs, ...rest } = schema;
+
+  const toStandard = (node: JsonSchemaDef): Record<string, unknown> => {
+    const out: Record<string, unknown> = {};
+    if (node.ref !== undefined) {
+      out.$ref = node.ref;
+      if (node.description) out.description = node.description;
+      return out;
+    }
+    for (const [k, v] of Object.entries(node)) {
+      if (k === 'type' || k === 'description' || k === 'properties' ||
+          k === 'required' || k === 'items' || k === 'prefixItems' ||
+          k === 'const' || k === 'recursive' || k === 'recursiveFields' || k === 'maxDepth') {
+        if (k === 'properties' && v && typeof v === 'object') {
+          const props: Record<string, unknown> = {};
+          for (const [pn, pd] of Object.entries(v as Record<string, JsonSchemaDef>)) {
+            props[pn] = toStandard(pd);
+          }
+          out.properties = props;
+        } else if (k === 'items' && v && typeof v === 'object') {
+          out.items = toStandard(v as JsonSchemaDef);
+        } else if (k === 'prefixItems' && Array.isArray(v)) {
+          out.prefixItems = v.map(c => toStandard(c));
+        } else {
+          out[k] = v;
+        }
+      }
+    }
+    return out;
+  };
+
+  const standardDefs: Record<string, unknown> = {};
+  for (const [name, def] of Object.entries(defs)) {
+    standardDefs[name] = toStandard(def);
+  }
+
+  return JSON.stringify({ ...toStandard(rest), $defs: standardDefs });
 }
 
 /**

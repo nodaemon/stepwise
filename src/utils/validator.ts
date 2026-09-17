@@ -8,6 +8,7 @@ import {
   SchemaValidationResult,
   JsonSchema
 } from './schemaUtils';
+import { expandRefs } from './schemaUtils';
 
 /** 校验结果 - 直接复用 SchemaValidationResult */
 export type ValidationResult<T = unknown> = SchemaValidationResult<T>;
@@ -626,6 +627,9 @@ export function buildSchemaFixPrompt(
   // 生成正确格式示例
   const formatExample = generateSchemaExample(schema);
 
+  // 去重渲染：defs schema 渲染为标准 $defs/$ref 形态（与主 prompt 一致）
+  const schemaJson = expandRefs(schema);
+
   // 递归树形结构特定说明
   let recursiveNote = '';
   if (schema.recursive) {
@@ -647,12 +651,12 @@ ${errorDescriptions}
 ${recursiveNote}
 ## 期望的 Schema 结构
 \`\`\`json
-${JSON.stringify(schema, null, 2)}
+${schemaJson}
 \`\`\`
 
 ## 正确格式示例
 \`\`\`json
-${JSON.stringify(formatExample, null, 2)}
+${JSON.stringify(formatExample)}
 \`\`\`
 
 ## 修复要求
@@ -660,13 +664,13 @@ ${JSON.stringify(formatExample, null, 2)}
 2. 根据错误信息修复 JSON 格式
 3. 确保输出直接符合 Schema 结构（不要额外包裹）
 4. 修复后重新写入文件
-5. 使用 Read 工具验证修复结果`;
+5. 使用 Read 工具验证修复结果${schema.defs ? `\n6. "$ref" 引用按名称回查上方 $defs 中的公共子结构定义，修复时按其结构展开，不要在输出中重复定义这些结构` : ''}`;
 }
 
 /**
  * 生成 Schema 示例数据
  * 用于 buildSchemaFixPrompt 和 buildSchemaPrompt 中的示例展示
- * 支持递归树形结构：按最大深度展开，叶子节点递归字段为空数组
+ * 支持递归树形结构：递归 schema 返回单节点，递归字段为空数组占位（不再按 maxDepth 展开整棵树）
  */
 export function generateSchemaExample(schema: JsonSchemaDef, currentDepth?: number): unknown {
   // 递归树形结构处理

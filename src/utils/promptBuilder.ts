@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 import { OutputFormat, PropertyDef, JsonSchemaDef } from '../types';
-import { buildJsonSchema, getFirstRequiredField } from './schemaUtils';
+import { buildJsonSchema, getFirstRequiredField, expandRefs } from './schemaUtils';
 import { generateSchemaExample } from './validator';
 
 /**
@@ -384,59 +384,8 @@ export function buildFileAccessPrompt(
 
 // ============ Schema 输出提示词相关函数 ============
 
-/**
- * 生成 schema 的去重渲染 JSON
- * 含 defs 时：$defs 组件全文渲染一次，引用点保留 $ref 标记（模型按名称回查 $defs）
- * 不含 defs 时：等价 JSON.stringify(schema)
- * 注意：ref 在渲染时保持 '#/$defs/X' 原样（与标准 JSON Schema 一致），
- * 但键名 ref → $ref 以匹配模型熟悉的引用语法
- *
- * @param schema 用户原始 def（含 defs/ref 简写）
- * @returns 去重后的紧凑 JSON 字符串
- */
-export function expandRefs(schema: JsonSchemaDef): string {
-  if (!schema.defs) {
-    return JSON.stringify(schema);
-  }
-
-  const { defs, ...rest } = schema;
-
-  const toStandard = (node: JsonSchemaDef): Record<string, unknown> => {
-    const out: Record<string, unknown> = {};
-    if (node.ref !== undefined) {
-      out.$ref = node.ref;
-      if (node.description) out.description = node.description;
-      return out;
-    }
-    for (const [k, v] of Object.entries(node)) {
-      if (k === 'type' || k === 'description' || k === 'properties' ||
-          k === 'required' || k === 'items' || k === 'prefixItems' ||
-          k === 'const' || k === 'recursive' || k === 'recursiveFields' || k === 'maxDepth') {
-        if (k === 'properties' && v && typeof v === 'object') {
-          const props: Record<string, unknown> = {};
-          for (const [pn, pd] of Object.entries(v as Record<string, JsonSchemaDef>)) {
-            props[pn] = toStandard(pd);
-          }
-          out.properties = props;
-        } else if (k === 'items' && v && typeof v === 'object') {
-          out.items = toStandard(v as JsonSchemaDef);
-        } else if (k === 'prefixItems' && Array.isArray(v)) {
-          out.prefixItems = v.map(c => toStandard(c));
-        } else {
-          out[k] = v;
-        }
-      }
-    }
-    return out;
-  };
-
-  const standardDefs: Record<string, unknown> = {};
-  for (const [name, def] of Object.entries(defs)) {
-    standardDefs[name] = toStandard(def);
-  }
-
-  return JSON.stringify({ ...toStandard(rest), $defs: standardDefs });
-}
+// expandRefs 实现在 schemaUtils.ts（validator.ts 也要用，避免 promptBuilder → validator 循环依赖）；此处 re-export 保持原 import 路径兼容
+export { expandRefs };
 
 /**
  * 递归检测 schema 树中是否存在 prefixItems 元组定义

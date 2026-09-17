@@ -309,6 +309,53 @@ describe('递归示例单节点化', () => {
   });
 });
 
+describe('buildSchemaFixPrompt 与主 prompt 对齐（紧凑 + $defs/$ref 渲染）', () => {
+  const errors = [{ path: '/wbs/0/id', message: 'must be string', keyword: 'type', params: {}, data: 1 }];
+
+  test('defs schema：渲染标准 $defs/$ref 形态并含回查引导语', () => {
+    const schema: JsonSchemaDef = {
+      type: 'object',
+      defs: {
+        TreeNode: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            children: { type: 'array', items: { ref: '#/$defs/TreeNode' } }
+          }
+        }
+      },
+      properties: {
+        wbs: { type: 'array', items: { ref: '#/$defs/TreeNode' } }
+      }
+    };
+    const prompt = buildSchemaFixPrompt(errors, '/f.json', schema);
+    expect(prompt).toContain('"$defs"');
+    expect(prompt).toContain('"$ref":"#/$defs/TreeNode"');
+    // 不泄漏 ref/defs 简写键
+    expect(prompt).not.toContain('"ref"');
+    expect(prompt).not.toContain('"defs"');
+    // 回查引导语（修复要求第 6 条）
+    expect(prompt).toContain('按名称回查上方 $defs');
+  });
+
+  test('无 defs schema：不含回查引导语，schema 为紧凑 JSON', () => {
+    const schema: JsonSchemaDef = {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: '名称' },
+        count: { type: 'number' }
+      }
+    };
+    const prompt = buildSchemaFixPrompt(errors, '/f.json', schema);
+    expect(prompt).not.toContain('按名称回查');
+    // 紧凑：无缩进换行形态
+    expect(prompt).toContain(JSON.stringify(schema));
+    expect(prompt).not.toContain(JSON.stringify(schema, null, 2));
+    // 示例同为紧凑格式
+    expect(prompt).not.toMatch(/\n\s+"name"/);
+  });
+});
+
 describe('expandRefs 去重视图', () => {
   test('$defs 组件只渲染一次，引用点为 $ref 标记', () => {
     const schema: JsonSchemaDef = {
