@@ -1,5 +1,5 @@
 import { JsonSchemaDef, OutputFormat } from '../src/types';
-import { buildSchemaPrompt } from '../src/utils/promptBuilder';
+import { expandRefs, buildSchemaPrompt } from '../src/utils/promptBuilder';
 import { buildJsonSchema, validateAgainstSchema } from '../src/utils/schemaUtils';
 import { convertToAjvSchema, validateJsonBySchema, validateRefsAndDefs, generateSchemaExample, buildSchemaFixPrompt } from '../src/utils/validator';
 import { StepWise } from '../src/StepWise';
@@ -306,5 +306,58 @@ describe('递归示例单节点化', () => {
     const prompt = buildSchemaFixPrompt(errors, '/f.json', schema);
     // 不含多层嵌套示例（maxDepth=8 若展开会非常长）
     expect(prompt.length).toBeLessThan(2500);
+  });
+});
+
+describe('expandRefs 去重视图', () => {
+  test('$defs 组件只渲染一次，引用点为 $ref 标记', () => {
+    const schema: JsonSchemaDef = {
+      type: 'object',
+      description: '模块全景',
+      defs: {
+        Dependency: {
+          type: 'object',
+          properties: { module: { type: 'string' }, kind: { type: 'string' } }
+        }
+      },
+      properties: {
+        deps: { type: 'array', items: { ref: '#/$defs/Dependency' } },
+        devDeps: { type: 'array', items: { ref: '#/$defs/Dependency' } },
+        peerDeps: { type: 'array', items: { ref: '#/$defs/Dependency' } }
+      }
+    };
+    const rendered = expandRefs(schema);
+    const parsed = JSON.parse(rendered);
+    // $defs 出现且仅一次
+    expect(parsed.$defs.Dependency).toBeDefined();
+    // 引用点为 $ref
+    expect(parsed.properties.deps.items.$ref).toBe('#/$defs/Dependency');
+    // 组件全文只出现一次（去重生效）
+    const occurrences = (rendered.match(/"Dependency":/g) || []).length;
+    expect(occurrences).toBe(1);
+  });
+
+  test('不含 defs 的 schema 渲染为紧凑 JSON（与原行为一致）', () => {
+    const schema: JsonSchemaDef = {
+      type: 'object',
+      properties: { name: { type: 'string' } }
+    };
+    expect(expandRefs(schema)).toBe(JSON.stringify(schema));
+  });
+
+  test('buildSchemaPrompt 对含 defs 的 schema 渲染 $defs 引导语', () => {
+    const schema: JsonSchemaDef = {
+      type: 'object',
+      defs: {
+        Dep: { type: 'object', properties: { module: { type: 'string' } } }
+      },
+      properties: {
+        deps: { type: 'array', items: { ref: '#/$defs/Dep' } }
+      }
+    };
+    const prompt = buildSchemaPrompt(schema, '/tmp/out.json');
+    expect(prompt).toContain('$defs');
+    expect(prompt).toContain('$ref');
+    expect(prompt).toContain('按名称回查');
   });
 });

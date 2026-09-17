@@ -385,6 +385,60 @@ export function buildFileAccessPrompt(
 // ============ Schema 输出提示词相关函数 ============
 
 /**
+ * 生成 schema 的去重渲染 JSON
+ * 含 defs 时：$defs 组件全文渲染一次，引用点保留 $ref 标记（模型按名称回查 $defs）
+ * 不含 defs 时：等价 JSON.stringify(schema)
+ * 注意：ref 在渲染时保持 '#/$defs/X' 原样（与标准 JSON Schema 一致），
+ * 但键名 ref → $ref 以匹配模型熟悉的引用语法
+ *
+ * @param schema 用户原始 def（含 defs/ref 简写）
+ * @returns 去重后的紧凑 JSON 字符串
+ */
+export function expandRefs(schema: JsonSchemaDef): string {
+  if (!schema.defs) {
+    return JSON.stringify(schema);
+  }
+
+  const { defs, ...rest } = schema;
+
+  const toStandard = (node: JsonSchemaDef): Record<string, unknown> => {
+    const out: Record<string, unknown> = {};
+    if (node.ref !== undefined) {
+      out.$ref = node.ref;
+      if (node.description) out.description = node.description;
+      return out;
+    }
+    for (const [k, v] of Object.entries(node)) {
+      if (k === 'type' || k === 'description' || k === 'properties' ||
+          k === 'required' || k === 'items' || k === 'prefixItems' ||
+          k === 'const' || k === 'recursive' || k === 'recursiveFields' || k === 'maxDepth') {
+        if (k === 'properties' && v && typeof v === 'object') {
+          const props: Record<string, unknown> = {};
+          for (const [pn, pd] of Object.entries(v as Record<string, JsonSchemaDef>)) {
+            props[pn] = toStandard(pd);
+          }
+          out.properties = props;
+        } else if (k === 'items' && v && typeof v === 'object') {
+          out.items = toStandard(v as JsonSchemaDef);
+        } else if (k === 'prefixItems' && Array.isArray(v)) {
+          out.prefixItems = v.map(c => toStandard(c));
+        } else {
+          out[k] = v;
+        }
+      }
+    }
+    return out;
+  };
+
+  const standardDefs: Record<string, unknown> = {};
+  for (const [name, def] of Object.entries(defs)) {
+    standardDefs[name] = toStandard(def);
+  }
+
+  return JSON.stringify({ ...toStandard(rest), $defs: standardDefs });
+}
+
+/**
  * 递归检测 schema 树中是否存在 prefixItems 元组定义
  */
 function schemaHasTuple(schema: JsonSchemaDef): boolean {
@@ -487,6 +541,12 @@ export function buildSchemaPrompt(
     nextReqIndex++;
   }
 
+  // defs 存在时追加 $ref 回查引导（序号顺延）
+  if (schema.defs) {
+    requirements.push(`${nextReqIndex}. "$ref" 引用按名称回查上方 $defs 中的公共子结构定义，输出时按其结构展开，不要在输出中重复定义这些结构`);
+    nextReqIndex++;
+  }
+
   const dirWarning = getDirWarning(cwd, outputFileName);
   if (dirWarning) {
     requirements.push(dirWarning);
@@ -497,13 +557,16 @@ export function buildSchemaPrompt(
     ? '- ❌ { "data": { ... } }\n- ❌ { "result": { ... } }'
     : '- ❌ { "items": [...] }\n- ❌ { "results": [...] }';
 
+  // defs 存在时走去重渲染（$defs 一次 + 引用点 $ref 标记）
+  const schemaJson = expandRefs(schema);
+
   return `
 请按照以下 Schema 结构输出数据，并写入到 ${outputFileName} 文件中：
 
 ## 输出 Schema
 
 \`\`\`json
-${JSON.stringify(schema)}
+${schemaJson}
 \`\`\`
 
 ## 正确格式示例
