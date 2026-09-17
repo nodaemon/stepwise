@@ -67,7 +67,7 @@ ${introText}，并写入到 ${outputFileName} 文件中：
 ## 输出格式（JSON Schema）
 
 \`\`\`json
-${JSON.stringify(schema, null, 2)}
+${JSON.stringify(schema)}
 \`\`\`
 
 ## 禁止的格式
@@ -450,7 +450,6 @@ export function buildSchemaPrompt(
   outputFileName: string,
   cwd?: string
 ): string {
-  const schemaDescription = generateSchemaDescription(schema);
   const formatExample = generateSchemaExample(schema);
 
   const requirements: string[] = [
@@ -504,17 +503,13 @@ export function buildSchemaPrompt(
 ## 输出 Schema
 
 \`\`\`json
-${JSON.stringify(schema, null, 2)}
+${JSON.stringify(schema)}
 \`\`\`
-
-## 结构说明
-
-${schemaDescription}
 
 ## 正确格式示例
 
 \`\`\`json
-${JSON.stringify(formatExample, null, 2)}
+${JSON.stringify(formatExample)}
 \`\`\`
 
 ## 禁止的格式

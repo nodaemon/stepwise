@@ -1,4 +1,5 @@
 import { JsonSchemaDef, OutputFormat } from '../src/types';
+import { buildSchemaPrompt } from '../src/utils/promptBuilder';
 import { buildJsonSchema, validateAgainstSchema } from '../src/utils/schemaUtils';
 import { convertToAjvSchema, validateJsonBySchema, validateRefsAndDefs } from '../src/utils/validator';
 import { StepWise } from '../src/StepWise';
@@ -223,5 +224,34 @@ describe('validateRefsAndDefs 构建期校验', () => {
       }
     };
     await expect(agent.execPromptSchema('test', schema, 'out.json')).rejects.toThrow('NoExist');
+  });
+});
+
+describe('buildSchemaPrompt 瘦身', () => {
+  const schema: JsonSchemaDef = {
+    type: 'object',
+    description: '模块分析',
+    properties: {
+      name: { type: 'string', description: '模块名' },
+      count: { type: 'number', description: '数量' }
+    }
+  };
+
+  test('不再包含「结构说明」小节', () => {
+    const prompt = buildSchemaPrompt(schema, '/tmp/out.json');
+    expect(prompt).not.toContain('## 结构说明');
+    expect(prompt).not.toContain('类型: object');
+  });
+
+  test('schema JSON 为紧凑格式（无缩进换行）', () => {
+    const prompt = buildSchemaPrompt(schema, '/tmp/out.json');
+    expect(prompt).toContain(JSON.stringify(schema));
+    expect(prompt).not.toContain(JSON.stringify(schema, null, 2));
+  });
+
+  test('体积显著下降（同 schema 紧凑+删说明 < 原实现的 60%）', () => {
+    // 经验断言：防回归阈值，非精确值
+    const prompt = buildSchemaPrompt(schema, '/tmp/out.json');
+    expect(prompt.length).toBeLessThan(1200);
   });
 });

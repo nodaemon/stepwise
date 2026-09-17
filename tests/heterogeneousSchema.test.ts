@@ -418,9 +418,6 @@ describe('buildSchemaPrompt 元组与 const 提示词', () => {
     const prompt = buildSchemaPrompt(schema, '/tmp/out.json');
     expect(prompt).toContain('长度固定');
     expect(prompt).toContain('第 i 个元素的类型必须符合位置定义');
-    expect(prompt).toContain('固定长度元组（长度 2）');
-    expect(prompt).toContain('第 1 个元素: string（姓名）');
-    expect(prompt).toContain('第 2 个元素: number（年龄）');
   });
 
   test('const schema 提示词含固定值要求', () => {
@@ -432,7 +429,6 @@ describe('buildSchemaPrompt 元组与 const 提示词', () => {
     };
     const prompt = buildSchemaPrompt(schema, '/tmp/out.json');
     expect(prompt).toContain('固定值');
-    expect(prompt).toContain('[固定值: "1"]');
   });
 
   test('示例区块展示元组示例与 const 值', () => {
@@ -624,10 +620,7 @@ describe('端到端：固定节点名树（递归+元组+const 组合）', () =>
 
   test('提示词包含元组说明与固定值要求', () => {
     const prompt = buildSchemaPrompt(schema, '/tmp/tree.json');
-    expect(prompt).toContain('固定长度元组（长度 2）');
-    expect(prompt).toContain('[固定值: "1"]');
-    expect(prompt).toContain('[固定值: "2"]');
-    expect(prompt).toContain('[固定值: "3"]');
     expect(prompt).toContain('第 i 个元素的类型必须符合位置定义');
+    expect(prompt).toContain('标注了固定值的字段，输出必须严格等于该固定值');
   });
 });

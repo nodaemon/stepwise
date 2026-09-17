@@ -716,7 +716,6 @@ describe('recursiveSchema 递归树形结构', () => {
 
       const prompt = buildSchemaPrompt(schema, '/path/to/output.json');
 
-      expect(prompt).toContain('递归字段（树形结构）');
       expect(prompt).toContain('children');
     });
 
