@@ -1592,6 +1592,7 @@ stepwise_exec_infos/
     ├── logs/                               # 任务级日志
     │   ├── performance.json                # 性能统计（单步执行 ≥3s 时自动写出）
     │   └── performance.txt                 # 可读的性能报告
+    │                                        #   （每步展示 总耗时/任务耗时/重试等待耗时 三项耗时）
     ├── {agent-name}_{timestamp2}/          # StepWise Agent 目录
     │   ├── data/                           # 执行状态
     │   │   └── progress.json

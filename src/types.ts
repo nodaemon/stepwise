@@ -203,8 +203,10 @@ export interface ExecutionResult {
   error?: string;
   /** 执行时间戳 */
   timestamp: number;
-  /** 执行耗时（毫秒） */
+  /** 执行耗时（毫秒），含重试等待 */
   duration: number;
+  /** 累计重试等待耗时（毫秒）：429/503 限额等待 + 探测循环等待；缺省 0（如 shell 任务） */
+  retryWaitMs?: number;
   /** token 消耗与 AI 耗时（仅 NDJSON 执行器：Claude/CodeAgent；缺省表示该执行器不支持） */
   tokenUsage?: TokenUsage;
 }
@@ -403,13 +405,15 @@ export type PerformanceType = 'prompt' | 'shell' | 'summarize' | 'postCheck';
 export interface PerformanceTypeStats {
   /** 执行次数 */
   count: number;
-  /** 总耗时（毫秒） */
+  /** 总耗时（毫秒），含重试等待 */
   totalDuration: number;
-  /** 最大耗时（毫秒） */
+  /** 累计重试等待耗时（毫秒）：429/503 限额等待 + 探测循环等待 */
+  totalRetryWaitMs: number;
+  /** 最大实际耗时（毫秒，已去除重试等待） */
   maxDuration: number;
-  /** 最小耗时（毫秒） */
+  /** 最小实际耗时（毫秒，已去除重试等待） */
   minDuration: number;
-  /** 最大耗时对应的日志目录路径（相对于 cwd） */
+  /** 最大实际耗时对应的日志目录路径（相对于 cwd） */
   maxDurationLogDir?: string;
 }
 
@@ -435,8 +439,10 @@ export interface PerformanceReport {
   summary: {
     /** 总执行次数 */
     totalCount: number;
-    /** 总耗时（毫秒） */
+    /** 总耗时（毫秒），含重试等待 */
     totalDuration: number;
+    /** 累计重试等待耗时（毫秒） */
+    totalRetryWaitMs: number;
     /** 唯一 key 数量 */
     uniqueKeys: number;
   };

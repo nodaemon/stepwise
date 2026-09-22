@@ -1592,6 +1592,7 @@ stepwise_exec_infos/
     ├── logs/                               # Task-level logs
     │   ├── performance.json                # Performance stats (auto-written when a step runs ≥3s)
     │   └── performance.txt                 # Human-readable performance report
+    │                                        #   (each step shows total / task / retry-wait durations)
     ├── {agent-name}_{timestamp2}/          # StepWise Agent directory
     │   ├── data/                           # Execution state
     │   │   └── progress.json

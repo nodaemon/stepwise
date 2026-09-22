@@ -22,6 +22,7 @@ import { Logger } from './utils/logger';
 import { createExecutor } from './utils/executor';
 import { ShellExecutor } from './utils/shellExecutor';
 import { AgentExecutor } from './executors/types';
+import { ExecutorError } from './executors/base';
 import {
   ensureDir,
   saveJsonFile,
@@ -581,6 +582,8 @@ export class StepWise {
 
     try {
       // 使用 --resume 模式执行总结
+      // 已知盲点（既有行为）：此处执行结果被丢弃，若命中 429 限额等待，
+      // 该等待时间不计入外层步骤的性能统计（性能统计记录的是主任务的 executor 结果）
       await this.executor.execute(summarizePrompt, {
         cwd: cwd,
         env: env,
@@ -1171,6 +1174,8 @@ export class StepWise {
         console.log(`[StepWise] 输出文件不存在，第 ${attempt} 次重试...`);
         const missingPrompt = buildFileMissingPrompt(outputPath, validateConfig.expectedFormat);
 
+        // 已知盲点（既有行为）：校验重试的执行结果被丢弃，若命中 429 限额等待，
+        // 该等待时间不计入性能统计
         await this.executor.execute(missingPrompt, {
           cwd: context.cwd,
           env: context.env,
@@ -1212,6 +1217,8 @@ export class StepWise {
         ? validateConfig.buildFixPromptFn(validationResult.errors, outputPath)
         : buildFixPrompt(validationResult.errors, outputPath, validateConfig.expectedFormat);
 
+      // 已知盲点（既有行为）：校验重试的执行结果被丢弃，若命中 429 限额等待，
+      // 该等待时间不计入性能统计
       await this.executor.execute(fixPrompt, {
         cwd: context.cwd,
         env: context.env,
@@ -1241,7 +1248,7 @@ export class StepWise {
     sessionId: string,
     taskLogDir: string,
     taskIndex: number
-  ): Promise<{ duration: number }> {
+  ): Promise<{ duration: number; retryWaitMs: number }> {
     const startTime = Date.now();
     const processedPostCheckPrompt = this.processPrompt(postCheckPrompt);
 
@@ -1250,7 +1257,8 @@ export class StepWise {
       this.logger?.writeTaskLog(taskLogDir, 'post_check_prompt.txt', processedPostCheckPrompt);
     }
 
-    await this.executor.execute(processedPostCheckPrompt, {
+    // 捕获执行结果以透传重试等待耗时（供性能统计分离实际执行时间）
+    const execResult = await this.executor.execute(processedPostCheckPrompt, {
       cwd,
       env,
       sessionId,
@@ -1261,7 +1269,7 @@ export class StepWise {
       taskType: 'check'
     });
 
-    return { duration: Date.now() - startTime };
+    return { duration: Date.now() - startTime, retryWaitMs: execResult.retryWaitMs ?? 0 };
   }
 
   /**
@@ -2233,7 +2241,8 @@ export class StepWise {
 
     let result: ExecutionResult;
     try {
-      await this.executor.execute(summarizePrompt, {
+      // 捕获执行结果以透传重试等待耗时（供性能统计分离实际执行时间）
+      const execResult = await this.executor.execute(summarizePrompt, {
         cwd: effectiveCwd,
         env: effectiveEnv,
         sessionId: sessionId,
@@ -2249,7 +2258,8 @@ export class StepWise {
         output: '',
         success: true,
         timestamp: Date.now(),
-        duration: Date.now() - startTime
+        duration: Date.now() - startTime,
+        retryWaitMs: execResult.retryWaitMs ?? 0
       };
 
       this.logger?.logTaskComplete(taskIndex, 'summarize', true, result.duration);
@@ -2261,7 +2271,9 @@ export class StepWise {
         success: false,
         error: errorMsg,
         timestamp: Date.now(),
-        duration: Date.now() - startTime
+        duration: Date.now() - startTime,
+        // 所有重试失败抛出的 ExecutorError 携带累计重试等待耗时
+        retryWaitMs: error instanceof ExecutorError ? error.retryWaitMs : 0
       };
 
       if (logDir) {

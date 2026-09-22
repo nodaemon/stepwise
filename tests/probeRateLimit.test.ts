@@ -1,4 +1,4 @@
-import { MAX_PROBE_ATTEMPTS, PROBE_TIMEOUT_MS } from '../src/constants';
+import { MAX_PROBE_ATTEMPTS, PROBE_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS } from '../src/constants';
 import { ClaudeExecutor } from '../src/executors/claude';
 import { PiExecutor } from '../src/executors/pi';
 import { OpenCodeExecutor } from '../src/executors/opencode';
@@ -177,7 +177,7 @@ describe('probeRateLimit spawnSync 集成', () => {
     expect(result).toBe(true);
   });
 
-  it('探测前 3 次 429，第 4 次成功应返回 true', async () => {
+  it('探测前 3 次 429，第 4 次成功应返回 recovered=true', async () => {
     const executor = new ClaudeExecutor();
     let callCount = 0;
     mockSpawnSync.mockImplementation(() => {
@@ -203,13 +203,13 @@ describe('probeRateLimit spawnSync 集成', () => {
     });
     // 使用 runProbeLoop（探测循环），因为它包含多次探测逻辑
     // 模拟 waitUntilReset 为立即返回，避免长时间等待
-    jest.spyOn(executor as any, 'waitUntilReset').mockResolvedValue(undefined);
+    jest.spyOn(executor as any, 'waitUntilReset').mockResolvedValue(0);
     const result = await (executor as any).runProbeLoop({ cwd: process.cwd() });
-    expect(result).toBe(true);
+    expect(result.recovered).toBe(true);
     expect(callCount).toBe(4);
   });
 
-  it('探测 10 次均失败应返回 false（探测耗尽场景）', async () => {
+  it('探测 10 次均失败应返回 recovered=false 且 waitMs 累计 9 次等待（探测耗尽场景）', async () => {
     const executor = new ClaudeExecutor();
     let callCount = 0;
     mockSpawnSync.mockImplementation(() => {
@@ -223,10 +223,12 @@ describe('probeRateLimit spawnSync 集成', () => {
         signal: null
       };
     });
-    jest.spyOn(executor as any, 'waitUntilReset').mockResolvedValue(undefined);
+    // 每次探测失败后等待 DEFAULT_RETRY_WAIT_MS（5 分钟），共等待 9 次
+    jest.spyOn(executor as any, 'waitUntilReset').mockResolvedValue(DEFAULT_RETRY_WAIT_MS);
     const result = await (executor as any).runProbeLoop({ cwd: process.cwd() });
-    expect(result).toBe(false);
+    expect(result.recovered).toBe(false);
     expect(callCount).toBe(10);
+    expect(result.waitMs).toBe(9 * DEFAULT_RETRY_WAIT_MS);
   });
 
   it('探测耗尽时最后一次失败后不应等待（无多余 5 分钟延迟）', async () => {
@@ -239,19 +241,19 @@ describe('probeRateLimit spawnSync 集成', () => {
       output: [null, '', '429 rate_limit_error'],
       signal: null
     });
-    const waitSpy = jest.spyOn(executor as any, 'waitUntilReset').mockResolvedValue(undefined);
+    const waitSpy = jest.spyOn(executor as any, 'waitUntilReset').mockResolvedValue(0);
     await (executor as any).runProbeLoop({ cwd: process.cwd() });
     // waitUntilReset 应在 10 次探测之间调用 9 次（最后一次失败后不再等待）
     expect(waitSpy).toHaveBeenCalledTimes(9);
   });
 
-  it('OpenCode 429 探测时 buildProbeArgs 抛错应返回 false（不导致死循环）', async () => {
+  it('OpenCode 429 探测时 buildProbeArgs 抛错应返回 recovered=false（不导致死循环）', async () => {
     const executor = new OpenCodeExecutor();
     // OpenCode 的 buildProbeArgs() 抛错，probeRateLimit 应向上抛出
     // runProbeLoop 捕获后立即退出，不会循环 10 次
-    const waitSpy = jest.spyOn(executor as any, 'waitUntilReset').mockResolvedValue(undefined);
+    const waitSpy = jest.spyOn(executor as any, 'waitUntilReset').mockResolvedValue(0);
     const result = await (executor as any).runProbeLoop({ cwd: process.cwd() });
-    expect(result).toBe(false);
+    expect(result.recovered).toBe(false);
     // 不应发生任何等待
     expect(waitSpy).not.toHaveBeenCalled();
   });

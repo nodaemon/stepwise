@@ -37,6 +37,22 @@ interface RateLimitInfo {
 }
 
 /**
+ * 执行器错误
+ * 所有重试均失败时由 execute() 抛出，携带累计重试等待时间，
+ * 供调用方（如 summarize 的 catch 块）在性能统计中分离等待耗时
+ */
+export class ExecutorError extends Error {
+  /** 累计重试等待耗时（毫秒） */
+  readonly retryWaitMs: number;
+
+  constructor(message: string, retryWaitMs: number) {
+    super(message);
+    this.name = 'ExecutorError';
+    this.retryWaitMs = retryWaitMs;
+  }
+}
+
+/**
  * 执行器抽象基类
  * 提供 Claude、OpenCode、CodeAgent 执行器的公共功能
  */
@@ -140,6 +156,10 @@ export abstract class BaseExecutor implements AgentExecutor {
     let sessionId = options.sessionId || this.generateUUID();
     const startTime = Date.now();
 
+    // 累计重试等待耗时（429/503 限额等待 + 探测循环等待），
+    // 用于从总耗时 duration 中分离出实际执行时间
+    let totalWaitMs = 0;
+
     let lastError: string | undefined;
     let lastStdout: string = '';
     let lastStderr: string = '';
@@ -215,6 +235,7 @@ export abstract class BaseExecutor implements AgentExecutor {
             success: true,
             timestamp: startTime,
             duration,
+            retryWaitMs: totalWaitMs,
             // token 用量透传：NDJSON result 块提取（Claude/CodeAgent）；
             // 纯文本执行器（Pi/OpenCode）parsed.usage 为 null → 不设该字段
             ...(parsed.usage ? { tokenUsage: parsed.usage } : {})
@@ -226,11 +247,12 @@ export abstract class BaseExecutor implements AgentExecutor {
         if (rateLimitInfo) {
           console.log(`\n${rateLimitInfo.message}`);
           // 重要：不增加 attempts，等待后继续循环重试
-          await this.waitUntilReset(rateLimitInfo.resetTime);
+          totalWaitMs += (await this.waitUntilReset(rateLimitInfo.resetTime)) || 0;
 
           // 429 探测恢复：等待重置时间后，先用无持久化 session 探测限额是否恢复
           // 探测成功才 resume 正式 session，避免 429 错误响应累积在上下文中
-          await this.runProbeLoop(options);
+          const probeResult = await this.runProbeLoop(options);
+          totalWaitMs += probeResult.waitMs || 0;
 
           attempts--; // 速率限制/503 不计入重试次数
           continue;
@@ -257,10 +279,11 @@ export abstract class BaseExecutor implements AgentExecutor {
         const rateLimitInfo = this.checkRateLimitError(errorStr, '');
         if (rateLimitInfo) {
           console.log(`\n${rateLimitInfo.message}`);
-          await this.waitUntilReset(rateLimitInfo.resetTime);
+          totalWaitMs += (await this.waitUntilReset(rateLimitInfo.resetTime)) || 0;
 
           // 429 探测恢复（同 try 块逻辑）
-          await this.runProbeLoop(options);
+          const probeResult = await this.runProbeLoop(options);
+          totalWaitMs += probeResult.waitMs || 0;
 
           attempts--; // 速率限制/503 不计入重试次数
           continue;
@@ -287,6 +310,7 @@ export abstract class BaseExecutor implements AgentExecutor {
       lastExitCode,
       attempts,
       duration,
+      totalWaitMs,
       sessionId,
       options
     );
@@ -298,7 +322,8 @@ export abstract class BaseExecutor implements AgentExecutor {
     }
 
     // 使用 throw new Error() 代替 process.exit(1)
-    throw new Error(fullErrorReport);
+    // 抛出 ExecutorError 携带累计重试等待时间，供调用方分离等待耗时
+    throw new ExecutorError(fullErrorReport, totalWaitMs);
   }
 
   /**
@@ -705,14 +730,15 @@ export abstract class BaseExecutor implements AgentExecutor {
    *
    * 429 检测到后，在 waitUntilReset 之后调用。
    * 最多探测 MAX_PROBE_ATTEMPTS 次，每次超时 PROBE_TIMEOUT_MS。
-   * 探测成功返回 true，探测耗尽返回 false。
    *
    * @param options 执行选项
-   * @returns true 表示限额已恢复，false 表示探测耗尽仍未恢复
+   * @returns recovered: true 表示限额已恢复，false 表示探测耗尽仍未恢复；
+   *          waitMs: 探测循环内累计的等待耗时（毫秒），用于性能统计分离重试等待
    */
-  private async runProbeLoop(options: AgentExecutorOptions): Promise<boolean> {
+  private async runProbeLoop(options: AgentExecutorOptions): Promise<{ recovered: boolean; waitMs: number }> {
     let probeCount = 0;
     let rateLimitRecovered = false;
+    let probeWaitMs = 0;
     while (probeCount < MAX_PROBE_ATTEMPTS) {
       probeCount++;
       console.log(`[${this.agentType}] 429 探测 ${probeCount}/${MAX_PROBE_ATTEMPTS}...`);
@@ -722,11 +748,11 @@ export abstract class BaseExecutor implements AgentExecutor {
         // probeRateLimit 抛出"探测不适用"错误：立即退出，不浪费等待时间
         if (error instanceof Error && error.message.includes('探测不适用')) {
           console.log(`[${this.agentType}] 探测不适用于当前执行器，跳过探测循环`);
-          return false;
+          return { recovered: false, waitMs: probeWaitMs };
         }
         // 其他意外异常：记录后退出探测循环
         console.log(`[${this.agentType}] 探测循环异常退出: ${error}`);
-        return false;
+        return { recovered: false, waitMs: probeWaitMs };
       }
       if (rateLimitRecovered) {
         break;
@@ -734,7 +760,7 @@ export abstract class BaseExecutor implements AgentExecutor {
       // 仅在还有下一次探测时等待，最后一次失败后无需等待
       if (probeCount < MAX_PROBE_ATTEMPTS) {
         console.log(`[${this.agentType}] 探测失败，限额未恢复，等待 ${DEFAULT_RETRY_WAIT_MS / 1000}s 后重试...`);
-        await this.waitUntilReset(new Date(Date.now() + DEFAULT_RETRY_WAIT_MS));
+        probeWaitMs += (await this.waitUntilReset(new Date(Date.now() + DEFAULT_RETRY_WAIT_MS))) || 0;
       }
     }
 
@@ -742,7 +768,7 @@ export abstract class BaseExecutor implements AgentExecutor {
       console.log(`[${this.agentType}] 探测 ${MAX_PROBE_ATTEMPTS} 次均失败，回到主重试循环`);
     }
 
-    return rateLimitRecovered;
+    return { recovered: rateLimitRecovered, waitMs: probeWaitMs };
   }
 
   /**
@@ -824,14 +850,15 @@ export abstract class BaseExecutor implements AgentExecutor {
 
   /**
    * 等待直到指定时间
+   * @returns 实际等待的毫秒数（已达到重置时间时为 0），用于性能统计分离重试等待
    */
-  private async waitUntilReset(resetTime: Date): Promise<void> {
+  private async waitUntilReset(resetTime: Date): Promise<number> {
     const now = new Date();
     const waitMs = resetTime.getTime() - now.getTime();
 
     if (waitMs <= 0) {
       console.log('已达到重置时间，正在继续...');
-      return;
+      return 0;
     }
 
     const waitSeconds = Math.ceil(waitMs / 1000);
@@ -857,6 +884,7 @@ export abstract class BaseExecutor implements AgentExecutor {
 
     clearInterval(intervalId);
     console.log('已达到重置时间，正在继续...');
+    return waitMs;
   }
 
   /**
@@ -908,6 +936,7 @@ export abstract class BaseExecutor implements AgentExecutor {
     lastExitCode: number | null,
     attempts: number,
     duration: number,
+    retryWaitMs: number,
     sessionId: string,
     options: AgentExecutorOptions
   ): string {
@@ -925,7 +954,8 @@ export abstract class BaseExecutor implements AgentExecutor {
     lines.push(`任务类型: ${options.taskType || 'task'}`);
     lines.push(`会话ID: ${sessionId}`);
     lines.push(`重试次数: ${attempts}`);
-    lines.push(`总耗时: ${(duration / 1000).toFixed(2)}s`);
+    const netMs = Math.max(0, duration - retryWaitMs);
+    lines.push(`总耗时: ${(duration / 1000).toFixed(2)}s (任务耗时 ${(netMs / 1000).toFixed(2)}s, 重试等待耗时 ${(retryWaitMs / 1000).toFixed(2)}s)`);
     lines.push('');
 
     lines.push('【退出状态】');

@@ -50,10 +50,11 @@ export class PerformanceTracker {
    * 记录性能数据
    * @param key 统计 key，格式为 "文件名:行号"
    * @param type 性能类型
-   * @param duration 耗时（毫秒）
+   * @param duration 耗时（毫秒），含重试等待
+   * @param retryWaitMs 累计重试等待耗时（毫秒）：429/503 限额等待 + 探测循环等待
    * @param logDir 日志目录路径
    */
-  record(key: string, type: PerformanceType, duration: number, logDir?: string): void {
+  record(key: string, type: PerformanceType, duration: number, retryWaitMs: number, logDir?: string): void {
     let stats = this.statsMap.get(key);
 
     if (!stats) {
@@ -61,6 +62,7 @@ export class PerformanceTracker {
       const emptyStats: PerformanceTypeStats = {
         count: 0,
         totalDuration: 0,
+        totalRetryWaitMs: 0,
         maxDuration: 0,
         minDuration: Infinity
       };
@@ -82,14 +84,19 @@ export class PerformanceTracker {
     const typeStats = stats.types[type];
     typeStats.count++;
     typeStats.totalDuration += duration;
+    typeStats.totalRetryWaitMs += retryWaitMs;
+
+    // 实际耗时（去除重试等待），最大/最小/平均均按此口径统计，
+    // 避免长限额等待的执行被误判为"任务最慢"
+    const netDuration = Math.max(0, duration - (retryWaitMs || 0));
 
     // 更新最大值及其日志目录（仅在大于时更新）
-    if (duration > typeStats.maxDuration) {
-      typeStats.maxDuration = duration;
+    if (netDuration > typeStats.maxDuration) {
+      typeStats.maxDuration = netDuration;
       typeStats.maxDurationLogDir = logDir;
     }
 
-    typeStats.minDuration = Math.min(typeStats.minDuration, duration);
+    typeStats.minDuration = Math.min(typeStats.minDuration, netDuration);
   }
 
   /**
@@ -101,11 +108,14 @@ export class PerformanceTracker {
     // 计算汇总信息
     let totalCount = 0;
     let totalDuration = 0;
+    let totalRetryWaitMs = 0;
 
     for (const stat of stats) {
       for (const type of Object.values(stat.types)) {
         totalCount += type.count;
         totalDuration += type.totalDuration;
+        // 防御性 || 0：兼容 loadReport 加载的缺字段旧数据
+        totalRetryWaitMs += type.totalRetryWaitMs || 0;
       }
     }
 
@@ -115,6 +125,7 @@ export class PerformanceTracker {
       summary: {
         totalCount,
         totalDuration,
+        totalRetryWaitMs,
         uniqueKeys: stats.length
       },
       stats
@@ -164,15 +175,20 @@ export class PerformanceTracker {
         const isLast = index === typeEntries.length - 1;
         const prefix = isLast ? '└─' : '├─';
 
+        // 任务耗时 = 总耗时 - 重试等待耗时（防御性 || 0：兼容旧格式数据）
+        // 平均值/最大值/最小值均按任务耗时口径统计
+        const retryWaitMs = typeStats.totalRetryWaitMs || 0;
+        const netDuration = Math.max(0, typeStats.totalDuration - retryWaitMs);
+
         const avgDuration = typeStats.count > 0
-          ? Math.round(typeStats.totalDuration / typeStats.count)
+          ? Math.round(netDuration / typeStats.count)
           : 0;
 
-        lines.push(`  ${prefix} ${type.padEnd(10)}: ${typeStats.count} 次, 总计 ${this.formatDuration(typeStats.totalDuration)} (平均 ${this.formatDuration(avgDuration)}, 最大 ${this.formatDuration(typeStats.maxDuration)}, 最小 ${this.formatDuration(typeStats.minDuration)})`);
+        lines.push(`  ${prefix} ${type.padEnd(10)}: ${typeStats.count} 次, 总耗时 ${this.formatDuration(typeStats.totalDuration)} (任务耗时 ${this.formatDuration(netDuration)}, 重试等待耗时 ${this.formatDuration(retryWaitMs)}), 任务耗时平均值 ${this.formatDuration(avgDuration)}, 任务耗时最大值 ${this.formatDuration(typeStats.maxDuration)}, 任务耗时最小值 ${this.formatDuration(typeStats.minDuration)}`);
 
-        // 添加最大耗时日志目录
+        // 添加任务耗时最大值对应的日志目录
         if (typeStats.maxDurationLogDir) {
-          lines.push(`     最大耗时日志: ${typeStats.maxDurationLogDir}`);
+          lines.push(`     任务耗时最大值日志: ${typeStats.maxDurationLogDir}`);
         }
       });
 
@@ -181,7 +197,10 @@ export class PerformanceTracker {
 
     lines.push('');
     lines.push('================================================================================');
-    lines.push(`汇总: ${report.summary.totalCount} 次执行, 总耗时 ${this.formatDuration(report.summary.totalDuration)}, ${report.summary.uniqueKeys} 个调用位置`);
+    // 汇总同样分离三项耗时（防御性 || 0：兼容旧格式数据）
+    const summaryWaitMs = report.summary.totalRetryWaitMs || 0;
+    const summaryNetMs = Math.max(0, report.summary.totalDuration - summaryWaitMs);
+    lines.push(`汇总: ${report.summary.totalCount} 次执行, 总耗时 ${this.formatDuration(report.summary.totalDuration)} (任务耗时 ${this.formatDuration(summaryNetMs)}, 重试等待耗时 ${this.formatDuration(summaryWaitMs)}), ${report.summary.uniqueKeys} 个调用位置`);
     lines.push('================================================================================');
 
     return lines.join('\n');
@@ -224,6 +243,13 @@ export class PerformanceTracker {
 
       // 合并统计数据
       for (const stat of report.stats) {
+        // 向后兼容归一化：旧格式 JSON 缺 totalRetryWaitMs 字段，补 0，
+        // 避免后续累加/报告计算产生 NaN
+        for (const typeStats of Object.values(stat.types)) {
+          if (typeof typeStats.totalRetryWaitMs !== 'number') {
+            typeStats.totalRetryWaitMs = 0;
+          }
+        }
         this.statsMap.set(stat.key, stat);
       }
     } catch (error) {

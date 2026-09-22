@@ -32,6 +32,17 @@ function extractDuration(result: any): number {
 }
 
 /**
+ * 从结果中提取累计重试等待耗时
+ * 缺省（如 shell 任务、旧版 mock）返回 0
+ */
+function extractRetryWaitMs(result: any): number {
+  if (result && typeof result.retryWaitMs === 'number') {
+    return result.retryWaitMs;
+  }
+  return 0;
+}
+
+/**
  * 性能统计装饰器
  * @param type 性能类型
  *
@@ -53,15 +64,17 @@ export function trackPerformance(type: PerformanceType) {
     return async function (this: any, ...args: any[]): Promise<any> {
       const result = await target.call(this, ...args);
 
-      // 从结果中提取 duration
+      // 从结果中提取 duration 与累计重试等待耗时
       const duration = extractDuration(result);
+      const retryWaitMs = extractRetryWaitMs(result);
 
       // 跳过的任务不记录（执行时间不足 3 秒）
+      // 注意：阈值按总时长（含重试等待）判断，含长等待的任务同样值得记录
       if (duration >= SKIPPED_THRESHOLD_MS) {
         const key = getUserCallSite();
         // 从 StepWise 实例获取当前任务日志目录
         const logDir = this.getCurrentTaskLogDir?.();
-        PerformanceTracker.getInstance().record(key, type, duration, logDir);
+        PerformanceTracker.getInstance().record(key, type, duration, retryWaitMs, logDir);
         PerformanceTracker.getInstance().saveReport(getPerformanceReportPath());
       }
 
