@@ -35,6 +35,9 @@ export const DEFAULT_RETRY_WAIT_MS = 5 * 60 * 1000;
 /** 429 探测恢复最大探测次数 */
 export const MAX_PROBE_ATTEMPTS = 10;
 
+/** 校验错误提示词最多显示的错误条数（超出则在末尾补充说明，避免提示词超长） */
+export const MAX_DISPLAY_ERRORS = 50;
+
 /** 429 探测恢复单次探测超时时间（毫秒）：30 秒 */
 export const PROBE_TIMEOUT_MS = 30 * 1000;
 

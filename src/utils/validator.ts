@@ -1,4 +1,5 @@
 import { OutputFormat, JsonSchemaDef } from '../types';
+import { MAX_DISPLAY_ERRORS } from '../constants';
 import {
   buildJsonSchema,
   validateAgainstSchema,
@@ -230,6 +231,29 @@ function findNestedArray(obj: unknown, path: string = ''): string | null {
 }
 
 /**
+ * 将校验错误格式化为提示词中的"错误信息"段。
+ *
+ * 最多显示 limit 条错误，超出时在末尾补充说明，避免极端场景下提示词超长。
+ *
+ * @param errors 校验错误列表
+ * @param formatLine 单条错误的格式化函数
+ * @param limit 最多显示的错误条数，默认 MAX_DISPLAY_ERRORS
+ * @returns 拼接后的错误信息字符串
+ */
+function buildErrorDescriptions<T>(
+  errors: T[],
+  formatLine: (error: T) => string,
+  limit: number = MAX_DISPLAY_ERRORS
+): string {
+  const displayed = errors.slice(0, limit);
+  const body = displayed.map(formatLine).join('\n\n');
+  if (errors.length > limit) {
+    return `${body}\n\n- (注：共 ${errors.length} 条错误，当前仅显示前 ${limit} 条)`;
+  }
+  return body;
+}
+
+/**
  * 生成修复提示词
  *
  * 当 AI 输出的 JSON 格式不正确时，生成一个提示词让 AI 修复文件。
@@ -245,7 +269,7 @@ export function buildFixPrompt(
   outputPath: string,
   expectedFormat: 'array' | 'object'
 ): string {
-  const errorDescriptions = errors.map(e => {
+  const errorDescriptions = buildErrorDescriptions(errors, e => {
     let line = `- path: "${e.path}"`;
     line += `\n  message: ${e.message}`;
     line += `\n  keyword: ${e.keyword}`;
@@ -253,7 +277,7 @@ export function buildFixPrompt(
       line += `\n  data: ${JSON.stringify(e.data)}`;
     }
     return line;
-  }).join('\n\n');
+  });
 
   const formatExample = expectedFormat === 'array'
     ? '[\n  { "field1": "value1", "field2": "value2" },\n  { "field1": "value3", "field2": "value4" }\n]'
@@ -614,7 +638,7 @@ export function buildSchemaFixPrompt(
   outputPath: string,
   schema: JsonSchemaDef
 ): string {
-  const errorDescriptions = errors.map(e => {
+  const errorDescriptions = buildErrorDescriptions(errors, e => {
     let line = `- 路径: "${e.path}"`;
     line += `\n  错误: ${e.message}`;
     line += `\n  类型: ${e.keyword}`;
@@ -622,7 +646,7 @@ export function buildSchemaFixPrompt(
       line += `\n  实际值: ${JSON.stringify(e.data)}`;
     }
     return line;
-  }).join('\n\n');
+  });
 
   // 生成正确格式示例
   const formatExample = generateSchemaExample(schema);
