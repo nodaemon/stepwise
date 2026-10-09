@@ -31,3 +31,6 @@ coverage/
 
 # Claude Code session files
 .claude/
+
+# Runtime exec info output
+stepwise_exec_infos/
