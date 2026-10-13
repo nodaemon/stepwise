@@ -16,9 +16,11 @@
  * 框架内不存在任何删除 session 文件的代码路径。残留软链无害（dangling symlink
  * 会被执行器自然处理为"找不到会话"），因此不做任何自动清理。
  *
- * 【日志约定】本模块所有文件操作都有日志留痕，包括"源文件不存在直接返回"这类
- * 静默分支。log 参数缺省为 defaultLog（输出到 console），绝不使用 no-op，
- * 保证任何调用路径都不会无声失败。
+ * 【日志约定】日志只属于「软链创建路径」（linkCrossCwdSession 及其调用层
+ * handleParallelCrossCwdSession），因为只有这两层知道 fork 场景发生了什么。
+ * 共享查询原语 isLocalSession 被软链闸门与 fork 派生态判定两处复用，
+ * 在其中打日志会给与软链无关的调用者（resume 恢复路径）带来计划外输出，
+ * 故其保持静默、恒不抛异常。
  */
 
 import * as fs from 'fs';
@@ -126,51 +128,56 @@ function findPiSessionFilePath(sessionDir: string, sessionId: string): string | 
 }
 
 /**
- * 软链流程的日志回调。
- * 默认实现输出到 console；StepWise 会传入同时写 execute.log 的实现。
- * 生产代码不应传入空函数（会重新引入静默失败）。
+ * 软链流程统一的日志前缀。
+ * sessionLinker 与 StepWise 共用同一前缀，避免排查时需要 grep 两个不同关键词。
+ */
+export const SESSION_LINK_LOG_PREFIX = '[session软链]';
+
+/**
+ * 软链流程的日志回调。仅供「软链创建路径」（linkCrossCwdSession）使用。
  */
 export type SessionLinkLog = (message: string) => void;
 
-/** 默认日志实现：绝不静默，保证任何调用路径都有留痕 */
+/** 默认日志实现：输出到 console，绝不静默 */
 const defaultLog: SessionLinkLog = (message: string): void => {
-  console.log(`[sessionLinker] ${message}`);
+  console.log(`${SESSION_LINK_LOG_PREFIX} ${message}`);
 };
+
+/**
+ * 解析某 cwd 对应的 session 存储目录绝对路径（纯路径计算，不触碰文件系统）
+ *
+ * 供编排层做诊断日志用：闸门判定依赖 isLocalSession（纯查询原语，保持静默），
+ * 但排查「为何没找到会话」时需要知道框架实际查找的是哪个目录。
+ *
+ * @param configSubdir config 目录标记（如 .claude / .cac / .pi），由执行器类型决定
+ */
+export function resolveSessionProjectsDir(configSubdir: string, cwd: string): string {
+  return getProjectsDir(configSubdir, cwd);
+}
 
 /**
  * 判断某 sessionId 是否为某 cwd 本地创建的会话（实体文件，非软链）
  * 用于区分"worktree 自建会话（本地，无需跨目录处理）"与"来自主仓库（跨目录，需软链/报错）"
+ *
+ * 【纯查询原语】本函数不写日志、不做副作用，恒不抛异常（fs 调用均已保护）。
+ * 调用方用途有二（软链闸门判定 / fork 派生态判定），日志由各自调用层负责，
+ * 否则会给与软链无关的调用者（如 resume 恢复路径）带来计划外的输出。
  * @param configSubdir config 目录标记（如 .claude / .cac / .pi），由执行器类型决定
- * @param log 日志回调，缺省输出到 console
  */
-export function isLocalSession(
-  configSubdir: string,
-  cwd: string,
-  sessionId: string,
-  log: SessionLinkLog = defaultLog
-): boolean {
+export function isLocalSession(configSubdir: string, cwd: string, sessionId: string): boolean {
   const sessionDir = getProjectsDir(configSubdir, cwd);
 
   // pi 文件名为 <timestamp>_<sessionId>.jsonl，需按后缀匹配
   if (configSubdir === '.pi') {
-    const found = findPiSessionFilePath(sessionDir, sessionId) !== null;
-    log(`探测 pi 会话目录: ${sessionDir} → 判定: ${found ? '本地实体会话' : '非本地（文件不存在或为软链）'}`);
-    return found;
+    return findPiSessionFilePath(sessionDir, sessionId) !== null;
   }
 
   // Claude/CodeAgent: 精确文件名匹配
   const file = path.join(sessionDir, `${sessionId}.jsonl`);
-  log(`探测会话文件: ${file}`);
-  if (!fs.existsSync(file)) {
-    log(`判定: 非本地（文件不存在或为软链）: ${file}`);
-    return false;
-  }
+  if (!fs.existsSync(file)) return false;
   try {
-    const isLocal = !fs.lstatSync(file).isSymbolicLink();
-    log(`判定: ${isLocal ? '本地实体会话' : '非本地（文件存在但为软链）'}: ${file}`);
-    return isLocal;
-  } catch (e) {
-    log(`判定: 非本地（lstat 失败: ${e instanceof Error ? e.message : String(e)}）: ${file}`);
+    return !fs.lstatSync(file).isSymbolicLink();
+  } catch {
     return false;
   }
 }

@@ -4,7 +4,8 @@ import * as path from 'path';
 import {
   isLocalSession,
   linkCrossCwdSession,
-  findPiSessionFile
+  findPiSessionFile,
+  SESSION_LINK_LOG_PREFIX
 } from '../src/utils/sessionLinker';
 
 /**
@@ -309,18 +310,16 @@ describe('sessionLinker', () => {
       expect(fs.readFileSync(targetFile, 'utf-8')).toBe('{"entity":true}');
     });
 
-    // L4：isLocalSession 两种判定都要留日志
-    it('L4: isLocalSession 的两种判定都应有日志', () => {
+    // L4：isLocalSession 是共享查询原语，必须保持静默（缺陷3 回归护栏）
+    it('L4: isLocalSession 作为共享原语必须静默，不产生任何输出', () => {
       const cfg = process.env.CODEAGENTS3_CONFIG_DIR!;
       makeSession(cfg, logCwd, logSessionId);
 
+      // 两种判定都要跑，但都不得有输出
       expect(isLocalSession('.cac', logCwd, logSessionId)).toBe(true);
       expect(isLocalSession('.cac', logCwd, 'not-exist-0000')).toBe(false);
 
-      const out = capturedLog();
-      expect(out).toContain('探测会话文件');
-      expect(out).toContain('本地实体会话');
-      expect(out).toContain('非本地');
+      expect(capturedLog()).toBe('');
     });
 
     // L5：不传 log 参数时默认实现也必须输出（保证绝不失声）
@@ -331,7 +330,8 @@ describe('sessionLinker', () => {
       linkCrossCwdSession('.cac', logCwd, logWorktreeCwd, logSessionId);
 
       const out = capturedLog();
-      expect(out).toContain('[sessionLinker]');
+      // 引用常量而非硬编码字面量：前缀变更时本用例自动跟随，同时仍验证前缀确实存在
+      expect(out).toContain(SESSION_LINK_LOG_PREFIX);
       expect(out).toContain('建立软链');
     });
   });

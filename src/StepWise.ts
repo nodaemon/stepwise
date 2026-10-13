@@ -28,7 +28,13 @@ import {
   saveJsonFile,
   loadJsonFile
 } from './utils/fileHelper';
-import { linkCrossCwdSession, isLocalSession, SessionLinkLog } from './utils/sessionLinker';
+import {
+  linkCrossCwdSession,
+  isLocalSession,
+  resolveSessionProjectsDir,
+  SessionLinkLog,
+  SESSION_LINK_LOG_PREFIX
+} from './utils/sessionLinker';
 import {
   validateJsonArray,
   validateJsonObject,
@@ -457,19 +463,29 @@ export class StepWise {
     return '.claude';
   }
 
+  /**
+   * 创建软链流程的日志回调（双通道：控制台 + 任务汇总日志 execute.log）
+   *
+   * 前缀与 sessionLinker 共用 SESSION_LINK_LOG_PREFIX，保证同一子系统的日志可统一检索。
+   * 抽成方法而非内联闭包：handleParallelCrossCwdSession 在每个 exec 步骤都会执行，
+   * 避免每次重建闭包，也让编排层主体聚焦闸门逻辑。
+   */
+  private createSessionLinkLogger(): SessionLinkLog {
+    return (message: string): void => {
+      const line = `${SESSION_LINK_LOG_PREFIX} ${message}`;
+      console.log(line);
+      this.logger?.writeSummaryLog(line);
+    };
+  }
+
   private handleParallelCrossCwdSession(
     fork: boolean,
     effectiveCwd: string | undefined,
     sessionId: string
   ): void {
-    // 双通道日志：控制台 + 任务汇总日志 execute.log
     // 本方法在 logTaskStart / recordTaskStart 之前调用，execute.log 此时已就绪，
     // 因此这里能覆盖到「跨目录处理阶段失败」这一段的全部留痕。
-    const linkLog: SessionLinkLog = (message: string): void => {
-      const line = `[session软链] ${message}`;
-      console.log(line);
-      this.logger?.writeSummaryLog(line);
-    };
+    const linkLog = this.createSessionLinkLogger();
 
     if (!this.workerId || !this.mainCwd || !effectiveCwd) {
       linkLog('非并行场景（缺 workerId/mainCwd/cwd），跳过跨目录处理');
@@ -489,13 +505,16 @@ export class StepWise {
     linkLog(`进入跨目录处理 fork=${fork} 主仓库=${this.mainCwd} worktree=${effectiveCwd} sessionId=${sessionId}`);
 
     // 本地会话：worktree 自己的 projects 目录已有实体文件 → 同 cwd resume，无需处理
-    if (isLocalSession(configSubdir, effectiveCwd, sessionId, linkLog)) {
+    // isLocalSession 是纯查询原语（无日志），故探测路径与决策结果均由本层记录
+    linkLog(`探测 worktree 会话目录: ${resolveSessionProjectsDir(configSubdir, effectiveCwd)}`);
+    if (isLocalSession(configSubdir, effectiveCwd, sessionId)) {
       linkLog('闸门3：worktree 已有本地实体会话，同 cwd resume，跳过跨目录处理');
       return;
     }
 
     // 新会话：worktree 和主仓库都没有该 session 文件 → 首次执行，不需要跨目录处理
-    if (!isLocalSession(configSubdir, this.mainCwd, sessionId, linkLog)) {
+    linkLog(`探测 主仓库会话目录: ${resolveSessionProjectsDir(configSubdir, this.mainCwd)}`);
+    if (!isLocalSession(configSubdir, this.mainCwd, sessionId)) {
       linkLog('闸门4：worktree 与主仓库均无该会话（首次执行），跳过跨目录处理');
       return;
     }
