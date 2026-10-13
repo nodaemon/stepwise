@@ -4,6 +4,7 @@
  * Claude/CodeAgent 的 session 按 cwd 隔离存储：
  * - Claude Code: ~/.claude/projects/<escaped-cwd>/<sessionId>.jsonl
  * - CodeAgent: ~/.cac/projects/<escaped-cwd>/<sessionId>.jsonl
+ *   若设置了 CODEAGENTS3_CONFIG_DIR，则为 $CODEAGENTS3_CONFIG_DIR/projects/<escaped-cwd>/<sessionId>.jsonl
  * forEachParallel 的 worker 在独立 git worktree（cwd 与主仓库不同）运行，导致跨目录 resume
  * 报 "No conversation found"。本工具在 fork 场景下把主仓库的 session 文件软链到 worktree
  * 的 projects 目录，使 worktree 能 resume 原会话并派生新会话。
@@ -18,10 +19,14 @@ import * as path from 'path';
 import { ensureDir } from './fileHelper';
 
 /**
- * 各执行器的 session 存储 config 目录名（相对 ~）
+ * 各执行器的 session 存储 config 目录名（相对 ~，除非被环境变量覆盖）
+ *
+ * 注意：这里的 value 才是要传给下方各函数的「目录标记」，本映射的 key 是 agentType。
+ * 调用方应传 value（'.claude' / '.cac' / '.pi'），而不是 key（'claude' / 'codeagent' / 'pi'）。
+ *
  * - claude: ~/.claude
- * - codeagent: ~/.cac
- * - pi: ~/.pi/agent（session 路径还多一层 sessions/--<cwd>--）
+ * - codeagent: ~/.cac（若设置了 CODEAGENTS3_CONFIG_DIR 则用该目录，见 resolveConfigDir）
+ * - pi: ~/.pi/agent（若设置了 PI_CODING_AGENT_DIR 则用该目录；session 路径还多一层 sessions/--<cwd>--）
  */
 const CONFIG_SUBDIR: Record<string, string> = {
   claude: '.claude',
@@ -48,20 +53,44 @@ function escapeCwdForPi(cwd: string): string {
 }
 
 /**
+ * 解析某执行器的 config 根目录绝对路径
+ *
+ * - claude: ~/.claude
+ * - codeagent: $CODEAGENTS3_CONFIG_DIR，未设置（或空串）时回退 ~/.cac
+ * - pi: $PI_CODING_AGENT_DIR，未设置（或空串）时回退 ~/.pi/agent
+ *
+ * 环境变量取值逐字使用，不做 ~ 展开或相对路径解析——保持与被调用方
+ * （CodeAgent / Pi 自身）对同一变量的解释一致，避免两边指向不同目录。
+ *
+ * @param configSubdir config 目录标记（如 .claude / .cac / .pi），由执行器类型决定
+ */
+function resolveConfigDir(configSubdir: string): string {
+  if (configSubdir === '.cac') {
+    // CodeAgent 支持 CODEAGENTS3_CONFIG_DIR 指定配置目录，未设置时用默认的 ~/.cac
+    return process.env.CODEAGENTS3_CONFIG_DIR
+      || path.join(os.homedir(), '.cac');
+  }
+  if (configSubdir === '.pi') {
+    // Pi 默认 ~/.pi/agent，可通过 PI_CODING_AGENT_DIR 环境变量覆盖
+    return process.env.PI_CODING_AGENT_DIR
+      || path.join(os.homedir(), '.pi', 'agent');
+  }
+  return path.join(os.homedir(), configSubdir);
+}
+
+/**
  * 获取某 cwd 对应的 session 存储目录绝对路径
- * @param configSubdir config 目录名（如 .claude / .cac / .pi），由执行器类型决定
+ * @param configSubdir config 目录标记（如 .claude / .cac / .pi），由执行器类型决定
  * @param cwd 工作目录绝对路径
  */
 function getProjectsDir(configSubdir: string, cwd: string): string {
+  const configDir = resolveConfigDir(configSubdir);
   if (configSubdir === '.pi') {
-    // pi: <agentDir>/sessions/--<escaped-cwd>--
-    // agentDir 默认 ~/.pi/agent，可通过 PI_CODING_AGENT_DIR 环境变量覆盖
-    const agentDir = process.env.PI_CODING_AGENT_DIR
-      || path.join(os.homedir(), '.pi', 'agent');
-    return path.join(agentDir, 'sessions', escapeCwdForPi(cwd));
+    // pi: <configDir>/sessions/--<escaped-cwd>--
+    return path.join(configDir, 'sessions', escapeCwdForPi(cwd));
   }
-  // Claude/CodeAgent: ~/<config>/projects/<escaped-cwd>
-  return path.join(os.homedir(), configSubdir, 'projects', escapeCwd(cwd));
+  // Claude/CodeAgent: <configDir>/projects/<escaped-cwd>
+  return path.join(configDir, 'projects', escapeCwd(cwd));
 }
 
 /**
@@ -91,7 +120,7 @@ function findPiSessionFilePath(sessionDir: string, sessionId: string): string | 
 /**
  * 判断某 sessionId 是否为某 cwd 本地创建的会话（实体文件，非软链）
  * 用于区分"worktree 自建会话（本地，无需跨目录处理）"与"来自主仓库（跨目录，需软链/报错）"
- * @param configSubdir config 目录名（如 .claude / .cac / .pi），由执行器类型决定
+ * @param configSubdir config 目录标记（如 .claude / .cac / .pi），由执行器类型决定
  */
 export function isLocalSession(configSubdir: string, cwd: string, sessionId: string): boolean {
   const sessionDir = getProjectsDir(configSubdir, cwd);
@@ -138,7 +167,7 @@ export function findPiSessionFile(sessionDir: string, sessionId: string): string
  * - 主仓库 session 文件不存在则跳过（不报错，可能本就无）
  * - 目标已存在且非符号链接则不覆盖（保护 worktree 自建的同名 session）
  * - 目标是符号链接或不存在则（重新）建立软链
- * @param configSubdir config 目录名（如 .claude / .cac），由执行器类型决定
+ * @param configSubdir config 目录标记（如 .claude / .cac），由执行器类型决定
  */
 export function linkCrossCwdSession(configSubdir: string, mainCwd: string, worktreeCwd: string, sessionId: string): void {
   const sourceDir = getProjectsDir(configSubdir, mainCwd);
@@ -174,7 +203,7 @@ export function linkCrossCwdSession(configSubdir: string, mainCwd: string, workt
  * 注意：当前 forEachParallel 不自动调用此方法——软链残留无害（最坏为 dangling symlink，
  * 执行器自然处理为"找不到会话"），避免删 worktree 时遍历删除的误判风险。
  * 如需手动清理堆积的残留软链，可在外部调用此方法。
- * @param configSubdir config 目录名（如 .claude / .cac），由执行器类型决定
+ * @param configSubdir config 目录标记（如 .claude / .cac），由执行器类型决定
  */
 export function cleanWorktreeSessionLinks(configSubdir: string, worktreeCwd: string): void {
   const targetDir = getProjectsDir(configSubdir, worktreeCwd);

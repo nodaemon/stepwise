@@ -1,7 +1,25 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { isLocalSession, findPiSessionFile } from '../src/utils/sessionLinker';
+import {
+  isLocalSession,
+  linkCrossCwdSession,
+  cleanWorktreeSessionLinks,
+  findPiSessionFile
+} from '../src/utils/sessionLinker';
+
+/**
+ * os.homedir 在 Jest 沙箱中是 non-configurable 属性，jest.spyOn 无法重定义，
+ * 改用模块 mock 让其可编程控制。默认实现仍返回真实 home，不影响既有 pi 用例。
+ * （注：也不能靠改 process.env.HOME——Jest 的 process.env 是沙箱副本，
+ *   改不到原生 getenv，实测 os.homedir() 不会跟随变化。）
+ */
+jest.mock('os', () => {
+  const actual = jest.requireActual('os');
+  return { ...actual, homedir: jest.fn(() => actual.homedir()) };
+});
+
+const realHome = jest.requireActual<typeof import('os')>('os').homedir();
 
 /**
  * sessionLinker 单元测试
@@ -101,6 +119,128 @@ describe('sessionLinker', () => {
     it('目录不存在时应返回 null', () => {
       const found = findPiSessionFile('/non/existent/dir', testSessionId);
       expect(found).toBeNull();
+    });
+  });
+
+  /**
+   * CodeAgent 支持用 CODEAGENTS3_CONFIG_DIR 覆盖配置目录，
+   * 此时 session 存在该目录下而非 ~/.cac。未设置时必须回退 ~/.cac。
+   */
+  describe('CodeAgent 配置目录（CODEAGENTS3_CONFIG_DIR）', () => {
+    const cacSessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const cacGhostId = 'ffffffff-0000-0000-0000-000000000000';
+    const mainCwd = '/data1/wangkai/stepwise';
+    const worktreeCwd = '/data1/wangkai/stepwise_Worker1';
+
+    // 与 sessionLinker.escapeCwd 一致：非字母数字字符一律转 -
+    const esc = (c: string): string => c.replace(/[^a-zA-Z0-9]/g, '-');
+
+    let tmpRoot: string;
+    let savedConfigDir: string | undefined;
+
+    /** 在指定 config 根目录下建一个 CodeAgent 格式的会话文件 */
+    const makeSession = (configDir: string, cwd: string, sid: string): void => {
+      const dir = path.join(configDir, 'projects', esc(cwd));
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, `${sid}.jsonl`), '{"type":"session"}');
+    };
+
+    /**
+     * 隔离 homedir 指向的目录（配合文件顶部的 os 模块 mock）
+     */
+    const useHome = (home: string): void => {
+      fs.mkdirSync(home, { recursive: true });
+      (os.homedir as unknown as jest.Mock).mockReturnValue(home);
+    };
+
+    beforeEach(() => {
+      tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codeagent-cfg-'));
+      savedConfigDir = process.env.CODEAGENTS3_CONFIG_DIR;
+      // 默认就把 homedir 隔离到临时目录，保证用例绝不触碰真实 home
+      useHome(path.join(tmpRoot, 'home'));
+    });
+
+    afterEach(() => {
+      (os.homedir as unknown as jest.Mock).mockReturnValue(realHome);
+      if (savedConfigDir === undefined) delete process.env.CODEAGENTS3_CONFIG_DIR;
+      else process.env.CODEAGENTS3_CONFIG_DIR = savedConfigDir;
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    });
+
+    it('环境变量指定的目录下的会话应被识别', () => {
+      const cfg = path.join(tmpRoot, 'custom-cac');
+      makeSession(cfg, mainCwd, cacSessionId);
+      process.env.CODEAGENTS3_CONFIG_DIR = cfg;
+      expect(isLocalSession('.cac', mainCwd, cacSessionId)).toBe(true);
+    });
+
+    it('环境变量指定目录下幽灵 ID（文件不存在）应返回 false', () => {
+      process.env.CODEAGENTS3_CONFIG_DIR = path.join(tmpRoot, 'custom-cac');
+      expect(isLocalSession('.cac', mainCwd, cacGhostId)).toBe(false);
+    });
+
+    it('未设置环境变量时应回退到 $HOME/.cac', () => {
+      const home = path.join(tmpRoot, 'home');
+      useHome(home);
+      makeSession(path.join(home, '.cac'), mainCwd, cacSessionId);
+      delete process.env.CODEAGENTS3_CONFIG_DIR;
+      expect(isLocalSession('.cac', mainCwd, cacSessionId)).toBe(true);
+    });
+
+    it('环境变量为空串时应视为未设置，回退到 $HOME/.cac', () => {
+      const home = path.join(tmpRoot, 'home');
+      useHome(home);
+      makeSession(path.join(home, '.cac'), mainCwd, cacSessionId);
+      process.env.CODEAGENTS3_CONFIG_DIR = '';
+      expect(isLocalSession('.cac', mainCwd, cacSessionId)).toBe(true);
+    });
+
+    it('与 PI_CODING_AGENT_DIR 互不串扰，各命中各自目录', () => {
+      const cfg = path.join(tmpRoot, 'custom-cac');
+      makeSession(cfg, mainCwd, cacSessionId);
+      process.env.CODEAGENTS3_CONFIG_DIR = cfg;
+      // pi 仍命中外层 beforeAll 建的临时目录
+      expect(isLocalSession('.pi', testCwd, testSessionId)).toBe(true);
+      expect(isLocalSession('.cac', mainCwd, cacSessionId)).toBe(true);
+    });
+
+    it('linkCrossCwdSession 应在覆盖目录内建软链，而非 ~/.cac', () => {
+      const cfg = path.join(tmpRoot, 'custom-cac');
+      makeSession(cfg, mainCwd, cacSessionId);
+      const home = path.join(tmpRoot, 'home');
+      useHome(home);
+      process.env.CODEAGENTS3_CONFIG_DIR = cfg;
+
+      linkCrossCwdSession('.cac', mainCwd, worktreeCwd, cacSessionId);
+
+      const link = path.join(cfg, 'projects', esc(worktreeCwd), `${cacSessionId}.jsonl`);
+      expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+      expect(fs.readlinkSync(link))
+        .toBe(path.join(cfg, 'projects', esc(mainCwd), `${cacSessionId}.jsonl`));
+      // 默认 ~/.cac 下不应被创建任何东西
+      expect(fs.existsSync(path.join(home, '.cac'))).toBe(false);
+    });
+
+    it('cleanWorktreeSessionLinks 应在覆盖目录内清理残留软链', () => {
+      const cfg = path.join(tmpRoot, 'custom-cac');
+      makeSession(cfg, mainCwd, cacSessionId);
+      process.env.CODEAGENTS3_CONFIG_DIR = cfg;
+      linkCrossCwdSession('.cac', mainCwd, worktreeCwd, cacSessionId);
+
+      const wtDir = path.join(cfg, 'projects', esc(worktreeCwd));
+      expect(fs.readdirSync(wtDir)).toHaveLength(1);
+
+      cleanWorktreeSessionLinks('.cac', worktreeCwd);
+      expect(fs.readdirSync(wtDir)).toHaveLength(0);
+    });
+
+    it('CODEAGENTS3_CONFIG_DIR 不影响 claude 的目录解析', () => {
+      const cfg = path.join(tmpRoot, 'custom-cac');
+      makeSession(cfg, mainCwd, cacSessionId);
+      useHome(path.join(tmpRoot, 'home'));
+      process.env.CODEAGENTS3_CONFIG_DIR = cfg;
+      // claude 仍只认 $HOME/.claude，覆盖目录里的会话对它不可见
+      expect(isLocalSession('.claude', mainCwd, cacSessionId)).toBe(false);
     });
   });
 });

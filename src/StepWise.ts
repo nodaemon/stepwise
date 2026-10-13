@@ -442,9 +442,12 @@ export class StepWise {
    * 非并行场景（无 workerId）不做任何处理。
    */
   /**
-   * 按执行器类型获取 session 存储 config 目录名
+   * 按执行器类型获取 session 存储 config 目录标记
    * - claude → '.claude'，codeagent → '.cac'，pi → '.pi'
    * - opencode 不按 cwd 文件隔离（全局 db），返回 null
+   *
+   * 返回的是「目录标记」而非字面路径：实际目录由 sessionLinker 解析，
+   * codeagent 会优先取 CODEAGENTS3_CONFIG_DIR，pi 会优先取 PI_CODING_AGENT_DIR。
    */
   private getConfigSubdir(): string | null {
     const agentType = _getAgentType();

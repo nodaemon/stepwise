@@ -255,7 +255,7 @@ Sets the agent type, determining which agent will execute tasks.
 - Should be called before `setTaskName()`
 - All agents within a task use the same agent type
 - Defaults to `'claude'` (Claude Code agent)
-- `'codeagent'` uses the same command-line arguments and output format as `'claude'`; only the executable name (`codeagent`) differs
+- `'codeagent'` uses the same command-line arguments and output format as `'claude'`; only the executable name (`codeagent`) differs. CodeAgent's config directory defaults to `~/.cac`; override with the `CODEAGENTS3_CONFIG_DIR` environment variable
 - `'pi'` uses the Pi agent (`@earendil-works/pi-coding-agent`); plain-text output, no permission flags needed, session auto-detected via `--session-id`. Pi's config directory defaults to `~/.pi/agent`; override with the `PI_CODING_AGENT_DIR` environment variable
 
 **Example**
@@ -1223,13 +1223,13 @@ interface WorkerContext<T> {
 
 ### cleanWorktreeSessionLinks(configSubdir: string, worktreeCwd: string): void
 
-Removes leftover session symlinks a worktree left in its projects directory. When `fork` branches a session across worktrees, the framework symlinks the main repo's session file into the worktree's projects directory (`~/.claude/projects/`, `~/.cac/projects/`, or `~/.pi/agent/sessions/`). These links are **not** removed when the worktree is deleted — they are harmless (a dangling link is treated as "conversation not found"), but they accumulate. Call this to clean them up.
+Removes leftover session symlinks a worktree left in its projects directory. When `fork` branches a session across worktrees, the framework symlinks the main repo's session file into the worktree's projects directory (`~/.claude/projects/`, `projects/` under `$CODEAGENTS3_CONFIG_DIR` (or `~/.cac` when unset), or `~/.pi/agent/sessions/`). These links are **not** removed when the worktree is deleted — they are harmless (a dangling link is treated as "conversation not found"), but they accumulate. Call this to clean them up.
 
 **Parameters**
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| configSubdir | string | Config directory name by executor type: `'claude'` (→ `~/.claude`), `'codeagent'` (→ `~/.cac`), or `'pi'` (→ `~/.pi/agent`) |
+| configSubdir | string | Config directory **marker** (note the leading dot): `'.claude'` (→ `~/.claude`), `'.cac'` (→ `$CODEAGENTS3_CONFIG_DIR`, or `~/.cac` when unset), or `'.pi'` (→ `~/.pi/agent`). This is the directory marker, not the agentType — passing `'claude'` / `'codeagent'` / `'pi'` resolves to the wrong directory without raising an error |
 | worktreeCwd | string | Absolute path of the worktree directory whose leftover symlinks should be removed |
 
 **Example**
@@ -1238,10 +1238,10 @@ Removes leftover session symlinks a worktree left in its projects directory. Whe
 import { cleanWorktreeSessionLinks } from 'stepwise';
 
 // After forEachParallel finishes, clean leftover fork symlinks in a Claude worktree
-cleanWorktreeSessionLinks('claude', '/abs/path/to/worktree');
+cleanWorktreeSessionLinks('.claude', '/abs/path/to/worktree');
 ```
 
-> **When to call**: optional. Symlinks are harmless; call only if leftover links pile up. For `codeagent` use `'codeagent'` (→ `~/.cac`); for `pi` use `'pi'` (→ `~/.pi/agent`).
+> **When to call**: optional. Symlinks are harmless; call only if leftover links pile up. For `codeagent` use `'.cac'` (→ `$CODEAGENTS3_CONFIG_DIR`, or `~/.cac` when unset); for `pi` use `'.pi'` (→ `~/.pi/agent`).
 
 ---
 

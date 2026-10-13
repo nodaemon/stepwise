@@ -256,7 +256,7 @@ const data = loadCollectData('/abs/path/my_data.json');
 - 应在 `setTaskName()` 之前调用
 - 同一任务内所有 Agent 使用相同智能体类型
 - 默认使用 `'claude'`（Claude Code 智能体）
-- `'codeagent'` 的命令行参数和输出格式与 `'claude'` 完全一致，仅可执行程序名（`codeagent`）不同
+- `'codeagent'` 的命令行参数和输出格式与 `'claude'` 完全一致，仅可执行程序名（`codeagent`）不同。CodeAgent 的配置目录默认为 `~/.cac`，可通过 `CODEAGENTS3_CONFIG_DIR` 环境变量覆盖
 - `'pi'` 使用 Pi 智能体（`@earendil-works/pi-coding-agent`）；纯文本输出，无需权限标志，session 通过 `--session-id` 自动判断创建/恢复。Pi 的配置目录默认为 `~/.pi/agent`，可通过 `PI_CODING_AGENT_DIR` 环境变量覆盖
 
 **示例**
@@ -1223,13 +1223,13 @@ interface WorkerContext<T> {
 
 ### cleanWorktreeSessionLinks(configSubdir: string, worktreeCwd: string): void
 
-清理 worktree 在其 projects 目录残留的 session 软链。当 `fork` 跨 worktree 派生会话时，框架会把主仓库的 session 文件软链到 worktree 的 projects 目录（`~/.claude/projects/`、`~/.cac/projects/` 或 `~/.pi/agent/sessions/`）。删除 worktree 时**不会**清除这些软链——它们无害（悬空软链会被当作"找不到会话"），但会堆积。调用此函数可清理。
+清理 worktree 在其 projects 目录残留的 session 软链。当 `fork` 跨 worktree 派生会话时，框架会把主仓库的 session 文件软链到 worktree 的 projects 目录（`~/.claude/projects/`、`$CODEAGENTS3_CONFIG_DIR`（未设置时 `~/.cac`）下的 `projects/`、或 `~/.pi/agent/sessions/`）。删除 worktree 时**不会**清除这些软链——它们无害（悬空软链会被当作"找不到会话"），但会堆积。调用此函数可清理。
 
 **参数**
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| configSubdir | string | 按执行器类型决定的 config 目录名：`'claude'`（→ `~/.claude`）、`'codeagent'`（→ `~/.cac`）或 `'pi'`（→ `~/.pi/agent`） |
+| configSubdir | string | config 目录**标记**（注意须带前导点）：`'.claude'`（→ `~/.claude`）、`'.cac'`（→ `$CODEAGENTS3_CONFIG_DIR`，未设置时 `~/.cac`）或 `'.pi'`（→ `~/.pi/agent`）。此处传的是目录标记而非 agentType，传 `'claude'` / `'codeagent'` / `'pi'` 会解析到错误目录且不报错 |
 | worktreeCwd | string | 需清理残留软链的 worktree 目录绝对路径 |
 
 **示例**
@@ -1238,10 +1238,10 @@ interface WorkerContext<T> {
 import { cleanWorktreeSessionLinks } from 'stepwise';
 
 // forEachParallel 结束后，清理某 Claude worktree 残留的 fork 软链
-cleanWorktreeSessionLinks('claude', '/abs/path/to/worktree');
+cleanWorktreeSessionLinks('.claude', '/abs/path/to/worktree');
 ```
 
-> **何时调用**：可选。软链无害，仅在残留堆积时调用。`codeagent` 用 `'codeagent'`（→ `~/.cac`）；`pi` 用 `'pi'`（→ `~/.pi/agent`）。
+> **何时调用**：可选。软链无害，仅在残留堆积时调用。`codeagent` 用 `'.cac'`（→ `$CODEAGENTS3_CONFIG_DIR`，未设置时 `~/.cac`）；`pi` 用 `'.pi'`（→ `~/.pi/agent`）。
 
 ---
 
