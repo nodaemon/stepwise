@@ -4,7 +4,6 @@ import * as path from 'path';
 import {
   isLocalSession,
   linkCrossCwdSession,
-  cleanWorktreeSessionLinks,
   findPiSessionFile
 } from '../src/utils/sessionLinker';
 
@@ -221,19 +220,6 @@ describe('sessionLinker', () => {
       expect(fs.existsSync(path.join(home, '.cac'))).toBe(false);
     });
 
-    it('cleanWorktreeSessionLinks 应在覆盖目录内清理残留软链', () => {
-      const cfg = path.join(tmpRoot, 'custom-cac');
-      makeSession(cfg, mainCwd, cacSessionId);
-      process.env.CODEAGENTS3_CONFIG_DIR = cfg;
-      linkCrossCwdSession('.cac', mainCwd, worktreeCwd, cacSessionId);
-
-      const wtDir = path.join(cfg, 'projects', esc(worktreeCwd));
-      expect(fs.readdirSync(wtDir)).toHaveLength(1);
-
-      cleanWorktreeSessionLinks('.cac', worktreeCwd);
-      expect(fs.readdirSync(wtDir)).toHaveLength(0);
-    });
-
     it('CODEAGENTS3_CONFIG_DIR 不影响 claude 的目录解析', () => {
       const cfg = path.join(tmpRoot, 'custom-cac');
       makeSession(cfg, mainCwd, cacSessionId);
@@ -241,6 +227,198 @@ describe('sessionLinker', () => {
       process.env.CODEAGENTS3_CONFIG_DIR = cfg;
       // claude 仍只认 $HOME/.claude，覆盖目录里的会话对它不可见
       expect(isLocalSession('.claude', mainCwd, cacSessionId)).toBe(false);
+    });
+  });
+
+  /**
+   * 软链流程的每一次文件操作都必须有日志留痕，
+   * 包括「源文件不存在直接返回」这类此前完全静默的分支。
+   */
+  describe('软链流程日志留痕', () => {
+    const logSessionId = '11111111-2222-3333-4444-555555555555';
+    const logCwd = '/data1/wangkai/log-test';
+    const logWorktreeCwd = '/data1/wangkai/log-test_Worker1';
+    const esc = (c: string): string => c.replace(/[^a-zA-Z0-9]/g, '-');
+
+    let tmpRoot: string;
+    let savedConfigDir: string | undefined;
+    let logSpy: jest.SpyInstance;
+
+    /** 收集 console.log 输出，作为默认日志实现的断言依据 */
+    const capturedLog = (): string =>
+      logSpy.mock.calls.map(c => c.map(String).join(' ')).join('\n');
+
+    const makeSession = (configDir: string, cwd: string, sid: string): string => {
+      const dir = path.join(configDir, 'projects', esc(cwd));
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, `${sid}.jsonl`);
+      fs.writeFileSync(file, '{"type":"session"}');
+      return file;
+    };
+
+    beforeEach(() => {
+      tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'linklog-test-'));
+      savedConfigDir = process.env.CODEAGENTS3_CONFIG_DIR;
+      process.env.CODEAGENTS3_CONFIG_DIR = path.join(tmpRoot, 'cac');
+      logSpy = jest.spyOn(console, 'log').mockImplementation(() => { /* 静默捕获 */ });
+    });
+
+    afterEach(() => {
+      logSpy.mockRestore();
+      if (savedConfigDir === undefined) delete process.env.CODEAGENTS3_CONFIG_DIR;
+      else process.env.CODEAGENTS3_CONFIG_DIR = savedConfigDir;
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    });
+
+    // L1：源文件不存在必须留日志（此前是完全静默 return）
+    it('L1: 源会话文件不存在时必须有明确日志', () => {
+      linkCrossCwdSession('.cac', logCwd, logWorktreeCwd, logSessionId);
+      const out = capturedLog();
+      expect(out).toContain('源会话文件不存在，跳过建链');
+      expect(out).toContain(`${logSessionId}.jsonl`);
+    });
+
+    // L2：正常建链应记录源与目标完整路径
+    it('L2: 建链成功应记录源与目标完整路径', () => {
+      const cfg = process.env.CODEAGENTS3_CONFIG_DIR!;
+      const sourceFile = makeSession(cfg, logCwd, logSessionId);
+
+      linkCrossCwdSession('.cac', logCwd, logWorktreeCwd, logSessionId);
+
+      const out = capturedLog();
+      expect(out).toContain('建立软链');
+      expect(out).toContain(sourceFile);
+      expect(out).toContain(path.join(cfg, 'projects', esc(logWorktreeCwd), `${logSessionId}.jsonl`));
+    });
+
+    // L3：目标是实体文件时保护性跳过并留日志
+    it('L3: 目标已是实体文件时应记录保护日志且不覆盖', () => {
+      const cfg = process.env.CODEAGENTS3_CONFIG_DIR!;
+      makeSession(cfg, logCwd, logSessionId);
+      // worktree 侧预先放一个同名实体文件（worker 自建会话）
+      const wtDir = path.join(cfg, 'projects', esc(logWorktreeCwd));
+      fs.mkdirSync(wtDir, { recursive: true });
+      const targetFile = path.join(wtDir, `${logSessionId}.jsonl`);
+      fs.writeFileSync(targetFile, '{"entity":true}');
+
+      linkCrossCwdSession('.cac', logCwd, logWorktreeCwd, logSessionId);
+
+      expect(capturedLog()).toContain('按保护规则不覆盖');
+      // 未被替换为软链，内容不变
+      expect(fs.lstatSync(targetFile).isSymbolicLink()).toBe(false);
+      expect(fs.readFileSync(targetFile, 'utf-8')).toBe('{"entity":true}');
+    });
+
+    // L4：isLocalSession 两种判定都要留日志
+    it('L4: isLocalSession 的两种判定都应有日志', () => {
+      const cfg = process.env.CODEAGENTS3_CONFIG_DIR!;
+      makeSession(cfg, logCwd, logSessionId);
+
+      expect(isLocalSession('.cac', logCwd, logSessionId)).toBe(true);
+      expect(isLocalSession('.cac', logCwd, 'not-exist-0000')).toBe(false);
+
+      const out = capturedLog();
+      expect(out).toContain('探测会话文件');
+      expect(out).toContain('本地实体会话');
+      expect(out).toContain('非本地');
+    });
+
+    // L5：不传 log 参数时默认实现也必须输出（保证绝不失声）
+    it('L5: 不传 log 参数时默认仍输出 console 日志', () => {
+      const cfg = process.env.CODEAGENTS3_CONFIG_DIR!;
+      makeSession(cfg, logCwd, logSessionId);
+
+      linkCrossCwdSession('.cac', logCwd, logWorktreeCwd, logSessionId);
+
+      const out = capturedLog();
+      expect(out).toContain('[sessionLinker]');
+      expect(out).toContain('建立软链');
+    });
+  });
+
+  /**
+   * 数据安全回归护栏：软链流程绝不能删除用户的 session 文件。
+   */
+  describe('数据安全：绝不删除 session 文件', () => {
+    const safeSessionId = '99999999-8888-7777-6666-555555555555';
+    const safeCwd = '/data1/wangkai/safe-test';
+    const safeWorktreeCwd = '/data1/wangkai/safe-test_Worker1';
+    const esc = (c: string): string => c.replace(/[^a-zA-Z0-9]/g, '-');
+    const SESSION_CONTENT = '{"type":"session","userData":"不可丢失"}';
+
+    let tmpRoot: string;
+    let savedConfigDir: string | undefined;
+
+    const setup = (): { cfg: string; sourceFile: string } => {
+      tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'safety-test-'));
+      savedConfigDir = process.env.CODEAGENTS3_CONFIG_DIR;
+      const cfg = path.join(tmpRoot, 'cac');
+      process.env.CODEAGENTS3_CONFIG_DIR = cfg;
+      const dir = path.join(cfg, 'projects', esc(safeCwd));
+      fs.mkdirSync(dir, { recursive: true });
+      const sourceFile = path.join(dir, `${safeSessionId}.jsonl`);
+      fs.writeFileSync(sourceFile, SESSION_CONTENT);
+      return { cfg, sourceFile };
+    };
+
+    afterEach(() => {
+      if (savedConfigDir === undefined) delete process.env.CODEAGENTS3_CONFIG_DIR;
+      else process.env.CODEAGENTS3_CONFIG_DIR = savedConfigDir;
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    });
+
+    // S1：完整建链流程后源文件字节级不变
+    it('S1: 建链后主仓 session 文件内容字节级不变', () => {
+      const { sourceFile } = setup();
+      linkCrossCwdSession('.cac', safeCwd, safeWorktreeCwd, safeSessionId);
+      expect(fs.existsSync(sourceFile)).toBe(true);
+      expect(fs.readFileSync(sourceFile, 'utf-8')).toBe(SESSION_CONTENT);
+    });
+
+    // S2：删除 worktree 目录不会连带删掉软链目标
+    it('S2: 删除 worktree 目录后主仓 session 仍完好', () => {
+      const { sourceFile } = setup();
+      linkCrossCwdSession('.cac', safeCwd, safeWorktreeCwd, safeSessionId);
+
+      // 模拟 forEachParallel 收尾：删除 worktree 目录
+      const fakeWorktree = path.join(tmpRoot, 'worktree_dir');
+      const wtProjects = path.join(fakeWorktree, 'projects');
+      fs.mkdirSync(wtProjects, { recursive: true });
+      fs.symlinkSync(sourceFile, path.join(wtProjects, 'link.jsonl'));
+      fs.rmSync(fakeWorktree, { recursive: true, force: true });
+
+      expect(fs.existsSync(sourceFile)).toBe(true);
+      expect(fs.readFileSync(sourceFile, 'utf-8')).toBe(SESSION_CONTENT);
+    });
+
+    // S3：worktree 内含文件软链与目录软链时，rmSync 递归删除不跟随软链
+    it('S3: rmSync(recursive) 不跟随软链，目标数据完好', () => {
+      const { cfg, sourceFile } = setup();
+      const preciousDir = path.join(cfg, 'projects', 'precious');
+      fs.mkdirSync(preciousDir, { recursive: true });
+      fs.writeFileSync(path.join(preciousDir, 'keep.txt'), '重要数据');
+
+      const wt = path.join(tmpRoot, 'wt2');
+      fs.mkdirSync(wt, { recursive: true });
+      fs.symlinkSync(sourceFile, path.join(wt, 'file_link.jsonl'));
+      fs.symlinkSync(preciousDir, path.join(wt, 'dir_link'));
+
+      fs.rmSync(wt, { recursive: true, force: true });
+
+      expect(fs.existsSync(sourceFile)).toBe(true);
+      expect(fs.readFileSync(sourceFile, 'utf-8')).toBe(SESSION_CONTENT);
+      expect(fs.existsSync(path.join(preciousDir, 'keep.txt'))).toBe(true);
+      expect(fs.readFileSync(path.join(preciousDir, 'keep.txt'), 'utf-8')).toBe('重要数据');
+    });
+
+    // S4：静态护栏——删除能力不得被重新接回并行流程
+    it('S4: forEachParallel 源码中不得出现 session 删除能力', () => {
+      const src = path.join(__dirname, '..', 'src', 'forEachParallel.ts');
+      const content = fs.readFileSync(src, 'utf-8');
+      expect(content).not.toContain('cleanWorktreeSessionLinks');
+      expect(content).not.toContain('sessionLinker');
+      // 并行流程也不得直接操作 ~/.claude / ~/.cac 等 session 存储目录
+      expect(content).not.toMatch(/unlinkSync/);
     });
   });
 });

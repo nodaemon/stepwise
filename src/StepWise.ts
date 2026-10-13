@@ -28,7 +28,7 @@ import {
   saveJsonFile,
   loadJsonFile
 } from './utils/fileHelper';
-import { linkCrossCwdSession, isLocalSession } from './utils/sessionLinker';
+import { linkCrossCwdSession, isLocalSession, SessionLinkLog } from './utils/sessionLinker';
 import {
   validateJsonArray,
   validateJsonObject,
@@ -462,24 +462,53 @@ export class StepWise {
     effectiveCwd: string | undefined,
     sessionId: string
   ): void {
-    if (!this.workerId || !this.mainCwd || !effectiveCwd) return;  // 非并行场景或缺 cwd
-    if (!sessionId) return;  // 无 sessionId（默认场景），worktree 内自建
+    // 双通道日志：控制台 + 任务汇总日志 execute.log
+    // 本方法在 logTaskStart / recordTaskStart 之前调用，execute.log 此时已就绪，
+    // 因此这里能覆盖到「跨目录处理阶段失败」这一段的全部留痕。
+    const linkLog: SessionLinkLog = (message: string): void => {
+      const line = `[session软链] ${message}`;
+      console.log(line);
+      this.logger?.writeSummaryLog(line);
+    };
+
+    if (!this.workerId || !this.mainCwd || !effectiveCwd) {
+      linkLog('非并行场景（缺 workerId/mainCwd/cwd），跳过跨目录处理');
+      return;
+    }
+    if (!sessionId) {
+      linkLog('无 sessionId（默认场景），worktree 内自建会话，跳过跨目录处理');
+      return;
+    }
 
     const configSubdir = this.getConfigSubdir();
-    if (!configSubdir) return;  // OpenCode 不按 cwd 文件隔离，跳过
+    if (!configSubdir) {
+      linkLog('OpenCode 不按 cwd 文件隔离（全局 db），跳过跨目录处理');
+      return;
+    }
+
+    linkLog(`进入跨目录处理 fork=${fork} 主仓库=${this.mainCwd} worktree=${effectiveCwd} sessionId=${sessionId}`);
 
     // 本地会话：worktree 自己的 projects 目录已有实体文件 → 同 cwd resume，无需处理
-    if (isLocalSession(configSubdir, effectiveCwd, sessionId)) return;
+    if (isLocalSession(configSubdir, effectiveCwd, sessionId, linkLog)) {
+      linkLog('闸门3：worktree 已有本地实体会话，同 cwd resume，跳过跨目录处理');
+      return;
+    }
 
     // 新会话：worktree 和主仓库都没有该 session 文件 → 首次执行，不需要跨目录处理
-    if (!isLocalSession(configSubdir, this.mainCwd, sessionId)) return;
+    if (!isLocalSession(configSubdir, this.mainCwd, sessionId, linkLog)) {
+      linkLog('闸门4：worktree 与主仓库均无该会话（首次执行），跳过跨目录处理');
+      return;
+    }
 
     // 跨目录会话（主仓库有该 session 但 worktree 没有）：
+    linkLog('闸门4 通过：确认为跨目录会话，主仓库确有该 session，将执行建链或报错');
     if (fork) {
       // fork 只读原会话，软链主仓库 session 到 worktree 目录
-      linkCrossCwdSession(configSubdir, this.mainCwd, effectiveCwd, sessionId);
+      linkLog('fork 模式，执行跨目录软链');
+      linkCrossCwdSession(configSubdir, this.mainCwd, effectiveCwd, sessionId, linkLog);
     } else {
       // 纯 resume 跨目录：共享写并发风险，报错
+      linkLog('纯 resume 跨目录，共享写并发风险，即将抛出错误');
       throw new Error(
         `[StepWise] 并行 worktree 下不能直接复用其他目录的 session（sessionId=${sessionId}）。` +
         `${_getAgentType()} session 按 cwd 隔离，worktree（${effectiveCwd}）与主仓库（${this.mainCwd}）不同目录无法 resume。` +

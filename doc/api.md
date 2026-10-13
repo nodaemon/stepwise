@@ -28,7 +28,6 @@ This document provides detailed API reference for StepWise.
   - [forEachParallel](#foreachparallelt-items-t-workerconfigs-workerconfig-handler-promisevoid-options-foreachparalleloptions-promisevoid)
   - [WorkerConfig](#workerconfig)
   - [WorkerContext](#workercontextt)
-  - [cleanWorktreeSessionLinks](#cleanworktreesessionlinksconfigsubdir-string-worktreecwd-string-void)
 - [Type Definitions](#type-definitions)
 
 ---
@@ -1218,30 +1217,6 @@ interface WorkerContext<T> {
   stepWise: StepWise;
 }
 ```
-
----
-
-### cleanWorktreeSessionLinks(configSubdir: string, worktreeCwd: string): void
-
-Removes leftover session symlinks a worktree left in its projects directory. When `fork` branches a session across worktrees, the framework symlinks the main repo's session file into the worktree's projects directory (`~/.claude/projects/`, `projects/` under `$CODEAGENTS3_CONFIG_DIR` (or `~/.cac` when unset), or `~/.pi/agent/sessions/`). These links are **not** removed when the worktree is deleted — they are harmless (a dangling link is treated as "conversation not found"), but they accumulate. Call this to clean them up.
-
-**Parameters**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| configSubdir | string | Config directory **marker** (note the leading dot): `'.claude'` (→ `~/.claude`), `'.cac'` (→ `$CODEAGENTS3_CONFIG_DIR`, or `~/.cac` when unset), or `'.pi'` (→ `~/.pi/agent`). This is the directory marker, not the agentType — passing `'claude'` / `'codeagent'` / `'pi'` resolves to the wrong directory without raising an error |
-| worktreeCwd | string | Absolute path of the worktree directory whose leftover symlinks should be removed |
-
-**Example**
-
-```typescript
-import { cleanWorktreeSessionLinks } from 'stepwise';
-
-// After forEachParallel finishes, clean leftover fork symlinks in a Claude worktree
-cleanWorktreeSessionLinks('.claude', '/abs/path/to/worktree');
-```
-
-> **When to call**: optional. Symlinks are harmless; call only if leftover links pile up. For `codeagent` use `'.cac'` (→ `$CODEAGENTS3_CONFIG_DIR`, or `~/.cac` when unset); for `pi` use `'.pi'` (→ `~/.pi/agent`).
 
 ---
 

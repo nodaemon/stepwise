@@ -24,9 +24,6 @@ export {
 export { forEachParallel } from './forEachParallel';
 export type { WorkerConfig, WorkerContext, ForEachParallelOptions } from './forEachParallel';
 
-// 并行 worktree session 清理工具（fork 跨 worktree 软链的残留清理）
-export { cleanWorktreeSessionLinks } from './utils/sessionLinker';
-
 // 类型定义
 export * from './types';
 
