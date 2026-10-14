@@ -254,7 +254,7 @@ Sets the agent type, determining which agent will execute tasks.
 - Should be called before `setTaskName()`
 - All agents within a task use the same agent type
 - Defaults to `'claude'` (Claude Code agent)
-- `'codeagent'` uses the same command-line arguments and output format as `'claude'`; only the executable name (`codeagent`) differs. CodeAgent's config directory defaults to `~/.cac`; override with the `CODEAGENTS3_CONFIG_DIR` environment variable
+- `'codeagent'` uses the same command-line arguments and output format as `'claude'`; only the executable name (`codeagent`) differs. CodeAgent's config directory defaults to `~/.cac`; override with the `CODEAGENT3_CONFIG_DIR` environment variable
 - `'pi'` uses the Pi agent (`@earendil-works/pi-coding-agent`); plain-text output, no permission flags needed, session auto-detected via `--session-id`. Pi's config directory defaults to `~/.pi/agent`; override with the `PI_CODING_AGENT_DIR` environment variable
 
 **Example**

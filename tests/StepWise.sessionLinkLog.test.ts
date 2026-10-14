@@ -38,7 +38,7 @@ describe('StepWise 跨目录判定日志', () => {
 
   const setAgent = (type: 'claude' | 'codeagent' | 'opencode') => setAgentType(type);
 
-  /** 在 CODEAGENTS3_CONFIG_DIR 下创建会话文件，返回其绝对路径 */
+  /** 在 CODEAGENT3_CONFIG_DIR 下创建会话文件，返回其绝对路径 */
   const makeSession = (cfgDir: string, cwd: string, sid: string): string => {
     const dir = path.join(cfgDir, 'projects', esc(cwd));
     fs.mkdirSync(dir, { recursive: true });
@@ -54,13 +54,13 @@ describe('StepWise 跨目录判定日志', () => {
     process.chdir(tempDir);
     // 统一走 codeagent，config 目录由环境变量控制
     setAgent('codeagent');
-    process.env.CODEAGENTS3_CONFIG_DIR = path.join(tempDir, 'cac');
+    process.env.CODEAGENT3_CONFIG_DIR = path.join(tempDir, 'cac');
     logSpy = jest.spyOn(console, 'log').mockImplementation(() => { /* 静默捕获 */ });
   });
 
   afterEach(() => {
     logSpy.mockRestore();
-    delete process.env.CODEAGENTS3_CONFIG_DIR;
+    delete process.env.CODEAGENT3_CONFIG_DIR;
     process.chdir(originalCwd);
     fs.rmSync(tempDir, { recursive: true, force: true });
     _resetState();
@@ -102,7 +102,7 @@ describe('StepWise 跨目录判定日志', () => {
 
   // 分支5：闸门3 —— worktree 已有本地实体会话
   it('G5: 闸门3 命中时应记录跳过原因', () => {
-    const cfg = process.env.CODEAGENTS3_CONFIG_DIR!;
+    const cfg = process.env.CODEAGENT3_CONFIG_DIR!;
     makeSession(cfg, worktreeCwd, testSessionId);
 
     const sw = makeStepWise('W1', mainCwd);
@@ -113,7 +113,7 @@ describe('StepWise 跨目录判定日志', () => {
 
   // 分支6（关键诊断场景）：闸门4 失败 —— 必须打印实际查找的路径
   it('G6: 闸门4 失败时应打印主仓库与 worktree 的实际会话目录', () => {
-    const cfg = process.env.CODEAGENTS3_CONFIG_DIR!;
+    const cfg = process.env.CODEAGENT3_CONFIG_DIR!;
 
     const sw = makeStepWise('W1', mainCwd);
     sw.handleParallelCrossCwdSession(true, worktreeCwd, testSessionId);
@@ -127,7 +127,7 @@ describe('StepWise 跨目录判定日志', () => {
 
   // 分支7：闸门4 通过 + fork → 实际建链，日志串起完整链路
   it('G7: fork 成功时日志应串起探测到建链的完整链路', () => {
-    const cfg = process.env.CODEAGENTS3_CONFIG_DIR!;
+    const cfg = process.env.CODEAGENT3_CONFIG_DIR!;
     const sourceFile = makeSession(cfg, mainCwd, testSessionId);
 
     const sw = makeStepWise('W1', mainCwd);
@@ -147,7 +147,7 @@ describe('StepWise 跨目录判定日志', () => {
 
   // 分支8：闸门4 通过 + 纯 resume → 报错，日志应记录到抛错前
   it('G8: 纯 resume 跨目录应记录原因并抛错', () => {
-    const cfg = process.env.CODEAGENTS3_CONFIG_DIR!;
+    const cfg = process.env.CODEAGENT3_CONFIG_DIR!;
     makeSession(cfg, mainCwd, testSessionId);
 
     const sw = makeStepWise('W1', mainCwd);

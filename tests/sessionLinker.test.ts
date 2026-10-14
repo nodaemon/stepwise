@@ -123,10 +123,10 @@ describe('sessionLinker', () => {
   });
 
   /**
-   * CodeAgent 支持用 CODEAGENTS3_CONFIG_DIR 覆盖配置目录，
+   * CodeAgent 支持用 CODEAGENT3_CONFIG_DIR 覆盖配置目录，
    * 此时 session 存在该目录下而非 ~/.cac。未设置时必须回退 ~/.cac。
    */
-  describe('CodeAgent 配置目录（CODEAGENTS3_CONFIG_DIR）', () => {
+  describe('CodeAgent 配置目录（CODEAGENT3_CONFIG_DIR）', () => {
     const cacSessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     const cacGhostId = 'ffffffff-0000-0000-0000-000000000000';
     const mainCwd = '/data1/wangkai/stepwise';
@@ -155,27 +155,27 @@ describe('sessionLinker', () => {
 
     beforeEach(() => {
       tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codeagent-cfg-'));
-      savedConfigDir = process.env.CODEAGENTS3_CONFIG_DIR;
+      savedConfigDir = process.env.CODEAGENT3_CONFIG_DIR;
       // 默认就把 homedir 隔离到临时目录，保证用例绝不触碰真实 home
       useHome(path.join(tmpRoot, 'home'));
     });
 
     afterEach(() => {
       (os.homedir as unknown as jest.Mock).mockReturnValue(realHome);
-      if (savedConfigDir === undefined) delete process.env.CODEAGENTS3_CONFIG_DIR;
-      else process.env.CODEAGENTS3_CONFIG_DIR = savedConfigDir;
+      if (savedConfigDir === undefined) delete process.env.CODEAGENT3_CONFIG_DIR;
+      else process.env.CODEAGENT3_CONFIG_DIR = savedConfigDir;
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     });
 
     it('环境变量指定的目录下的会话应被识别', () => {
       const cfg = path.join(tmpRoot, 'custom-cac');
       makeSession(cfg, mainCwd, cacSessionId);
-      process.env.CODEAGENTS3_CONFIG_DIR = cfg;
+      process.env.CODEAGENT3_CONFIG_DIR = cfg;
       expect(isLocalSession('.cac', mainCwd, cacSessionId)).toBe(true);
     });
 
     it('环境变量指定目录下幽灵 ID（文件不存在）应返回 false', () => {
-      process.env.CODEAGENTS3_CONFIG_DIR = path.join(tmpRoot, 'custom-cac');
+      process.env.CODEAGENT3_CONFIG_DIR = path.join(tmpRoot, 'custom-cac');
       expect(isLocalSession('.cac', mainCwd, cacGhostId)).toBe(false);
     });
 
@@ -183,7 +183,7 @@ describe('sessionLinker', () => {
       const home = path.join(tmpRoot, 'home');
       useHome(home);
       makeSession(path.join(home, '.cac'), mainCwd, cacSessionId);
-      delete process.env.CODEAGENTS3_CONFIG_DIR;
+      delete process.env.CODEAGENT3_CONFIG_DIR;
       expect(isLocalSession('.cac', mainCwd, cacSessionId)).toBe(true);
     });
 
@@ -191,14 +191,14 @@ describe('sessionLinker', () => {
       const home = path.join(tmpRoot, 'home');
       useHome(home);
       makeSession(path.join(home, '.cac'), mainCwd, cacSessionId);
-      process.env.CODEAGENTS3_CONFIG_DIR = '';
+      process.env.CODEAGENT3_CONFIG_DIR = '';
       expect(isLocalSession('.cac', mainCwd, cacSessionId)).toBe(true);
     });
 
     it('与 PI_CODING_AGENT_DIR 互不串扰，各命中各自目录', () => {
       const cfg = path.join(tmpRoot, 'custom-cac');
       makeSession(cfg, mainCwd, cacSessionId);
-      process.env.CODEAGENTS3_CONFIG_DIR = cfg;
+      process.env.CODEAGENT3_CONFIG_DIR = cfg;
       // pi 仍命中外层 beforeAll 建的临时目录
       expect(isLocalSession('.pi', testCwd, testSessionId)).toBe(true);
       expect(isLocalSession('.cac', mainCwd, cacSessionId)).toBe(true);
@@ -209,7 +209,7 @@ describe('sessionLinker', () => {
       makeSession(cfg, mainCwd, cacSessionId);
       const home = path.join(tmpRoot, 'home');
       useHome(home);
-      process.env.CODEAGENTS3_CONFIG_DIR = cfg;
+      process.env.CODEAGENT3_CONFIG_DIR = cfg;
 
       linkCrossCwdSession('.cac', mainCwd, worktreeCwd, cacSessionId);
 
@@ -221,11 +221,11 @@ describe('sessionLinker', () => {
       expect(fs.existsSync(path.join(home, '.cac'))).toBe(false);
     });
 
-    it('CODEAGENTS3_CONFIG_DIR 不影响 claude 的目录解析', () => {
+    it('CODEAGENT3_CONFIG_DIR 不影响 claude 的目录解析', () => {
       const cfg = path.join(tmpRoot, 'custom-cac');
       makeSession(cfg, mainCwd, cacSessionId);
       useHome(path.join(tmpRoot, 'home'));
-      process.env.CODEAGENTS3_CONFIG_DIR = cfg;
+      process.env.CODEAGENT3_CONFIG_DIR = cfg;
       // claude 仍只认 $HOME/.claude，覆盖目录里的会话对它不可见
       expect(isLocalSession('.claude', mainCwd, cacSessionId)).toBe(false);
     });
@@ -259,15 +259,15 @@ describe('sessionLinker', () => {
 
     beforeEach(() => {
       tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'linklog-test-'));
-      savedConfigDir = process.env.CODEAGENTS3_CONFIG_DIR;
-      process.env.CODEAGENTS3_CONFIG_DIR = path.join(tmpRoot, 'cac');
+      savedConfigDir = process.env.CODEAGENT3_CONFIG_DIR;
+      process.env.CODEAGENT3_CONFIG_DIR = path.join(tmpRoot, 'cac');
       logSpy = jest.spyOn(console, 'log').mockImplementation(() => { /* 静默捕获 */ });
     });
 
     afterEach(() => {
       logSpy.mockRestore();
-      if (savedConfigDir === undefined) delete process.env.CODEAGENTS3_CONFIG_DIR;
-      else process.env.CODEAGENTS3_CONFIG_DIR = savedConfigDir;
+      if (savedConfigDir === undefined) delete process.env.CODEAGENT3_CONFIG_DIR;
+      else process.env.CODEAGENT3_CONFIG_DIR = savedConfigDir;
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     });
 
@@ -281,7 +281,7 @@ describe('sessionLinker', () => {
 
     // L2：正常建链应记录源与目标完整路径
     it('L2: 建链成功应记录源与目标完整路径', () => {
-      const cfg = process.env.CODEAGENTS3_CONFIG_DIR!;
+      const cfg = process.env.CODEAGENT3_CONFIG_DIR!;
       const sourceFile = makeSession(cfg, logCwd, logSessionId);
 
       linkCrossCwdSession('.cac', logCwd, logWorktreeCwd, logSessionId);
@@ -294,7 +294,7 @@ describe('sessionLinker', () => {
 
     // L3：目标是实体文件时保护性跳过并留日志
     it('L3: 目标已是实体文件时应记录保护日志且不覆盖', () => {
-      const cfg = process.env.CODEAGENTS3_CONFIG_DIR!;
+      const cfg = process.env.CODEAGENT3_CONFIG_DIR!;
       makeSession(cfg, logCwd, logSessionId);
       // worktree 侧预先放一个同名实体文件（worker 自建会话）
       const wtDir = path.join(cfg, 'projects', esc(logWorktreeCwd));
@@ -312,7 +312,7 @@ describe('sessionLinker', () => {
 
     // L4：isLocalSession 是共享查询原语，必须保持静默（缺陷3 回归护栏）
     it('L4: isLocalSession 作为共享原语必须静默，不产生任何输出', () => {
-      const cfg = process.env.CODEAGENTS3_CONFIG_DIR!;
+      const cfg = process.env.CODEAGENT3_CONFIG_DIR!;
       makeSession(cfg, logCwd, logSessionId);
 
       // 两种判定都要跑，但都不得有输出
@@ -324,7 +324,7 @@ describe('sessionLinker', () => {
 
     // L5：不传 log 参数时默认实现也必须输出（保证绝不失声）
     it('L5: 不传 log 参数时默认仍输出 console 日志', () => {
-      const cfg = process.env.CODEAGENTS3_CONFIG_DIR!;
+      const cfg = process.env.CODEAGENT3_CONFIG_DIR!;
       makeSession(cfg, logCwd, logSessionId);
 
       linkCrossCwdSession('.cac', logCwd, logWorktreeCwd, logSessionId);
@@ -351,9 +351,9 @@ describe('sessionLinker', () => {
 
     const setup = (): { cfg: string; sourceFile: string } => {
       tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'safety-test-'));
-      savedConfigDir = process.env.CODEAGENTS3_CONFIG_DIR;
+      savedConfigDir = process.env.CODEAGENT3_CONFIG_DIR;
       const cfg = path.join(tmpRoot, 'cac');
-      process.env.CODEAGENTS3_CONFIG_DIR = cfg;
+      process.env.CODEAGENT3_CONFIG_DIR = cfg;
       const dir = path.join(cfg, 'projects', esc(safeCwd));
       fs.mkdirSync(dir, { recursive: true });
       const sourceFile = path.join(dir, `${safeSessionId}.jsonl`);
@@ -362,8 +362,8 @@ describe('sessionLinker', () => {
     };
 
     afterEach(() => {
-      if (savedConfigDir === undefined) delete process.env.CODEAGENTS3_CONFIG_DIR;
-      else process.env.CODEAGENTS3_CONFIG_DIR = savedConfigDir;
+      if (savedConfigDir === undefined) delete process.env.CODEAGENT3_CONFIG_DIR;
+      else process.env.CODEAGENT3_CONFIG_DIR = savedConfigDir;
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     });
 

@@ -255,7 +255,7 @@ const data = loadCollectData('/abs/path/my_data.json');
 - 应在 `setTaskName()` 之前调用
 - 同一任务内所有 Agent 使用相同智能体类型
 - 默认使用 `'claude'`（Claude Code 智能体）
-- `'codeagent'` 的命令行参数和输出格式与 `'claude'` 完全一致，仅可执行程序名（`codeagent`）不同。CodeAgent 的配置目录默认为 `~/.cac`，可通过 `CODEAGENTS3_CONFIG_DIR` 环境变量覆盖
+- `'codeagent'` 的命令行参数和输出格式与 `'claude'` 完全一致，仅可执行程序名（`codeagent`）不同。CodeAgent 的配置目录默认为 `~/.cac`，可通过 `CODEAGENT3_CONFIG_DIR` 环境变量覆盖
 - `'pi'` 使用 Pi 智能体（`@earendil-works/pi-coding-agent`）；纯文本输出，无需权限标志，session 通过 `--session-id` 自动判断创建/恢复。Pi 的配置目录默认为 `~/.pi/agent`，可通过 `PI_CODING_AGENT_DIR` 环境变量覆盖
 
 **示例**

@@ -4,7 +4,7 @@
  * Claude/CodeAgent 的 session 按 cwd 隔离存储：
  * - Claude Code: ~/.claude/projects/<escaped-cwd>/<sessionId>.jsonl
  * - CodeAgent: ~/.cac/projects/<escaped-cwd>/<sessionId>.jsonl
- *   若设置了 CODEAGENTS3_CONFIG_DIR，则为 $CODEAGENTS3_CONFIG_DIR/projects/<escaped-cwd>/<sessionId>.jsonl
+ *   若设置了 CODEAGENT3_CONFIG_DIR，则为 $CODEAGENT3_CONFIG_DIR/projects/<escaped-cwd>/<sessionId>.jsonl
  * forEachParallel 的 worker 在独立 git worktree（cwd 与主仓库不同）运行，导致跨目录 resume
  * 报 "No conversation found"。本工具在 fork 场景下把主仓库的 session 文件软链到 worktree
  * 的 projects 目录，使 worktree 能 resume 原会话并派生新会话。
@@ -35,7 +35,7 @@ import { ensureDir } from './fileHelper';
  * 调用方应传 value（'.claude' / '.cac' / '.pi'），而不是 key（'claude' / 'codeagent' / 'pi'）。
  *
  * - claude: ~/.claude
- * - codeagent: ~/.cac（若设置了 CODEAGENTS3_CONFIG_DIR 则用该目录，见 resolveConfigDir）
+ * - codeagent: ~/.cac（若设置了 CODEAGENT3_CONFIG_DIR 则用该目录，见 resolveConfigDir）
  * - pi: ~/.pi/agent（若设置了 PI_CODING_AGENT_DIR 则用该目录；session 路径还多一层 sessions/--<cwd>--）
  */
 const CONFIG_SUBDIR: Record<string, string> = {
@@ -66,7 +66,7 @@ function escapeCwdForPi(cwd: string): string {
  * 解析某执行器的 config 根目录绝对路径
  *
  * - claude: ~/.claude
- * - codeagent: $CODEAGENTS3_CONFIG_DIR，未设置（或空串）时回退 ~/.cac
+ * - codeagent: $CODEAGENT3_CONFIG_DIR，未设置（或空串）时回退 ~/.cac
  * - pi: $PI_CODING_AGENT_DIR，未设置（或空串）时回退 ~/.pi/agent
  *
  * 环境变量取值逐字使用，不做 ~ 展开或相对路径解析——保持与被调用方
@@ -76,8 +76,8 @@ function escapeCwdForPi(cwd: string): string {
  */
 function resolveConfigDir(configSubdir: string): string {
   if (configSubdir === '.cac') {
-    // CodeAgent 支持 CODEAGENTS3_CONFIG_DIR 指定配置目录，未设置时用默认的 ~/.cac
-    return process.env.CODEAGENTS3_CONFIG_DIR
+    // CodeAgent 支持 CODEAGENT3_CONFIG_DIR 指定配置目录，未设置时用默认的 ~/.cac
+    return process.env.CODEAGENT3_CONFIG_DIR
       || path.join(os.homedir(), '.cac');
   }
   if (configSubdir === '.pi') {

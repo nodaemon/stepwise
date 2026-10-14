@@ -132,7 +132,7 @@ await forEachParallel(apis, workerConfigs, async (ctx) => {
 > - **默认复用**：worker 不传 `sessionId` 时，session 在 worker 自己的 worktree 内创建+复用，无问题。
 > - **fork（`sessionId` + `newSession:true`）**：框架自动软链主仓库的 session 文件到 worktree 目录，使 fork 可跨 worktree 派生（fork 只读原会话，安全）。**框架永不删除 session 文件**——删除 worktree 目录时也不会清除这些软链（`rmSync` 不跟随软链），残留软链无害（最坏为 dangling symlink，被执行器自然处理为"找不到会话"）。软链创建过程的每一步（含源文件不存在而跳过的情况）都会输出到控制台与任务日志 `execute.log`。
 > - **纯指定 `sessionId`（非 fork）**：跨目录 resume 会共享写并发风险，框架**报错**。如需跨 worktree 复用上下文，请用 fork，或通过产物文件而非 session 共享。
-> - **自定义配置目录**：CodeAgent 若设置了 `CODEAGENTS3_CONFIG_DIR`、Pi 若设置了 `PI_CODING_AGENT_DIR`，框架会自动改用该目录定位 session（未设置时才回退 `~/.cac` / `~/.pi/agent`）。
+> - **自定义配置目录**：CodeAgent 若设置了 `CODEAGENT3_CONFIG_DIR`、Pi 若设置了 `PI_CODING_AGENT_DIR`，框架会自动改用该目录定位 session（未设置时才回退 `~/.cac` / `~/.pi/agent`）。
 
 `execCheckPrompt` 作为路由节点，根据条件判断结果分发到不同的 Agent：
 

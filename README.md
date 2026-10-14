@@ -133,7 +133,7 @@ await forEachParallel(apis, workerConfigs, async (ctx) => {
 > - **Default reuse**: when the worker omits `sessionId`, the session is created and reused within the worker's own worktree — no problem.
 > - **Fork (`sessionId` + `newSession:true`)**: the framework auto-symlinks the main repo's session file into the worktree's projects dir so fork can branch across worktrees (fork only reads the original session, so it's safe). **The framework never deletes session files** — deleting the worktree directory does not remove these links either (`rmSync` does not follow symlinks), and leftover links are harmless (worst case a dangling symlink the agent treats as "conversation not found"). Every step of the symlink process — including the "source file missing, skip" case — is logged to the console and to the task log `execute.log`.
 > - **Standalone `sessionId` (no fork)**: resuming across cwds risks concurrent writes to a shared session, so the framework **throws an error**. To share context across worktrees, use fork, or pass context via artifact files rather than sessions.
-> - **Custom config dirs**: if CodeAgent sets `CODEAGENTS3_CONFIG_DIR`, or Pi sets `PI_CODING_AGENT_DIR`, the framework resolves sessions under that directory instead, falling back to `~/.cac` / `~/.pi/agent` only when the variable is unset.
+> - **Custom config dirs**: if CodeAgent sets `CODEAGENT3_CONFIG_DIR`, or Pi sets `PI_CODING_AGENT_DIR`, the framework resolves sessions under that directory instead, falling back to `~/.cac` / `~/.pi/agent` only when the variable is unset.
 
 Use `execCheckPrompt` as a routing node to branch to different agents:
 
