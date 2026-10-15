@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="#why-stepwise">Why StepWise</a> • <a href="#how-it-works">How It Works</a> • <a href="#built-in-safeguards">Built-in Safeguards</a> • <a href="#quick-start">Quick Start</a> • <a href="#examples">Examples</a> • <a href="#documentation">Documentation</a> • <a href="README_CN.md">中文文档</a>
+  <a href="#why-stepwise">Why StepWise</a> • <a href="#how-it-works">How It Works</a> • <a href="#quick-start">Quick Start</a> • <a href="#examples">Examples</a> • <a href="#documentation">Documentation</a> • <a href="README_CN.md">中文文档</a>
 </p>
 
 <p align="center">
@@ -28,23 +28,7 @@ StepWise replaces that one long run with a sequence of small steps that each fin
 | Private data handling is difficult | Support Skill-generating Agents, auto-summarize Skills after multiple successful attempts |
 | Debugging is hard, progress lost on interruption | Checkpoint recovery, debug mode for quick validation |
 
-StepWise is a **TypeScript SDK** — not a CLI tool, not a dashboard. You write a script, each `exec*` call is one step of your workflow, and the framework drives Claude Code, OpenCode, CodeAgent, or Pi in headless mode while persisting state between runs.
-
----
-
-## How It Works
-
-1. **You write a script.** Each `exec*` call is one cell of the workflow. No YAML, no daemon, no dashboard.
-2. **Every cell checkpoints itself.** When a step completes, its index and state are written to `progress.json`. Kill the process at any point, re-run the script with the printed resume path, and completed steps are skipped.
-3. **Every cell runs in a real agent session.** Context is reused across steps by default, and can be forked to try an alternative without touching the original.
-
-Structured output is checked before you consume it: when a collection step returns data that does not match the declared format, StepWise generates a repair prompt and retries instead of handing you broken output.
-
----
-
-## Built-in Safeguards
-
-These are not add-ons you opt into — every step gets them:
+Every step also carries the safeguards that make a long run worth trusting — these are not add-ons you opt into:
 
 - **Output is verified, not trusted.** Declare the format you want; StepWise checks that the file exists *and* that its contents validate, then auto-generates a repair prompt and retries (3 times by default). If the agent never wrote the file, it gets told to write it.
 - **Spend is visible.** Every step writes a `usage.json` with input/output tokens, cache reads and writes, USD cost, and API-only latency. Performance stats separate *real task time* from *rate-limit wait time*, so a step stalled on quota never masquerades as a slow step — and the slowest step's log directory is named for you.
@@ -55,6 +39,16 @@ These are not add-ons you opt into — every step gets them:
 - **Validate flows in seconds.** `enableDebugMode(true)` runs the entire workflow over a single item, so you can prove the flow works before spending a night on it.
 
 **On file access:** `setAllowRead` / `setAllowWrite` restrict an agent to specific directories by injecting a strict access policy into the prompt. Treat it as a guardrail, not an OS sandbox — use containers or filesystem permissions when you need hard isolation.
+
+StepWise is a **TypeScript SDK** — not a CLI tool, not a dashboard. You write a script, each `exec*` call is one step of your workflow, and the framework drives Claude Code, OpenCode, CodeAgent, or Pi in headless mode while persisting state between runs.
+
+---
+
+## How It Works
+
+1. **You write a script.** Each `exec*` call is one cell of the workflow. No YAML, no daemon, no dashboard.
+2. **Every cell checkpoints itself.** When a step completes, its index and state are written to `progress.json`. Kill the process at any point, re-run the script with the printed resume path, and completed steps are skipped.
+3. **Every cell runs in a real agent session.** Context is reused across steps by default, and can be forked to try an alternative without touching the original.
 
 ---
 
