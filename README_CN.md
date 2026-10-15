@@ -1,23 +1,26 @@
 # StepWise
 
 <p align="center">
-  <strong>高效的 AI Agent 团队构建框架 - 让 AI 编程助手可靠执行复杂任务</strong>
+  <strong>把 AI 编程助手变成可靠、可断点续跑的工作流的 TypeScript SDK</strong>
 </p>
 
 <p align="center">
-  <a href="#为什么需要-stepwise">为什么需要</a> •
-  <a href="#快速开始">快速开始</a> •
-  <a href="#核心特性">核心特性</a> •
-  <a href="doc/api_cn.md">API 文档</a> •
-  <a href="demos_cn.md">示例</a> •
-  <a href="README.md">English</a>
+  <a href="#为什么需要-stepwise">为什么需要</a> • <a href="#工作原理">工作原理</a> • <a href="#快速开始">快速开始</a> • <a href="#用法示例">用法示例</a> • <a href="#文档">文档</a> • <a href="README.md">English</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/License-MulanPSL2-blue.svg" alt="License">
 </p>
 
 ---
 
 ## 为什么需要 StepWise？
 
-在使用 AI 编程助手进行复杂开发任务时，我们经常遇到三大痛点：
+你给 AI 编程助手甩一句「重构认证模块，顺带改完所有调用方，再把测试跑通」。二十分钟后，它已经跑偏了，安安静静漏掉了一半需求，而你根本无从判断哪些部分真的完成了。
+
+问题通常不在模型智商，而在于**一次长跑没有检查点**：没有东西在观察进度，没有东西能在中断后存活，也没有东西在你要基于结果继续干活之前先验证它。
+
+StepWise 把这一次长跑，换成一串每个都能稳定收尾的小步骤：
 
 | 痛点 | StepWise 解决方案 |
 |------|------------------|
@@ -25,116 +28,75 @@
 | 私有数据处理困难 | 支持 Skill 生成 Agent，多次尝试成功后自动总结 Skill |
 | 调试困难、中断丢失 | 断点恢复、调试模式快速验证 |
 
-StepWise 通过任务步骤控制、数据校验、条件路由和断点恢复等机制，让 AI 编程助手（Claude Code、OpenCode 等）能够稳定可靠地完成复杂任务。
+StepWise 是一个 **TypeScript SDK**——不是命令行工具，也不是编排平台。你写一个脚本，每个 `exec*` 调用就是流程里的一步，框架负责以无头模式驱动 Claude Code、OpenCode、CodeAgent 或 Pi，并在多次运行之间持久化状态。
+
+---
+
+## 工作原理
+
+1. **你写一个脚本。** 每个 `exec*` 调用就是流程中的一格。没有 YAML，没有常驻进程，没有控制台。
+2. **每一格都会自己存档。** 步骤完成后，它的序号和状态会写入 `progress.json`。进程在任何时刻被杀掉，用启动时打印的恢复命令重跑同一个脚本，已完成的步骤会被跳过。
+3. **每一格背后是一个真实的 agent 会话。** 上下文默认跨步骤复用，也可以分叉出一条新路线去试另一种做法，而不动原会话。
+
+结构化输出在使用前会被校验：收集步骤返回的数据若不符合声明的格式，StepWise 会自动生成修复提示词并重试，而不是把坏结果交给你。
 
 ---
 
 ## 快速开始
 
-### 示例 0：选择 AI 编程助手
+需要 **Node.js 16+**（构建目标为 `moduleResolution: Node16`），以及 `PATH` 上至少一个 AI 编程助手 CLI——Claude Code（默认）、OpenCode、CodeAgent 或 Pi。使用 OpenCode 时，请在 `opencode.json` 中设置 `"permission": "allow"`，否则它会不停弹确认。
 
-支持 Claude Code、OpenCode 和 CodeAgent，默认使用 Claude Code：
+StepWise 尚未发布到 npm，请从源码构建：
 
-```typescript
-import { setAgentType, setTaskName, StepWise } from 'stepwise';
-
-// 设置 AI 编程助手类型（可选，默认 'claude'）
-setAgentType('claude');   // 使用 Claude Code（默认）
-// setAgentType('opencode');  // 使用 OpenCode
-// setAgentType('codeagent'); // 使用 CodeAgent（命令参数与 claude 基本一致，另额外携带 --skip-safe-check）
-// setAgentType('pi');        // 使用 Pi（@earendil-works/pi-coding-agent）
-
-setTaskName('MyTask');
-const agent = new StepWise('MainAgent');
+```bash
+git clone https://gitee.com/nodaemon/stepwise.git
+cd stepwise && npm install && npm run build
 ```
 
-### 示例 1：任务步骤控制
-
-将复杂任务拆分为稳定的小步骤，配合 Shell 命令验证：
+然后写你的工作流。启动时会打印任务目录和恢复命令——把它作为 `initTask` 的第二个参数传回来，所有已完成的步骤都会被跳过：
 
 ```typescript
-import { setTaskName, StepWise } from 'stepwise';
+import { initTask, StepWise } from './stepwise/dist';
 
-setTaskName('RefactorModule');
+initTask('RefactorAuth');   // 恢复执行: initTask('RefactorAuth', 'RefactorAuth_20260315_143000_123')
 const agent = new StepWise('MainAgent');
 
-// 复杂任务拆分为多个小步骤
-await agent.execPrompt('步骤 1: 分析模块依赖关系');
-await agent.execPrompt('步骤 2: 提取公共接口定义');
-await agent.execPrompt('步骤 3: 重构核心逻辑');
+await agent.execPrompt('分析模块依赖关系');
+await agent.execPrompt('抽取公共接口定义');
+await agent.execPrompt('重构核心逻辑');
+```
 
-// 运行构建和测试验证修改
-const buildResult = await agent.execShell('npm run build');
-if (!buildResult.success) {
+---
+
+## 用法示例
+
+### 1. 任务步骤控制
+
+用真实命令验证每一步，而不是采信 AI 的自述：
+
+```typescript
+const build = await agent.execShell('npm run build');
+if (!build.success) {
   await agent.execPrompt('修复构建错误');
 }
-
-// 已完成的步骤自动跳过，支持断点恢复
 ```
 
-### 示例 2：使用 execCollectPrompt 稳定收集数据
+### 2. 结构化数据收集
 
-内置校验和重试机制，确保数据收集稳定可靠：
+校验与重试内置；第一个必填字段自动用于去重：
 
 ```typescript
-// 简洁格式 - 第一个必填字段自动用于去重
-const result = await agent.execCollectPrompt('收集所有 API 接口', {
+const result = await agent.execCollectPrompt('收集所有 API 端点', {
   name: { type: 'string', description: 'API 名称' },
   method: { type: 'string', description: 'HTTP 方法' },
   path: { type: 'string', description: 'API 路径' },
   description: { type: 'string', description: 'API 描述', required: false }
 });
-
-// 第一个必填字段（此处为 name）自动用于去重
 ```
 
-### 示例 3：并行处理收集到的数据
+### 3. 条件分支
 
-使用 `forEachParallel` 并发处理收集的数据：
-
-```typescript
-import { setTaskName, forEachParallel, WorkerConfig, loadCollectData } from 'stepwise';
-
-setTaskName('ProcessAPIs');
-
-// 加载之前收集的数据
-const apis = loadCollectData('api_endpoints.json');
-
-// 配置并行 Worker，自动管理 git worktree 隔离
-const workerConfigs: WorkerConfig[] = [
-  { branchName: 'Worker1' },
-  { branchName: 'Worker2' },
-];
-
-await forEachParallel(apis, workerConfigs, async (ctx) => {
-  // 每个 Worker 拥有独立的 git worktree 工作空间
-  await ctx.stepWise.execPrompt(
-    '为 API 生成测试: $name ($method $path)',
-    { data: ctx.item }
-  );
-});
-// 收尾：固定脚本提交各 worktree 改动到自己的分支并保留分支（不依赖 AI 合并）
-```
-
-```typescript
-// 指定不同的 git 仓库作为工作目录
-await forEachParallel(apis, workerConfigs, async (ctx) => {
-  await ctx.stepWise.execPrompt(
-    '为 API 生成测试: $name ($method $path)',
-    { data: ctx.item }
-  );
-}, { cwd: '/path/to/other-repo' });
-```
-
-> **并行任务收尾与分支保留**：并行任务完成后，框架用**固定脚本**（不依赖 AI）把每个 worktree 的改动提交到自己的分支并保留分支，再删除 worktree。代码不会自动合并到主分支（避免 AI 合并误删代码），主分支零污染。控制台会打印保留的分支名列表，用户按需手动整合（如 `git merge <分支名>`）。设 `skipBranchMerge: true` 可跳过此收尾脚本（worktree 改动将不提交）。
-
-> **并行模式下的 Session 行为**：每个 worker 在独立 git worktree（cwd 与主仓库不同）运行。Claude/CodeAgent/Pi 的 session 按 cwd 隔离存储（Claude Code 存于 `~/.claude/projects/`，CodeAgent 存于 `~/.cac/projects/`，Pi 存于 `~/.pi/agent/sessions/`），因此：
-> - **默认复用**：worker 不传 `sessionId` 时，session 在 worker 自己的 worktree 内创建+复用，无问题。
-> - **fork（`sessionId` + `newSession:true`）**：框架自动软链主仓库的 session 文件到 worktree 目录，使 fork 可跨 worktree 派生（fork 只读原会话，安全）。**框架永不删除 session 文件**——删除 worktree 目录时也不会清除这些软链（`rmSync` 不跟随软链），残留软链无害（最坏为 dangling symlink，被执行器自然处理为"找不到会话"）。软链创建过程的每一步（含源文件不存在而跳过的情况）都会输出到控制台与任务日志 `execute.log`。
-> - **纯指定 `sessionId`（非 fork）**：跨目录 resume 会共享写并发风险，框架**报错**。如需跨 worktree 复用上下文，请用 fork，或通过产物文件而非 session 共享。
-> - **自定义配置目录**：CodeAgent 若设置了 `CODEAGENT3_CONFIG_DIR`、Pi 若设置了 `PI_CODING_AGENT_DIR`，框架会自动改用该目录定位 session（未设置时才回退 `~/.cac` / `~/.pi/agent`）。
-
-`execCheckPrompt` 作为路由节点，根据条件判断结果分发到不同的 Agent：
+根据条件把任务分发到不同的 Agent：
 
 ```typescript
 const checkResult = await agent.execCheckPrompt('检查测试是否通过');
@@ -148,28 +110,30 @@ if (!checkResult.result) {
 }
 ```
 
-### 示例 4.5：使用 execPromptSchema 按 Schema 输出
+### 4. 并行处理
 
-按用户定义的 Schema 输出 JSON——支持任意嵌套与递归树形结构：
+每个 Worker 运行在自己的 git worktree 中，并行的 agent 不会互相争抢同一批文件。想换个仓库跑，追加第四个参数 `{ cwd: '/path/to/other-repo' }`：
 
 ```typescript
-// 基础版：单个嵌套对象
-const result = await agent.execPromptSchema(
-  '生成项目概览',
-  {
-    type: 'object',
-    properties: {
-      name: { type: 'string', description: '项目名' },
-      dependencies: { type: 'array', items: { type: 'string', description: '依赖名' } }
-    }
-  },
-  'project_overview.json'
-);
-// result.data 为生成的对象，保存到共享的 report/ 目录
+import { forEachParallel, WorkerConfig, loadCollectData } from 'stepwise';
 
-// 递归树：目录结构（有深度限制）
+const apis = loadCollectData('api_endpoints.json');
+const workerConfigs: WorkerConfig[] = [{ branchName: 'Worker1' }, { branchName: 'Worker2' }];
+
+await forEachParallel(apis, workerConfigs, async (ctx) => {
+  await ctx.stepWise.execPrompt('为 API 生成测试: $name ($method $path)', { data: ctx.item });
+});
+```
+
+各 worktree 的改动会提交到自己的分支，**绝不自动合并进主分支**——控制台会打印分支名，由你决定合哪些。跨 worktree 时，fork（`sessionId` + `newSession: true`）会自动软链会话；单独传 `sessionId` 会直接报错，而不是冒着并发写坏会话的风险继续。
+
+### 5. Schema 驱动输出
+
+按你定义的 Schema 输出 JSON——支持任意嵌套与递归树形结构：
+
+```typescript
 const tree = await agent.execPromptSchema(
-  '生成本项目的目录树',
+  '生成项目的目录树',
   {
     type: 'object',
     recursive: true,
@@ -183,284 +147,52 @@ const tree = await agent.execPromptSchema(
   },
   'dir_tree.json'
 );
-
-// 共享子结构：在 `defs` 中定义一次，通过 `ref` 引用（$defs/$ref）
-// ——重复结构在提示词中只渲染一次并去重
-const wbs = await agent.execPromptSchema(
-  '生成工作分解结构',
-  {
-    type: 'object',
-    defs: {
-      TreeNode: {
-        type: 'object',
-        properties: {
-          id: { type: 'string', description: '节点编号（WBS-XXX）' },
-          detail: { type: 'string', description: '工作内容' },
-          children: { type: 'array', description: '子节点', items: { ref: '#/$defs/TreeNode' } }
-        }
-      }
-    },
-    properties: {
-      root: { type: 'array', description: '根层节点', items: { ref: '#/$defs/TreeNode' } },
-      riskTree: { ref: '#/$defs/TreeNode', description: '风险树' }
-    }
-  },
-  'wbs.json'
-);
 ```
 
-### 示例 5：Skill 自动生成
-
-多次尝试成功后，自动总结生成 Skill：
+### 6. 会话管理
 
 ```typescript
-await agent.execPrompt('配置数据库连接');
-await agent.execPrompt('创建数据模型');
-await agent.execPrompt('实现 CRUD 接口');
+const r2 = await agent.execPrompt('实现 CRUD 接口');   // 会话默认自动复用
+const sessionId = r2.sessionId;
 
-// 创建新 session 时自动总结上一个 session
-await agent.execPrompt('下一步任务', { newSession: true });
+await agent.execPrompt('开始一个独立的新需求', { newSession: true });
+await agent.execPrompt('继续完善', { sessionId });              // 恢复指定会话
 
-// 或手动触发总结
-const summaryResult = await agent.summarize();
-console.log('生成的 Skill 文件:', summaryResult.skillFiles);
+const forked = await agent.execPrompt('尝试另一种实现思路', {
+  sessionId,                                        // fork：派生新会话
+  newSession: true                                  // 原会话保持不变
+});
 ```
 
-### 示例 6：断点恢复与调试模式
-
-从中断点恢复，使用调试模式快速验证流程：
+### 7. 断点恢复与调试模式
 
 ```typescript
-import { StepWise, initTask, enableDebugMode } from 'stepwise';
+import { initTask, StepWise, enableDebugMode } from 'stepwise';
 
-// 启用调试模式：只收集 1 条数据，快速验证流程
-enableDebugMode(true);
+enableDebugMode(true);   // 只收集 1 条数据，快速验证整条流程
 
-// initTask：第二个参数（可选）为恢复路径（任务目录名）
 initTask('MyTask', 'MyTask_20260315_143000_123');
 const agent = new StepWise('MainAgent');
 
-// 已完成的步骤自动跳过
-await agent.execPrompt('步骤 1: 分析项目');           // 跳过
-await agent.execCollectPrompt('步骤 2: 收集数据', fmt);  // 跳过
-await agent.execPrompt('步骤 3: 处理项目 $name', { data: { name: 'item1' } }); // 从这里继续
+await agent.execPrompt('步骤1：分析项目');                    // 跳过
+await agent.execCollectPrompt('步骤2：收集数据', fmt);       // 跳过
+await agent.execPrompt('步骤3：处理条目 $name', { data: { name: 'item1' } }); // 从这里恢复
 ```
 
-### 示例 7：会话管理
-
-StepWise 让你对 AI 会话有显式控制。每次 `exec*` 调用都返回 `ExecutionResult`，其 `sessionId` 字段就是本次执行实际使用的会话 ID。本示例依次说明四种行为：默认复用、单独 `newSession`、指定 `sessionId` 复用、以及 `fork` 分岔。
-
-```typescript
-import { StepWise } from 'stepwise';
-
-const agent = new StepWise('SessionAgent');
-
-// 1) 默认行为：首个任务创建新会话，后续任务自动复用（同一会话逐步累积上下文）
-//    result.sessionId 始终返回本次执行使用的会话 ID
-const r1 = await agent.execPrompt('分析需求并设计数据模型');
-const r2 = await agent.execPrompt('基于上一步设计实现 CRUD 接口');
-// r2.sessionId === r1.sessionId → 同一会话，上下文连续
-const sessionId = r2.sessionId;
-
-// 2) 单独 newSession: true → 创建全新会话；若之前存在会话，会先自动总结（生成 Skill）
-//    可用 setSkipSummarize(true) 跳过总结
-const r3 = await agent.execPrompt('开始一个独立的新需求', { newSession: true });
-// r3.sessionId 是全新 ID，与 r1/r2 不同；前一会话已被自动总结
-
-// 3) 指定 sessionId：恢复某个已知会话继续完善（强制 resume 模式，即 --resume <sessionId>）
-await agent.execPrompt('在已有会话基础上继续完善', { sessionId });
-
-// 4) fork：sessionId + newSession: true → 从该 sessionId 派生新分支，原会话保留不变
-//    派生出的新 ID 通过 result.sessionId 返回
-const r5 = await agent.execPrompt('尝试另一种实现思路', {
-  sessionId,          // 从这个已有会话派生
-  newSession: true    // ← fork 语义
-});
-// r5.sessionId 是派生出的全新 ID，原 sessionId 会话不受影响
-```
-
-**行为说明**
-
-1. **默认（复用）** —— 不传任何 session 选项时，首个任务创建新会话，之后每步自动复用上一会话（`--resume`），上下文逐步累积。`result.sessionId`（`ExecutionResult` 上）始终返回本次使用的会话 ID。
-2. **单独 `newSession`** —— `{ newSession: true }` 创建全新会话；若之前存在会话，会先自动总结（生成 Skill）。可用 `setSkipSummarize(true)` 跳过。
-3. **指定 `sessionId`** —— `{ sessionId }` 强制以 resume 模式复用该已知会话，适合从检查点恢复。
-4. **fork** —— `{ sessionId, newSession: true }` 同时指定 → 从该 sessionId 派生新会话，原会话保留不变。派生出的新 ID 通过 `result.sessionId` 返回，并记录到 `progress.json` / `currentSessionId`。
-
-**底层命令对照**
-
-| 选项 | Claude / CodeAgent | OpenCode | 语义 |
-|---|---|---|---|
-| （默认） | `--resume <id>` | `--session <id>` | 复用上一会话 |
-| `newSession: true` | `--session-id <new>` | （不传 `--session`） | 全新会话（+总结前一个） |
-| `sessionId` | `--resume <id>` | `--session <id>` | 复用指定会话 |
-| `sessionId` + `newSession: true` | `--resume <id> --fork-session` | `--session <id> --fork` | 从指定会话派生新分支 |
-
-> 仅当 `sessionId` 与 `newSession: true` **同时**指定时才触发 fork。单独传 `newSession: true` 会创建全新会话（并总结前一会话）；单独传 `sessionId` 会恢复该会话。
-
-> **fork 中断恢复**：fork 执行期间，派生的新 ID 一产生即写入 `progress.json`。即使该步中断，`setResumePath` 恢复时也会用派生 ID 续传，不再重新派生。注:OpenCode 的派生 ID 仅在执行结束后可得，其中断的 fork 步骤恢复时会重新派生。
-
----
-
-## 核心特性
-
-### API 概览
-
-#### StepWise 类方法
-
-| 方法 | 用途 | 说明 |
-|------|------|------|
-| `execPrompt` | 普通任务 | 执行单个提示词任务 |
-| `execCollectPrompt` | 收集任务 | 收集结构化数据，内置校验和重试 |
-| `execCheckPrompt` | 路由节点 | 检查条件返回 true/false，用于分支路由 |
-| `execReport` | 报告任务 | 生成汇总报告 |
-| `execPromptSchema` | Schema 驱动任务 | 按用户定义的 Schema 输出 JSON（支持任意嵌套、递归树形结构与 `$defs`/`$ref` 共享子结构）；返回 `SchemaResult` |
-| `execShell` | Shell 命令 | 执行 Shell 命令（构建、测试等） |
-| `summarize` | Skill 生成 | 总结会话生成 Skill |
-
-#### 全局设置函数
-
-| 方法 | 用途 | 说明 |
-|------|------|------|
-| `initTask` | 初始化任务 | 设置任务名称；第二参数（可选）为恢复路径（替代 `setTaskName`+`setResumePath`） |
-| `setAgentType` | 设置 AI 编程助手 | 可选，默认 `'claude'`，可选 `'opencode'`、`'codeagent'`、`'pi'` |
-| `enableDebugMode` | 启用调试模式 | 快速验证流程，只收集 1 条数据 |
-| `setSkipSummarize` | 跳过自动总结 | 禁用创建新 session 时的自动总结 |
-| `saveCollectData` | 保存收集数据 | 保存数据到 JSON 文件 |
-| `loadCollectData` | 加载收集数据 | 从 JSON 文件加载数据 |
-
-> `setTaskName` 与 `setResumePath` 已废弃,推荐使用 `initTask`——第二参数可选恢复路径,避免两者的调用顺序依赖。
-
-#### 并行处理
-
-| 方法 | 用途 | 说明 |
-|------|------|------|
-| `forEachParallel` | 并行处理 | 自动管理 git worktree，实现真正的并行执行 |
-
-详细 API 文档请参阅 [API 文档](doc/api_cn.md)。
-
-### 目录结构
-
-自动生成任务目录：
-
-```
-stepwise_exec_infos/
-└── TaskName_20260315_143000_123/     # TaskName 目录（时间戳精确到毫秒）
-    ├── report/                        # 报告输出（所有 Agent 共享）
-    ├── logs/                          # 任务级日志
-    │   ├── performance.json           # 性能统计（单步执行 ≥3s 时自动写出）
-    │   └── performance.txt            # 可读的性能报告
-    ├── Agent1_20260315_143001_456/    # StepWise Agent 目录
-    │   ├── data/                      # 执行状态
-    │   │   └── progress.json
-    │   ├── logs/                      # 执行日志
-    │   │   ├── 1_task/
-    │   │   │   ├── prompt.txt         # 任务提示词
-    │   │   │   ├── output.txt         # 标准输出摘要
-    │   │   │   ├── verbose_output.txt # 详细输出（AI思考过程、工具调用等）★关键调试文件
-    │   │   │   └── ...
-    │   │   ├── 2_collect/
-    │   │   │   ├── ...（同上）
-    │   │   └── execute.log            # 执行汇总日志
-    │   └── collect/                   # 收集数据
-    │       └── 2_collect/
-    └── Agent2_20260315_143002_789/    # 另一个 Agent
-        └── ...
-```
-
-**关键文件**：`verbose_output.txt` 记录 AI 完整思考过程和工具调用，是分析问题的最关键文件。详细说明请参阅 [API 文档](doc/api_cn.md)。
-
----
-
-## 工作原理
-
-### 步骤控制机制
-
-StepWise 通过任务序号和进度持久化实现步骤控制：
-
-1. **任务序号**：每个步骤有唯一序号，自动递增
-2. **进度持久化**：执行状态保存到 `progress.json`
-3. **Session 复用**：使用 `--resume` 模式保持上下文连续性
-4. **Session 分岔**：同时指定 `sessionId` 与 `newSession: true` 时，从指定会话派生新分支（`--fork-session` / `--fork`），原会话保留
-
-### 数据校验机制
-
-- JSON 格式校验
-- 字段完整性校验
-- 类型匹配校验
-- 校验失败自动生成修复提示词
-- `postCheckPrompt` 选项支持自定义校验
-
-### 分支路由机制
-
-- `execCheckPrompt` 输出 `{ result: true/false }` 到 `check_result.json`
-- 根据结果路由到不同的 Agent
-- 实现条件分支工作流
-
-### Skill 生成机制
-
-- **触发时机**：创建新 session 或手动调用
-- **生成条件**：多次尝试成功的任务、有价值的经验
-- **存储位置**：项目级 `.claude/skills/` 目录
-
-### AI 编程助手集成
-
-StepWise 通过 AI 编程助手的 headless 模式工作，支持 Session 复用：
-
-```bash
-# Claude Code 示例
-claude --dangerously-skip-permissions --session-id <uuid> -p "你的提示词"
-claude --dangerously-skip-permissions --resume <session-id> -p "你的提示词"
-# 分岔：从 <session-id> 恢复但派生新会话（原会话保留）
-claude --dangerously-skip-permissions --resume <session-id> --fork-session -p "你的提示词"
-
-# CodeAgent 示例（命令参数与 claude 基本一致，仅可执行程序名不同；额外携带 --skip-safe-check 跳过目录首次使用时的安全确认）
-codeagent --dangerously-skip-permissions --skip-safe-check --session-id <uuid> -p "你的提示词"
-codeagent --dangerously-skip-permissions --skip-safe-check --resume <session-id> -p "你的提示词"
-codeagent --dangerously-skip-permissions --skip-safe-check --resume <session-id> --fork-session -p "你的提示词"
-
-# OpenCode 示例
-opencode run --thinking --session <uuid> "你的提示词"
-# OpenCode 自动判断新会话还是恢复会话
-# 分岔：从 <uuid> 派生新会话分支（原会话保留）
-opencode run --thinking --session <uuid> --fork "你的提示词"
-
-# Pi 示例（@earendil-works/pi-coding-agent）
-# --session-id 自动判断：不存在则创建，已存在则打开（恢复）
-pi --session-id <uuid> -p "你的提示词"
-# 分岔：从 <session-id> 派生新会话，并指定新会话 ID（原会话保留）
-pi --fork <session-id> --session-id <new-uuid> -p "你的提示词"
-```
-
-> **Pi**：无需权限标志——Pi 设计上没有权限弹窗。通过 `--session-id` 指定会话 ID（自动判断创建或恢复）。分岔使用 `--fork <id> --session-id <new-id>` 预先指定派生会话 ID，无需解析 JSON 输出。
-
-> **OpenCode 权限配置**：使用 OpenCode 时，需要在项目根目录的 `opencode.json` 配置文件中添加 `"permission": "allow"`，以跳过交互式权限确认。详情参见 [OpenCode 权限文档](https://opencode.ai/docs/zh-cn/permissions/)。
->
-> ```json
-> {
->   "$schema": "https://opencode.ai/config.json",
->   "permission": "allow"
-> }
-> ```
-
-核心机制：
-
-1. **Session 复用**：每个任务步骤复用上一个 Session，保持上下文
-2. **进度持久化**：执行状态持久化到本地 JSON 文件
-3. **序号匹配**：恢复时通过序号匹配，跳过已完成的步骤
-4. **Worktree 隔离**：`forEachParallel` 创建 git worktree 实现真正的并行执行
+出问题时，任务目录里保留着每一步的完整提示词，以及 AI 的完整思考与工具调用（`verbose_output.txt`）——排查某一步时，这是第一个该看的文件。
 
 ---
 
 ## 文档
 
-- [API 文档](doc/api_cn.md) - 详细的 API 参考
-- [示例](demos_cn.md) - 完整的使用示例
-- [English](README.md) - English Documentation
+- [API 文档](doc/api_cn.md) — 完整 API 说明
+- [示例](demos_cn.md) — 可直接运行的完整示例
+- [English](README.md) — English documentation
+
+发现问题或想参与 StepWise 的迭代？欢迎提交 Issue 或 Pull Request。
 
 ---
 
 ## 开源协议
 
-本项目采用 [MulanPSL2](https://license.coscl.org.cn/MulanPSL2)（木兰宽松许可证，第2版）开源协议。
-
-[![License: MulanPSL2](https://img.shields.io/badge/License-MulanPSL2-blue.svg)](https://license.coscl.org.cn/MulanPSL2)
+MulanPSL2 — 木兰宽松许可证，第 2 版。详见[协议全文](https://license.coscl.org.cn/MulanPSL2)。
