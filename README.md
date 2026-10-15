@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="#why-stepwise">Why StepWise</a> • <a href="#how-it-works">How It Works</a> • <a href="#quick-start">Quick Start</a> • <a href="#examples">Examples</a> • <a href="#documentation">Documentation</a> • <a href="README_CN.md">中文文档</a>
+  <a href="#why-stepwise">Why StepWise</a> • <a href="#how-it-works">How It Works</a> • <a href="#built-in-safeguards">Built-in Safeguards</a> • <a href="#quick-start">Quick Start</a> • <a href="#examples">Examples</a> • <a href="#documentation">Documentation</a> • <a href="README_CN.md">中文文档</a>
 </p>
 
 <p align="center">
@@ -39,6 +39,22 @@ StepWise is a **TypeScript SDK** — not a CLI tool, not a dashboard. You write 
 3. **Every cell runs in a real agent session.** Context is reused across steps by default, and can be forked to try an alternative without touching the original.
 
 Structured output is checked before you consume it: when a collection step returns data that does not match the declared format, StepWise generates a repair prompt and retries instead of handing you broken output.
+
+---
+
+## Built-in Safeguards
+
+These are not add-ons you opt into — every step gets them:
+
+- **Output is verified, not trusted.** Declare the format you want; StepWise checks that the file exists *and* that its contents validate, then auto-generates a repair prompt and retries (3 times by default). If the agent never wrote the file, it gets told to write it.
+- **Spend is visible.** Every step writes a `usage.json` with input/output tokens, cache reads and writes, USD cost, and API-only latency. Performance stats separate *real task time* from *rate-limit wait time*, so a step stalled on quota never masquerades as a slow step — and the slowest step's log directory is named for you.
+- **Long runs survive quota limits.** 429 and 503 responses wait and retry automatically without consuming retry budget. After a quota hit, StepWise probes for recovery using a throwaway session first, so 429 errors never accumulate into your real context and blow past the API's context limit.
+- **Every step is reproducible.** Each step writes a runnable `command.sh` (exact working directory, environment, and original command) alongside `verbose_output.txt`, which streams the agent's full reasoning and tool calls as it happens.
+- **Parallel work cannot collide.** Each worker gets its own git worktree, and items are handed out by a shared queue — whichever worker finishes first picks up the next item. Changes are committed to their own branch and never auto-merged into your main branch.
+- **The agent gets better at your repo.** At the end of a session, StepWise reflects and writes what worked to `.claude/skills/SKILL.md`. Your agent CLI loads that natively next session, so the same trap isn't sprung twice.
+- **Validate flows in seconds.** `enableDebugMode(true)` runs the entire workflow over a single item, so you can prove the flow works before spending a night on it.
+
+**On file access:** `setAllowRead` / `setAllowWrite` restrict an agent to specific directories by injecting a strict access policy into the prompt. Treat it as a guardrail, not an OS sandbox — use containers or filesystem permissions when you need hard isolation.
 
 ---
 
@@ -83,7 +99,7 @@ if (!build.success) {
 
 ### 2. Structured Data Collection
 
-Validation and retry are built in; the first required field is used for deduplication:
+Declare the format; the first required field is used for deduplication. Validation and repair retries are on by default — tune them per step if you need to:
 
 ```typescript
 const result = await agent.execCollectPrompt('Collect all API endpoints', {
@@ -91,6 +107,8 @@ const result = await agent.execCollectPrompt('Collect all API endpoints', {
   method: { type: 'string', description: 'HTTP method' },
   path: { type: 'string', description: 'API path' },
   description: { type: 'string', description: 'API description', required: false }
+}, {
+  validateOptions: { maxRetries: 3, retryOnFileMissing: true }
 });
 ```
 

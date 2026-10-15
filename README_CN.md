@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="#为什么需要-stepwise">为什么需要</a> • <a href="#工作原理">工作原理</a> • <a href="#快速开始">快速开始</a> • <a href="#用法示例">用法示例</a> • <a href="#文档">文档</a> • <a href="README.md">English</a>
+  <a href="#为什么需要-stepwise">为什么需要</a> • <a href="#工作原理">工作原理</a> • <a href="#内置保障">内置保障</a> • <a href="#快速开始">快速开始</a> • <a href="#用法示例">用法示例</a> • <a href="#文档">文档</a> • <a href="README.md">English</a>
 </p>
 
 <p align="center">
@@ -39,6 +39,22 @@ StepWise 是一个 **TypeScript SDK**——不是命令行工具，也不是编�
 3. **每一格背后是一个真实的 agent 会话。** 上下文默认跨步骤复用，也可以分叉出一条新路线去试另一种做法，而不动原会话。
 
 结构化输出在使用前会被校验：收集步骤返回的数据若不符合声明的格式，StepWise 会自动生成修复提示词并重试，而不是把坏结果交给你。
+
+---
+
+## 内置保障
+
+这些不是需要你额外打开的插件——每一步都自带：
+
+- **输出是被校验过的，不是被相信的。** 声明你想要的格式，StepWise 会先确认文件是否生成、再校验内容是否合法，然后自动生成修复提示词并重试（默认 3 次）。如果 agent 压根没写文件，它会被明确要求补写。
+- **花了多少钱，看得见。** 每一步都会落一份 `usage.json`：输入/输出 token、缓存读写、美元成本、纯 API 耗时。性能统计把**任务真实耗时**与**限额等待耗时**分开算，所以被配额卡住的步骤不会伪装成一个"慢步骤"；最慢那一步的日志目录也会直接指给你。
+- **长跑不会被配额打断。** 429 与 503 自动等待重试，且不消耗重试预算。遇到限额后，StepWise 先用一个用完即弃的会话探测是否恢复，确认恢复后才回到正式会话——429 报错永远不会累积进真实上下文、把它撑爆 API 的上下文上限。
+- **每一步都能复现。** 每个步骤都会生成可直接执行的 `command.sh`（包含确切的工作目录、环境变量和原始命令），以及 `verbose_output.txt`——后者在 agent 运行过程中实时记录它完整的思考与工具调用。
+- **并行不会互相踩。** 每个 Worker 独占一个 git worktree，任务通过共享队列分发——谁先干完谁先接下一个。各分支的改动只提交到自己分支，**绝不自动合并**进主分支。
+- **agent 会越来越懂你的项目。** 一个会话结束时，StepWise 自动反思并把有效经验写成 `.claude/skills/SKILL.md`，agent CLI 下次会原生加载它——同一个坑不用踩第二次。
+- **几秒钟验证整条流程。** `enableDebugMode(true)` 会让整条流程只处理一条数据，先证明流程能跑通，再放心花一整夜。
+
+**关于文件访问范围：** `setAllowRead` / `setAllowWrite` 通过向提示词注入严格的访问策略，把 agent 限制在指定目录内。请把它当作**护栏而非操作系统级沙箱**——需要硬隔离时请使用容器或文件系统权限。
 
 ---
 
@@ -83,7 +99,7 @@ if (!build.success) {
 
 ### 2. 结构化数据收集
 
-校验与重试内置；第一个必填字段自动用于去重：
+声明想要的格式；第一个必填字段自动用于去重。校验与修复重试默认开启——需要时按步骤微调：
 
 ```typescript
 const result = await agent.execCollectPrompt('收集所有 API 端点', {
@@ -91,6 +107,8 @@ const result = await agent.execCollectPrompt('收集所有 API 端点', {
   method: { type: 'string', description: 'HTTP 方法' },
   path: { type: 'string', description: 'API 路径' },
   description: { type: 'string', description: 'API 描述', required: false }
+}, {
+  validateOptions: { maxRetries: 3, retryOnFileMissing: true }
 });
 ```
 
