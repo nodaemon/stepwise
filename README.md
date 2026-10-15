@@ -20,35 +20,28 @@ You hand a coding agent one big prompt: *"refactor the auth module, update every
 
 The problem is rarely model intelligence. It is that a single long run has no checkpoints: nothing observes progress, nothing survives an interruption, and nothing verifies the output before you build on top of it.
 
-StepWise replaces that one long run with a sequence of small steps that each finish reliably:
+StepWise answers that by making every step a checkpoint. It is a **TypeScript SDK**, not a CLI tool or a dashboard: you write a script, and the framework drives Claude Code, OpenCode, CodeAgent, or Pi in headless mode while persisting state between runs.
 
-| Pain Point | StepWise Solution |
-|------------|-------------------|
-| Long tasks drift, multi-tasks get missed | Break tasks into stable small steps, data validation ensures correct output, condition checks verify execution results |
-| Private data handling is difficult | Support Skill-generating Agents, auto-summarize Skills after multiple successful attempts |
-| Debugging is hard, progress lost on interruption | Checkpoint recovery, debug mode for quick validation |
+Each of those worries is handled inside the step itself rather than bolted on afterwards:
 
-Every step also carries the safeguards that make a long run worth trusting — these are not add-ons you opt into:
-
-- **Output is verified, not trusted.** Declare the format you want; StepWise checks that the file exists *and* that its contents validate, then auto-generates a repair prompt and retries (3 times by default). If the agent never wrote the file, it gets told to write it.
-- **Spend is visible.** Every step writes a `usage.json` with input/output tokens, cache reads and writes, USD cost, and API-only latency. Performance stats separate *real task time* from *rate-limit wait time*, so a step stalled on quota never masquerades as a slow step — and the slowest step's log directory is named for you.
-- **Long runs survive quota limits.** 429 and 503 responses wait and retry automatically without consuming retry budget. After a quota hit, StepWise probes for recovery using a throwaway session first, so 429 errors never accumulate into your real context and blow past the API's context limit.
-- **Every step is reproducible.** Each step writes a runnable `command.sh` (exact working directory, environment, and original command) alongside `verbose_output.txt`, which streams the agent's full reasoning and tool calls as it happens.
-- **Parallel work cannot collide.** Each worker gets its own git worktree, and items are handed out by a shared queue — whichever worker finishes first picks up the next item. Changes are committed to their own branch and never auto-merged into your main branch.
-- **The agent gets better at your repo.** At the end of a session, StepWise reflects and writes what worked to `.claude/skills/SKILL.md`. Your agent CLI loads that natively next session, so the same trap isn't sprung twice.
-- **Validate flows in seconds.** `enableDebugMode(true)` runs the entire workflow over a single item, so you can prove the flow works before spending a night on it.
-
-**On file access:** `setAllowRead` / `setAllowWrite` restrict an agent to specific directories by injecting a strict access policy into the prompt. Treat it as a guardrail, not an OS sandbox — use containers or filesystem permissions when you need hard isolation.
-
-StepWise is a **TypeScript SDK** — not a CLI tool, not a dashboard. You write a script, each `exec*` call is one step of your workflow, and the framework drives Claude Code, OpenCode, CodeAgent, or Pi in headless mode while persisting state between runs.
+| What goes wrong | How StepWise handles it |
+|---|---|
+| Long runs drift, or lose work when interrupted | Completed steps are skipped on resume — re-run the same script with the resume path printed at startup |
+| "Done" is only a claim | Declare the output format; StepWise checks the file exists *and* validates, then auto-generates a repair prompt and retries |
+| Overnight jobs die on quota | 429 and 503 wait and retry without burning retry budget; recovery is probed with a throwaway session, so 429 errors never poison your real context |
+| Cost and time are invisible | Each step writes `usage.json` — tokens, cache, USD, API-only latency. Stats separate real task time from quota wait, and name the slowest step |
+| Broken runs can't be reproduced | Every step leaves a runnable `command.sh` (exact cwd, environment, command) plus `verbose_output.txt` streaming the agent's reasoning live |
+| Parallel agents trample each other | Each worker gets its own git worktree and items come off a shared queue; branches are committed but never auto-merged into your main branch |
+| The same trap springs every week | What worked is distilled into `.claude/skills/SKILL.md`, which your agent CLI loads natively next session |
+| The blast radius is too large | `setAllowRead` / `setAllowWrite` scope a step to specific directories — a prompt-level guardrail, not an OS sandbox |
 
 ---
 
 ## How It Works
 
 1. **You write a script.** Each `exec*` call is one cell of the workflow. No YAML, no daemon, no dashboard.
-2. **Every cell checkpoints itself.** When a step completes, its index and state are written to `progress.json`. Kill the process at any point, re-run the script with the printed resume path, and completed steps are skipped.
-3. **Every cell runs in a real agent session.** Context is reused across steps by default, and can be forked to try an alternative without touching the original.
+2. **State lives on disk.** Every step writes its index, status, and session ID as it completes, so a run is a folder you can inspect, archive, or resume.
+3. **Context is a session you control.** Steps reuse one session by default; start a new one or fork a branch to try an alternative without losing the original.
 
 ---
 
@@ -124,7 +117,7 @@ if (!checkResult.result) {
 
 ### 4. Parallel Processing
 
-Each worker runs in its own git worktree, so parallel agents never fight over the same files. Add `{ cwd: '/path/to/other-repo' }` as a fourth argument to run somewhere else:
+Run one handler over many items across isolated workers. Add `{ cwd: '/path/to/other-repo' }` as a fourth argument to work in a different repository:
 
 ```typescript
 import { forEachParallel, WorkerConfig, loadCollectData } from 'stepwise';
@@ -137,7 +130,7 @@ await forEachParallel(apis, workerConfigs, async (ctx) => {
 });
 ```
 
-Each worktree's changes are committed to its own branch and **never merged into your main branch** — the console prints the branch names so you decide what to merge. Across worktrees, fork (`sessionId` + `newSession: true`) auto-symlinks the session; a standalone `sessionId` throws rather than risk concurrent writes.
+Each worker runs in its own worktree, so sessions are stored per directory. Forking across worktrees (`sessionId` + `newSession: true`) auto-symlinks the session into place; passing a standalone `sessionId` across worktrees throws rather than risk concurrent writes.
 
 ### 5. Schema-Driven Output
 
@@ -178,6 +171,8 @@ const forked = await agent.execPrompt('Try an alternative approach', {
 
 ### 7. Checkpoint Recovery & Debug Mode
 
+Enable debug mode to run the whole workflow over a single item, then resume an interrupted run by passing its path:
+
 ```typescript
 import { initTask, StepWise, enableDebugMode } from 'stepwise';
 
@@ -190,8 +185,6 @@ await agent.execPrompt('Step 1: Analyze project');           // skipped
 await agent.execCollectPrompt('Step 2: Collect data', fmt); // skipped
 await agent.execPrompt('Step 3: Process item $name', { data: { name: 'item1' } }); // resumes here
 ```
-
-When a run goes wrong, the task directory keeps every prompt plus the agent's full reasoning and tool calls in `verbose_output.txt` — the first file to read when diagnosing a step.
 
 ---
 
