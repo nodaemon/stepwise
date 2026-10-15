@@ -254,7 +254,7 @@ Sets the agent type, determining which agent will execute tasks.
 - Should be called before `setTaskName()`
 - All agents within a task use the same agent type
 - Defaults to `'claude'` (Claude Code agent)
-- `'codeagent'` uses the same command-line arguments and output format as `'claude'`; only the executable name (`codeagent`) differs. CodeAgent's config directory defaults to `~/.cac`; override with the `CODEAGENT3_CONFIG_DIR` environment variable
+- `'codeagent'` uses the same command-line arguments and output format as `'claude'`, plus the CodeAgent-only `--skip-safe-check` flag (Claude does not accept it); only the executable name (`codeagent`) differs. CodeAgent's config directory defaults to `~/.cac`; override with the `CODEAGENT3_CONFIG_DIR` environment variable
 - `'pi'` uses the Pi agent (`@earendil-works/pi-coding-agent`); plain-text output, no permission flags needed, session auto-detected via `--session-id`. Pi's config directory defaults to `~/.pi/agent`; override with the `PI_CODING_AGENT_DIR` environment variable
 
 **Example**
@@ -266,7 +266,7 @@ import { setTaskName, setAgentType } from 'stepwise';
 setAgentType('opencode');
 setTaskName('MyTask');
 
-// Or use the CodeAgent agent (same args as claude, different executable)
+// Or use the CodeAgent agent (same args as claude plus --skip-safe-check, different executable)
 setAgentType('codeagent');
 setTaskName('MyTask');
 
@@ -1232,7 +1232,7 @@ type AgentType = 'claude' | 'opencode' | 'codeagent' | 'pi';
 
 - `'claude'`: Use Claude Code agent (default)
 - `'opencode'`: Use OpenCode agent
-- `'codeagent'`: Use CodeAgent agent (command-line args identical to claude, only the executable name differs)
+- `'codeagent'`: Use CodeAgent agent (same command-line args as claude plus the CodeAgent-only `--skip-safe-check` flag)
 - `'pi'`: Use Pi agent (`@earendil-works/pi-coding-agent`; plain-text output, no permission flags, session auto-detected via `--session-id`)
 
 ---

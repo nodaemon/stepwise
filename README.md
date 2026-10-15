@@ -41,7 +41,7 @@ import { setAgentType, setTaskName, StepWise } from 'stepwise';
 // Set AI coding assistant type (optional, default: 'claude')
 setAgentType('claude');   // Use Claude Code (default)
 // setAgentType('opencode');  // Use OpenCode
-// setAgentType('codeagent'); // Use CodeAgent (same args as claude, different executable)
+// setAgentType('codeagent'); // Use CodeAgent (same args as claude plus --skip-safe-check, different executable)
 // setAgentType('pi');        // Use Pi (@earendil-works/pi-coding-agent)
 
 setTaskName('MyTask');
@@ -419,10 +419,10 @@ claude --dangerously-skip-permissions --resume <session-id> -p "your prompt"
 # Fork: resume from <session-id> but create a new branch session (original preserved)
 claude --dangerously-skip-permissions --resume <session-id> --fork-session -p "your prompt"
 
-# CodeAgent example (command-line args identical to Claude Code, only the executable name differs)
-codeagent --dangerously-skip-permissions --session-id <uuid> -p "your prompt"
-codeagent --dangerously-skip-permissions --resume <session-id> -p "your prompt"
-codeagent --dangerously-skip-permissions --resume <session-id> --fork-session -p "your prompt"
+# CodeAgent example (command-line args mostly identical to Claude Code, differs only in the executable name; additionally carries --skip-safe-check to skip the first-use-of-directory safety confirmation)
+codeagent --dangerously-skip-permissions --skip-safe-check --session-id <uuid> -p "your prompt"
+codeagent --dangerously-skip-permissions --skip-safe-check --resume <session-id> -p "your prompt"
+codeagent --dangerously-skip-permissions --skip-safe-check --resume <session-id> --fork-session -p "your prompt"
 
 # OpenCode example
 opencode run --thinking --session <uuid> "your prompt"

@@ -21,7 +21,7 @@ src/executors/
 
 - `BaseExecutor`：抽象基类，定义执行流程和公共逻辑
 - `ClaudeExecutor` / `OpenCodeExecutor` / `CodeAgentExecutor`：具体实现类，实现特定智能体的逻辑
-- `CodeAgentExecutor` 继承 `ClaudeExecutor`：命令参数与 Claude 完全一致，仅可执行程序名不同，故直接复用 `buildArgs()`
+- `CodeAgentExecutor` 继承 `ClaudeExecutor`：命令参数与 Claude 基本一致（仅可执行程序名不同，另额外携带 CodeAgent 独有的 `--skip-safe-check`），故复用 `buildArgs()`，仅覆写 `getCommand()` 与 `buildSafetyArgs()`
 
 ### 类图
 
@@ -124,6 +124,7 @@ export { AiderExecutor } from './aider';
 |------|------|
 | `buildEnv()` | 构建环境变量，默认返回 `process.env` |
 | `usesNDJsonOutput()` | 是否输出 NDJSON（stream-json）格式，默认 `false`。Claude、CodeAgent 返回 `true`（空行跳过、按 type 格式化）；OpenCode、Pi 等纯文本执行器为 `false`（空行保留） |
+| `buildSafetyArgs()` | 构建「安全确认类」参数，追加在 `--dangerously-skip-permissions` 之后，默认返回 `[]`。ClaudeExecutor 保持为空；CodeAgentExecutor 覆写为 `['--skip-safe-check']`，跳过目录首次使用时的安全确认 |
 | `execute()` | 执行提示词任务，默认在 `BaseExecutor` 中实现重试、错误处理等逻辑。Pi 执行器重写此方法以在 fork 模式下预生成派生 session ID |
 | `getSessionIdAfterExecution()` | 执行完成后获取 sessionId。OpenCode 通过 `session list` 获取；Pi 在 fork 模式下返回预生成的派生 ID |
 | `getRateLimitPatterns()` | 速率限制检测正则表达式 |

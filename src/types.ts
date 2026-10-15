@@ -2,7 +2,7 @@
  * 智能体类型
  * - 'claude': 使用 Claude Code 智能体
  * - 'opencode': 使用 OpenCode 智能体（自动降级机制）
- * - 'codeagent': 使用 CodeAgent 智能体（命令参数与 claude 一致，仅可执行程序名不同）
+ * - 'codeagent': 使用 CodeAgent 智能体（命令参数与 claude 基本一致，仅可执行程序名不同；另额外携带 claude 不支持的 --skip-safe-check）
  * - 'pi': 使用 Pi 智能体（@earendil-works/pi-coding-agent，纯文本输出，无 JSON 解析）
  */
 export type AgentType = 'claude' | 'opencode' | 'codeagent' | 'pi';

@@ -13,9 +13,12 @@ import { AgentType } from '../types';
  * - 新会话: claude --dangerously-skip-permissions --session-id <uuid> -p "prompt"
  * - 恢复会话: claude --dangerously-skip-permissions --resume <uuid> -p "prompt"
  *
- * 本类同时作为 CodeAgent 执行器的基类（CodeAgent 命令参数与 Claude 一致，
- * 仅可执行程序名不同），故 agentType 使用联合类型 AgentType 而非字面量 'claude'，
- * 以便子类覆盖为 'codeagent'。
+ * 本类同时作为 CodeAgent 执行器的基类（CodeAgent 命令参数与 Claude 基本一致，
+ * 差别仅是可执行程序名，以及 CodeAgent 独有的 --skip-safe-check），
+ * 故 agentType 使用联合类型 AgentType 而非字面量 'claude'，以便子类覆盖为 'codeagent'。
+ *
+ * 子类如需追加自身专属参数，应覆写 buildSafetyArgs()（安全确认类）
+ * 或重写 buildArgs()，不要直接改动本类 buildArgs() 中的共享参数。
  */
 export class ClaudeExecutor extends BaseExecutor {
   /** 执行器类型标识 */
@@ -34,6 +37,17 @@ export class ClaudeExecutor extends BaseExecutor {
    */
   protected usesNDJsonOutput(): boolean {
     return true;
+  }
+
+  /**
+   * 构建「安全确认类」参数（追加在 --dangerously-skip-permissions 之后）
+   *
+   * 默认返回空数组：Claude Code 无需额外参数。
+   * CodeAgent 覆写为 ['--skip-safe-check']，跳过目录首次使用时的安全确认，
+   * 避免该确认产生的报错被写入 verbose_output.txt / error_report.txt。
+   */
+  protected buildSafetyArgs(): string[] {
+    return [];
   }
 
   /**
@@ -57,6 +71,9 @@ export class ClaudeExecutor extends BaseExecutor {
 
     // 跳过权限确认，允许自动化执行
     args.push('--dangerously-skip-permissions');
+
+    // 执行器专属的安全确认参数（Claude 为空，CodeAgent 为 --skip-safe-check）
+    args.push(...this.buildSafetyArgs());
 
     // 添加 debug 日志输出，记录 Claude 思考和执行过程
     if (debugFile) {
@@ -90,8 +107,17 @@ export class ClaudeExecutor extends BaseExecutor {
    * 构建探测命令参数
    * 使用 --no-session-persistence 避免探测 session 落盘
    * 需要 --dangerously-skip-permissions 避免探测命令等待交互式权限确认
+   *
+   * 探测与正式执行使用相同 cwd，故同样需要 buildSafetyArgs()：
+   * 目录首次使用时探测命令也会触发安全确认
    */
   protected buildProbeArgs(): string[] {
-    return ['--dangerously-skip-permissions', '--no-session-persistence', '-p', 'reply ok'];
+    return [
+      '--dangerously-skip-permissions',
+      ...this.buildSafetyArgs(),
+      '--no-session-persistence',
+      '-p',
+      'reply ok'
+    ];
   }
 }

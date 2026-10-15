@@ -267,7 +267,7 @@ import { setTaskName, setAgentType } from 'stepwise';
 setAgentType('opencode');
 setTaskName('MyTask');
 
-// 使用 CodeAgent 智能体（参数与 claude 一致，仅可执行程序名不同）
+// 使用 CodeAgent 智能体（参数与 claude 基本一致，另额外携带 --skip-safe-check）
 setAgentType('codeagent');
 setTaskName('MyTask');
 
@@ -1232,7 +1232,7 @@ type AgentType = 'claude' | 'opencode' | 'codeagent' | 'pi';
 
 - `'claude'`: 使用 Claude Code 智能体（默认）
 - `'opencode'`: 使用 OpenCode 智能体
-- `'codeagent'`: 使用 CodeAgent 智能体（命令行参数与 claude 一致，仅可执行程序名不同）
+- `'codeagent'`: 使用 CodeAgent 智能体（命令行参数与 claude 基本一致，另额外携带 CodeAgent 独有的 --skip-safe-check）
 - `'pi'`: 使用 Pi 智能体（`@earendil-works/pi-coding-agent`；纯文本输出，无需权限标志，session 通过 `--session-id` 自动判断创建/恢复）
 
 ---

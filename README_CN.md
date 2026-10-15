@@ -41,7 +41,7 @@ import { setAgentType, setTaskName, StepWise } from 'stepwise';
 // 设置 AI 编程助手类型（可选，默认 'claude'）
 setAgentType('claude');   // 使用 Claude Code（默认）
 // setAgentType('opencode');  // 使用 OpenCode
-// setAgentType('codeagent'); // 使用 CodeAgent（命令参数与 claude 一致，仅可执行程序名不同）
+// setAgentType('codeagent'); // 使用 CodeAgent（命令参数与 claude 基本一致，另额外携带 --skip-safe-check）
 // setAgentType('pi');        // 使用 Pi（@earendil-works/pi-coding-agent）
 
 setTaskName('MyTask');
@@ -413,10 +413,10 @@ claude --dangerously-skip-permissions --resume <session-id> -p "你的提示词"
 # 分岔：从 <session-id> 恢复但派生新会话（原会话保留）
 claude --dangerously-skip-permissions --resume <session-id> --fork-session -p "你的提示词"
 
-# CodeAgent 示例（命令行参数与 Claude Code 完全一致，仅可执行程序名不同）
-codeagent --dangerously-skip-permissions --session-id <uuid> -p "你的提示词"
-codeagent --dangerously-skip-permissions --resume <session-id> -p "你的提示词"
-codeagent --dangerously-skip-permissions --resume <session-id> --fork-session -p "你的提示词"
+# CodeAgent 示例（命令参数与 claude 基本一致，仅可执行程序名不同；额外携带 --skip-safe-check 跳过目录首次使用时的安全确认）
+codeagent --dangerously-skip-permissions --skip-safe-check --session-id <uuid> -p "你的提示词"
+codeagent --dangerously-skip-permissions --skip-safe-check --resume <session-id> -p "你的提示词"
+codeagent --dangerously-skip-permissions --skip-safe-check --resume <session-id> --fork-session -p "你的提示词"
 
 # OpenCode 示例
 opencode run --thinking --session <uuid> "你的提示词"

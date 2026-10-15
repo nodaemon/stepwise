@@ -61,7 +61,7 @@ export const OPENCODE_COMMAND = 'opencode';
 
 // ============ CodeAgent 相关常量 ============
 
-/** CodeAgent 命令（参数与 claude 一致，仅可执行程序名不同） */
+/** CodeAgent 命令（参数与 claude 基本一致，另额外携带 --skip-safe-check） */
 export const CODEAGENT_COMMAND = 'codeagent';
 
 // ============ Pi 相关常量 ============
