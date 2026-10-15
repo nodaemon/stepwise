@@ -1574,7 +1574,7 @@ stepwise_exec_infos/
     │   ├── logs/                           # Execution logs
     │   │   ├── 1_task/
     │   │   │   ├── prompt.txt              # Task prompt
-    │   │   │   ├── command.txt             # Execution command
+    │   │   │   ├── command.sh              # Reproduction script (POSIX shell, directly executable)
     │   │   │   ├── output.txt              # Standard output summary
     │   │   │   ├── verbose_output.txt      # Detailed output (AI thinking, tool calls, etc.) ★Key debug file
     │   │   │   ├── debug.log               # Debug log

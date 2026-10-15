@@ -12,6 +12,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ShellOptions, ShellResult } from '../types';
 import { DEFAULT_SHELL_TIMEOUT_MS } from '../constants';
+import { parseEnvEntries } from './envHelper';
+import { buildReproScript, writeReproScript } from './reproScript';
 
 /**
  * Shell 命令执行器类
@@ -70,17 +72,14 @@ export class ShellExecutor {
     const startTime = Date.now();
 
     return new Promise((resolve, reject) => {
-      // 构建环境变量对象（从 string[] 格式转换）
+      // 构建环境变量对象（从 string[] 格式转换，解析规则与其他消费方共用）
       const envObject: Record<string, string> = {};
-      if (options.env) {
-        for (const envStr of options.env) {
-          const equalIndex = envStr.indexOf('=');
-          if (equalIndex > 0) {
-            envObject[envStr.substring(0, equalIndex)] = envStr.substring(equalIndex + 1);
-          } else {
-            console.warn(`[ShellExecutor] 忽略无效环境变量格式: "${envStr}"`);
-          }
-        }
+      const parsedEnv = parseEnvEntries(options.env);
+      for (const { key, value } of parsedEnv.entries) {
+        envObject[key] = value;
+      }
+      for (const invalidStr of parsedEnv.invalid) {
+        console.warn(`[ShellExecutor] 忽略无效环境变量格式: "${invalidStr}"`);
       }
 
       // 构建执行环境
@@ -181,7 +180,7 @@ export class ShellExecutor {
    */
   private saveExecutionInfo(
     command: string,
-    options: { cwd: string; timeout: number },
+    options: { cwd: string; timeout: number; env?: string[] },
     startTime: number
   ): void {
     if (!this.logDir) return;
@@ -191,9 +190,16 @@ export class ShellExecutor {
       fs.mkdirSync(this.logDir, { recursive: true });
     }
 
-    // 保存命令到文件
-    const commandFile = path.join(this.logDir, 'command.txt');
-    fs.writeFileSync(commandFile, command, 'utf-8');
+    // 保存可直接执行的复现脚本（还原 cwd 与额外环境变量）
+    // 不传 presetEnv：本路径的 spawn 未注入任何框架变量
+    const commandFile = path.join(this.logDir, 'command.sh');
+    const commandContent = buildReproScript({
+      command,
+      cwd: options.cwd,
+      env: options.env,
+      timeout: options.timeout
+    });
+    writeReproScript(commandFile, commandContent);
 
     // 保存执行信息到 JSON 文件
     const infoFile = path.join(this.logDir, 'execution_info.json');

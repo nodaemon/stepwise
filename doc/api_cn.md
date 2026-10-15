@@ -1574,7 +1574,7 @@ stepwise_exec_infos/
     │   ├── logs/                           # 执行日志
     │   │   ├── 1_task/
     │   │   │   ├── prompt.txt              # 任务提示词
-    │   │   │   ├── command.txt             # 执行命令
+    │   │   │   ├── command.sh              # 复现脚本（POSIX shell，可直接执行）
     │   │   │   ├── output.txt              # 标准输出摘要
     │   │   │   ├── verbose_output.txt      # 详细输出（AI思考过程、工具调用等）★关键调试文件
     │   │   │   ├── debug.log               # 调试日志

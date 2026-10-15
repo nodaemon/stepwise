@@ -74,10 +74,12 @@ src/
 │   ├── pi.ts          # Pi 执行器 (@earendil-works/pi-coding-agent)
 │   └── types.ts       # 执行器类型定义
 └── utils/             # 工具函数目录
+    ├── envHelper.ts   # 环境变量条目解析（多消费方共用的 KEY=VALUE 规则）
     ├── executor.ts    # 执行器工厂
     ├── fileHelper.ts  # 文件操作辅助
     ├── logger.ts      # 日志记录
     ├── promptBuilder.ts # 提示词构建
+    ├── reproScript.ts # command.sh 复现脚本生成
     ├── shellExecutor.ts # Shell 命令执行
     ├── uuid.ts        # UUID 生成
     └── validator.ts   # JSON 校验

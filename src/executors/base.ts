@@ -9,6 +9,8 @@ import * as fs from 'fs';
 import { ExecutionResult } from '../types';
 import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS, PROBE_TIMEOUT_MS, MAX_PROBE_ATTEMPTS } from '../constants';
 import { Logger } from '../utils/logger';
+import { parseEnvEntries } from '../utils/envHelper';
+import { buildReproScript, writeReproScript } from '../utils/reproScript';
 import { AgentExecutorOptions, AgentExecutor, ExecutorRawResult } from './types';
 import { parseAndFormatNDJson, formatNDJsonLine } from './ndjsonFormatter';
 
@@ -115,6 +117,8 @@ export abstract class BaseExecutor implements AgentExecutor {
   /**
    * 构建执行环境变量
    * 子类可以重写以添加额外的环境变量
+   *
+   * 解析规则统一走 parseEnvEntries()，与 ShellExecutor 和 command.sh 生成保持一致
    * @param extraEnv 额外的环境变量数组，格式为 "KEY=VALUE"
    */
   protected buildEnv(extraEnv?: string[]): NodeJS.ProcessEnv {
@@ -123,16 +127,9 @@ export abstract class BaseExecutor implements AgentExecutor {
       PAGER: 'cat'
     };
 
-    // 解析并添加额外的环境变量
-    if (extraEnv && extraEnv.length > 0) {
-      for (const envStr of extraEnv) {
-        const equalIndex = envStr.indexOf('=');
-        if (equalIndex > 0) {
-          const key = envStr.substring(0, equalIndex);
-          const value = envStr.substring(equalIndex + 1);
-          env[key] = value;
-        }
-      }
+    // 解析并添加额外的环境变量（非法条目在此被静默丢弃）
+    for (const { key, value } of parseEnvEntries(extraEnv).entries) {
+      env[key] = value;
     }
 
     return env;
@@ -584,68 +581,32 @@ export abstract class BaseExecutor implements AgentExecutor {
     };
     fs.writeFileSync(execInfoFile, JSON.stringify(execInfo, null, 2), 'utf-8');
 
-    // 单独保存完整命令到文件，包含 cwd 和 env 信息
-    const commandFile = path.join(taskLogDir, 'command.txt');
-    const commandContent = this.buildCommandFileContent(fullCommand, cwd, env);
-    fs.writeFileSync(commandFile, commandContent, 'utf-8');
+    // 单独保存可直接执行的复现脚本，包含 cwd 和 env 信息
+    const commandFile = path.join(taskLogDir, 'command.sh');
+    const commandContent = this.buildCommandFileContent(fullCommand, cwd, env, timeout);
+    writeReproScript(commandFile, commandContent);
   }
 
   /**
-   * 构建命令文件内容，包含 cwd 和 env 信息
+   * 构建 command.sh 内容（cwd + env + 命令），既是可直接执行的脚本，
+   * 也是可直接逐行复制执行的命令，每项信息只出现一次
+   *
+   * presetEnv 传入 { PAGER: 'cat' }，与 buildEnv() 保持一致：
+   * 框架固定注入的变量先输出，用户传入的 env 后输出并覆盖它
+   *
+   * 本方法是子类的扩展点（可覆写以定制脚本内容），勿在调用处内联为
+   * buildReproScript()，否则会丢失 PAGER 预设并破坏覆写能力
+   *
+   * timeout 为可选参数，仅写入头部注释；新增可选参数对既有子类覆写向后兼容
    */
-  protected buildCommandFileContent(fullCommand: string, cwd: string, env?: string[]): string {
-    const lines: string[] = [];
-
-    lines.push('# 执行命令');
-    lines.push(fullCommand);
-    lines.push('');
-
-    lines.push('# 工作目录 (cwd)');
-    lines.push(cwd);
-    lines.push('');
-
-    if (env && env.length > 0) {
-      lines.push('# 额外环境变量');
-      for (const envStr of env) {
-        // 解析 KEY=VALUE 格式，对值进行引号保护
-        const equalIndex = envStr.indexOf('=');
-        if (equalIndex > 0) {
-          const key = envStr.substring(0, equalIndex);
-          const value = envStr.substring(equalIndex + 1);
-          // 对值进行引号转义：如果值中包含双引号，先转义双引号
-          const escapedValue = value.includes('"')
-            ? `"${value.replace(/"/g, '\\"')}"`
-            : `"${value}"`;
-          lines.push(`export ${key}=${escapedValue}`);
-        } else {
-          // 没有 = 号的情况，直接输出
-          lines.push(`export ${envStr}`);
-        }
-      }
-      lines.push('');
-    }
-
-    lines.push('# 可直接复制执行的完整命令（含环境变量）');
-    if (env && env.length > 0) {
-      for (const envStr of env) {
-        // 解析 KEY=VALUE 格式，对值进行引号保护
-        const equalIndex = envStr.indexOf('=');
-        if (equalIndex > 0) {
-          const key = envStr.substring(0, equalIndex);
-          const value = envStr.substring(equalIndex + 1);
-          // 对值进行引号转义
-          const escapedValue = value.includes('"')
-            ? `"${value.replace(/"/g, '\\"')}"`
-            : `"${value}"`;
-          lines.push(`export ${key}=${escapedValue} && \\`);
-        } else {
-          lines.push(`export ${envStr} && \\`);
-        }
-      }
-    }
-    lines.push(`cd "${cwd}" && ${fullCommand}`);
-
-    return lines.join('\n');
+  protected buildCommandFileContent(fullCommand: string, cwd: string, env?: string[], timeout?: number): string {
+    return buildReproScript({
+      command: fullCommand,
+      cwd,
+      env,
+      presetEnv: { PAGER: 'cat' },
+      timeout
+    });
   }
 
   // ============ 工具方法 ============
