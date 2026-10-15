@@ -29,7 +29,7 @@ Each of those worries is handled inside the step itself rather than bolted on af
 | Long runs drift, or lose work when interrupted | Completed steps are skipped on resume — re-run the same script with the resume path printed at startup |
 | "Done" is only a claim | Declare the output format; StepWise checks the file exists *and* validates, then auto-generates a repair prompt and retries |
 | Overnight jobs die on quota | 429 and 503 wait and retry without burning retry budget; recovery is probed with a throwaway session, so 429 errors never poison your real context |
-| You can't see what a step did, or what it cost | Every step is observable — `usage.json` records tokens, cache, and USD cost with time split between task time and quota wait; `verbose_output.txt` streams the agent's reasoning and tool calls; `command.sh` re-runs that exact step |
+| You can't see what a step did, or what it cost | Every step is observable — `performance.txt` breaks time down by call site, counting task time and quota wait separately; `usage.json` records tokens and USD cost; `verbose_output.txt` streams the agent's reasoning and tool calls; `command.sh` re-runs that exact step |
 | Parallel agents trample each other | Each worker gets its own git worktree and items come off a shared queue; branches are committed but never auto-merged into your main branch |
 | The same trap springs every week | What worked is distilled into `.claude/skills/SKILL.md`, which your agent CLI loads natively next session |
 | The blast radius is too large | `setAllowRead` / `setAllowWrite` scope a step to specific directories — a prompt-level guardrail, not an OS sandbox |
