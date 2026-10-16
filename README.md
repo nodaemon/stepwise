@@ -1,11 +1,16 @@
 # StepWise
 
 <p align="center">
-  <strong>A TypeScript SDK that turns AI coding agents into reliable, resumable workflows</strong>
+  <strong>Let AI complete unattended long tasks accurately, reliably, and on its own</strong>
 </p>
 
 <p align="center">
-  <a href="#why-stepwise">Why StepWise</a> • <a href="#how-it-works">How It Works</a> • <a href="#quick-start">Quick Start</a> • <a href="#examples">Examples</a> • <a href="#execution-output-layout">Layout</a> • <a href="#documentation">Documentation</a> • <a href="README_CN.md">中文文档</a>
+  StepWise is a TypeScript SDK that drives Claude Code / OpenCode / CodeAgent / Pi headlessly.<br>
+  Write the goal and walk away; what you come back to is a verifiable, traceable, reproducible result — not a claim that it finished.
+</p>
+
+<p align="center">
+  <a href="#why-stepwise">Why StepWise</a> • <a href="#how-it-works">How It Works</a> • <a href="#quick-start">Quick Start</a> • <a href="#examples">Examples</a> • <a href="#execution-output-layout">Layout</a> • <a href="#documentation">Documentation</a> • <a href="#contributing">Contributing</a> • <a href="README_CN.md">中文文档</a>
 </p>
 
 <p align="center">
@@ -16,22 +21,25 @@
 
 ## Why StepWise?
 
-StepWise is built for one class of task: you write the script and walk away, and it runs for hours, across a full overnight window — refactoring a module and fixing every caller, backfilling tests across a batch of files, migrating a repository by rule. Somewhere in the middle the machine restarts, a quota resets, a process gets killed. What you come back to has to be a result you can trust, not a claim that it finished.
+### Long tasks need trust, not intelligence
 
-The difference from interactive coding work is not agent capability. It is that nobody is watching. No one can stop it at minute twenty, no one can notice it has drifted, and no one is there to take over when it fails. Failure therefore stops being a single event and starts being a full night of compute, burned repeatedly.
+You hand an AI a long task and walk away. Hours later it may have drifted, quietly dropped half the requirements, or failed partway through — and you have no way to tell how much of what came back actually got done.
+
+Better models do not solve this. A long task spans hours, sometimes overnight, and nobody is there to watch it, stop it, or take over when it goes wrong. What is missing is a **trustworthy executor**: one that knows how far it got, picks up where it left off after an interruption, and confirms the work before calling it done.
+
+StepWise does not replace your agent. It is what makes an agent dependable on a long task — progress you can check, interruptions you can survive, results you can verify.
 
 ### Why not just use Claude Code
 
-Claude Code is already strong on its own: single-session resume and file checkpointing, JSON Schema structured outputs with automatic re-prompting, `--worktree` isolation, and an OS-level sandbox. StepWise mostly stops rebuilding those. What remains is a difference in the **granularity of recovery** and the **boundary it runs across**:
+Claude Code is built for the terminal, where you watch it work, correct it when it goes wrong, and stop it when it drifts. A long task is a different relationship: nobody is there, so it does not know which step it is on, where it stopped last time, or whether what it hands back counts as finished.
 
-| Already native in the platform | What StepWise adds |
-|---|---|
-| File checkpointing: roll back edited code | Task-level resume: remembers "step N is done", so re-running the script skips completed steps instead of recomputing them |
-| Single-session resume: pick up the previous conversation | Cross-process, cross-session resume: the resume path is printed at startup, and re-running the same script is enough, whether or not the original session is still around |
-| Quota exhaustion waits for the reset inside an interactive session | Quota resilience on the non-interactive path: 429 / 503 probe recovery with a throwaway session, so waiting never burns retry budget and rate-limit errors never enter your real context |
-| JSON Schema structured outputs: format conformance is enough | Content-level validation: first confirm the artifact actually exists, then validate its contents, then auto-generate a repair prompt and retry if it fails |
+StepWise covers exactly those gaps, turning "the agent does its best" into "the process is accountable":
 
-Quota resilience carries the most value here: on non-interactive `claude -p` and SDK runs the platform fails outright when the quota runs out instead of waiting, and rate limiting is exactly the failure mode batch jobs hit most often.
+- **It knows how far it got.** Every step writes its index, status, and session ID to disk, so re-running the same script after an interruption skips completed work instead of recomputing it — whether or not the original session is still around.
+- **It survives an overnight run.** On 429 / 503 it does not simply fail; recovery is probed with a throwaway session, so waiting never burns retry budget and rate-limit errors never enter your real context.
+- **It checks its own work before reporting.** The artifact is confirmed to exist and its contents are validated, with an auto-generated repair prompt and retry when they fail; in debug mode an independent reviewer also re-reads every step afterwards.
+
+The second one matters most: on non-interactive `claude -p` and SDK runs the platform fails outright when the quota runs out instead of waiting, and rate limiting is exactly the failure mode long tasks hit most often.
 
 ### What you get back after a full night
 
@@ -263,7 +271,44 @@ Nothing here is write-only: `progress.json` decides where a resume picks up, `co
 
 - [API Reference](doc/api.md) — full API documentation
 - [Examples](demos.md) — complete runnable examples
+- [Architecture](agents.md) — layering, global state, and the core class
+- [Design goals](goals.md) — what the framework is trying to solve
+- [Roadmap](TODO.md) — what is being worked on
 - [中文文档](README_CN.md) — Chinese documentation
+
+---
+
+## Contributing
+
+The codebase is bounded and the edge cases are covered by tests, so it is straightforward to contribute.
+
+**Local development**
+
+```bash
+git clone https://gitee.com/nodaemon/stepwise.git
+cd stepwise
+npm install
+npm run build            # produces dist/
+npm test                 # Jest, 28 test files
+npm run test:coverage
+```
+
+**Code map**
+
+| Path | Responsibility |
+|---|---|
+| `src/executors/` | Adapter layer per CLI backend. `base.ts` defines the `BaseExecutor` abstract class (`agentType` / `buildArgs` / `getCommand` / `buildProbeArgs`); `claude.ts`, `opencode.ts`, `pi.ts`, and `codeagent.ts` are the implementations; `ndjsonFormatter.ts` parses streamed output |
+| `src/utils/` | `validator.ts` output validation and repair retries, `sessionLinker.ts` cross-worktree session handling, `performanceTracker.ts` duration and token accounting, `reproScript.ts` emits `command.sh`, `promptBuilder.ts` prompts and self-check reviews |
+| `src/StepWise.ts` | Core class: step scheduling, checkpoint recovery, restore, quota waiting |
+| `src/forEachParallel.ts` | Parallel worker pool, shared queue, worktree isolation |
+| `src/types.ts` | Every public type — check compatibility before changing it |
+
+**Good places to start**
+
+- **Add a CLI backend**: create `src/executors/xxx.ts` extending `BaseExecutor` and implement the four abstract members; everything else is inherited
+- **Add tests**: `tests/` is split by feature, and edge cases such as `probeRateLimit`, `selfCheck`, and `sessionLinkLog` still have room
+- **Improve docs**: see `doc/api.md` for the API and `demos.md` for runnable examples
+- **Discuss the design**: `goals.md` records the goals and trade-offs, `agents.md` the architecture, `TODO.md` what is in flight
 
 Found a bug or want to help improve StepWise? Open an Issue or send a Pull Request.
 

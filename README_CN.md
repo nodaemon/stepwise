@@ -1,11 +1,16 @@
 # StepWise
 
 <p align="center">
-  <strong>把 AI 编程助手变成可靠、可断点续跑的工作流的 TypeScript SDK</strong>
+  <strong>让 AI 独立、准确、可靠地完成无人值守的长任务</strong>
 </p>
 
 <p align="center">
-  <a href="#为什么需要-stepwise">为什么需要</a> • <a href="#工作原理">工作原理</a> • <a href="#快速开始">快速开始</a> • <a href="#用法示例">用法示例</a> • <a href="#执行结果目录结构">目录结构</a> • <a href="#文档">文档</a> • <a href="README.md">English</a>
+  StepWise 是一个 TypeScript SDK，以无头模式驱动 Claude Code / OpenCode / CodeAgent / Pi。<br>
+  你写下目标就可以离开；回来时拿到的是一份可验证、可追溯、可复现的执行结果，而不是一句「已完成」。
+</p>
+
+<p align="center">
+  <a href="#为什么需要-stepwise">为什么需要</a> • <a href="#工作原理">工作原理</a> • <a href="#快速开始">快速开始</a> • <a href="#用法示例">用法示例</a> • <a href="#执行结果目录结构">目录结构</a> • <a href="#文档">文档</a> • <a href="#参与开发">参与开发</a> • <a href="README.md">English</a>
 </p>
 
 <p align="center">
@@ -16,22 +21,25 @@
 
 ## 为什么需要 StepWise？
 
-StepWise 面向的是这样一类任务：你写好脚本就离开，让它自己跑几小时、跨一整夜——批量重构并修好所有调用方、给一批文件补测试、把一个仓库按规则迁移干净。中途机器重启、限额重置、进程被杀，回来时你需要一个能判断可信度的结果，而不是一句「已完成」。
+### 长任务缺的是可信，不是聪明
 
-这类任务和交互式写代码的差别不在 agent 能力，而在**没有人在场**：没人能在第 20 分钟喊停，没人能察觉它已经跑偏，也没人能在失败时接手继续。失败因此不是一次性的，而是整夜算力被反复消耗。
+你交给 AI 一个长任务，然后离开。几小时后回来，它可能已经跑偏、悄悄漏掉一半需求，也可能早在中途就失败了——而你无从判断交回来的东西到底完成了多少。
+
+模型变强解决不了这件事。一个长任务跨越几小时甚至跨夜，中间没有人能看着它、叫停它、在它出错时接手。真正缺的是一个**可信的执行者**：自己清楚做到了哪一步，中断之后能接着往下走，交付之前先确认自己确实做完了。
+
+StepWise 不替代你的 agent，它做的是让 agent 在长任务里变得可以托付——进度可查、中断可续、结果可验。
 
 ### 为什么不是直接用 Claude Code
 
-Claude Code 本身已经很强：单会话恢复与文件检查点、JSON Schema 结构化输出并自动重提示、`--worktree` 并行隔离、操作系统级沙箱。这些 StepWise 多数不再重复造，差异集中在**恢复的粒度**与**运行边界**上：
+Claude Code 很适合你坐在终端里边聊边改——看到问题就纠正，方向不对就打断。可长任务是另一种关系：你不在场，它不知道这是第几步、不知道上次停在哪里，也不知道交回来的东西算不算真的完成。
 
-| 平台已经原生提供 | StepWise 补的是什么 |
-|---|---|
-| 文件检查点：回滚被改过的代码 | 任务级断点续跑：记住「第 N 步已完成」，重跑脚本直接跳过已完成步骤，不重算 |
-| 单会话恢复：接着上次的对话继续 | 跨进程、跨会话恢复：恢复路径打印在启动日志里，重跑同一个脚本即可，与原会话是否还在无关 |
-| 交互会话内配额耗尽会等待重置 | 非交互路径的配额韧性：429 / 503 用用完即弃的会话探测是否恢复，等待不消耗重试预算，限流报错也不会写进真实上下文 |
-| JSON Schema 结构化输出：格式合规即通过 | 内容级校验：先确认产物文件确实存在，再校验内容，不合格自动生成修复提示词重试 |
+StepWise 补的就是这几件事，把一次长任务从「agent 尽力而为」变成「流程有章可循」：
 
-其中配额韧性是价值密度最高的一条：平台在非交互式的 `claude -p` 与 SDK 路径下，配额耗尽会直接失败而不是等待，而限流恰恰是批处理最常见的失效原因。
+- **知道自己走到了哪一步。** 每一步完成就把序号、状态和会话 ID 落到磁盘上；中断之后重跑同一个脚本即可跳过已完成的工作，不重算，原会话是否还在都不影响恢复。
+- **扛得住跑一夜的中断。** 撞上 429 / 503 不直接失败，而是用用完即弃的会话探测配额是否恢复，等待不消耗重试预算，限流报错也不会写进真实上下文。
+- **交回来之前先自查。** 先确认产物文件确实存在，再校验内容，不合格自动生成修复提示词重试；debug 模式下每一步还会由独立审查者复盘一遍。
+
+其中配额韧性是最关键的一条：平台在非交互式的 `claude -p` 与 SDK 路径下，配额耗尽会直接失败而不是等待，而限流恰恰是长任务最常见的失效原因。
 
 ### 跑一整夜之后，你拿回什么
 
@@ -263,9 +271,46 @@ stepwise_exec_infos/
 
 - [API 文档](doc/api_cn.md) — 完整 API 说明
 - [示例](demos_cn.md) — 可直接运行的完整示例
+- [架构文档](agents.md) — 分层结构、全局状态与核心类职责
+- [设计目标](goals.md) — 框架要解决什么问题
+- [路线图](TODO.md) — 正在做的事
 - [English](README.md) — English documentation
 
-发现问题或想参与 StepWise 的迭代？欢迎提交 Issue 或 Pull Request。
+---
+
+## 参与开发
+
+StepWise 的代码边界清楚，边缘场景有测试兜底，容易上手贡献。
+
+**本地开发**
+
+```bash
+git clone https://gitee.com/nodaemon/stepwise.git
+cd stepwise
+npm install
+npm run build            # 产出 dist/
+npm test                 # Jest，28 个测试文件
+npm run test:coverage
+```
+
+**代码地图**
+
+| 目录 | 职责 |
+|---|---|
+| `src/executors/` | 各 CLI 后端的适配层。`base.ts` 定义 `BaseExecutor` 抽象类（`agentType` / `buildArgs` / `getCommand` / `buildProbeArgs`），`claude.ts` `opencode.ts` `pi.ts` `codeagent.ts` 是各自的实现，`ndjsonFormatter.ts` 解析流式输出 |
+| `src/utils/` | `validator.ts` 输出校验与修复重试、`sessionLinker.ts` 跨 worktree 会话管理、`performanceTracker.ts` 耗时与 token 统计、`reproScript.ts` 生成 `command.sh`、`promptBuilder.ts` 提示词与自检复盘 |
+| `src/StepWise.ts` | 核心类：步骤调度、断点续跑、恢复、配额等待 |
+| `src/forEachParallel.ts` | 并行 worker 池、共享队列、worktree 隔离 |
+| `src/types.ts` | 全部公开类型，改动前先确认兼容性 |
+
+**适合上手的方向**
+
+- **接入新的 CLI 后端**：新增 `src/executors/xxx.ts` 并继承 `BaseExecutor`，实现四个抽象方法即可，其余逻辑复用基类
+- **补测试**：`tests/` 已按功能拆分，`probeRateLimit`、`selfCheck`、`sessionLinkLog` 等边界场景仍有空间
+- **完善文档**：API 说明见 `doc/api_cn.md`，可运行示例见 `demos_cn.md`
+- **讨论设计**：目标与取舍记录在 `goals.md`，架构细节见 `agents.md`，在做的事见 `TODO.md`
+
+发现问题或想参与迭代，欢迎提交 Issue 或 Pull Request。
 
 ---
 
