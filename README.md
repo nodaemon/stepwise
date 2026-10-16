@@ -16,24 +16,42 @@
 
 ## Why StepWise?
 
-You hand a coding agent one big prompt: *"refactor the auth module, update every caller, and run the tests."* Twenty minutes later it has drifted, quietly skipped half the requirements, and you have no way to tell which parts actually landed.
+StepWise is built for one class of task: you write the script and walk away, and it runs for hours, across a full overnight window — refactoring a module and fixing every caller, backfilling tests across a batch of files, migrating a repository by rule. Somewhere in the middle the machine restarts, a quota resets, a process gets killed. What you come back to has to be a result you can trust, not a claim that it finished.
 
-The problem is rarely model intelligence. It is that a single long run has no checkpoints: nothing observes progress, nothing survives an interruption, and nothing verifies the output before you build on top of it.
+The difference from interactive coding work is not agent capability. It is that nobody is watching. No one can stop it at minute twenty, no one can notice it has drifted, and no one is there to take over when it fails. Failure therefore stops being a single event and starts being a full night of compute, burned repeatedly.
 
-StepWise answers that by making every step a checkpoint. It is a **TypeScript SDK**, not a CLI tool or a dashboard: you write a script, and the framework drives Claude Code, OpenCode, CodeAgent, or Pi in headless mode while persisting state between runs.
+### Why not just use Claude Code
 
-Each of those worries is handled inside the step itself rather than bolted on afterwards:
+Claude Code is already strong on its own: single-session resume and file checkpointing, JSON Schema structured outputs with automatic re-prompting, `--worktree` isolation, and an OS-level sandbox. StepWise mostly stops rebuilding those. What remains is a difference in the **granularity of recovery** and the **boundary it runs across**:
+
+| Already native in the platform | What StepWise adds |
+|---|---|
+| File checkpointing: roll back edited code | Task-level resume: remembers "step N is done", so re-running the script skips completed steps instead of recomputing them |
+| Single-session resume: pick up the previous conversation | Cross-process, cross-session resume: the resume path is printed at startup, and re-running the same script is enough, whether or not the original session is still around |
+| Quota exhaustion waits for the reset inside an interactive session | Quota resilience on the non-interactive path: 429 / 503 probe recovery with a throwaway session, so waiting never burns retry budget and rate-limit errors never enter your real context |
+| JSON Schema structured outputs: format conformance is enough | Content-level validation: first confirm the artifact actually exists, then validate its contents, then auto-generate a repair prompt and retry if it fails |
+
+Quota resilience carries the most value here: on non-interactive `claude -p` and SDK runs the platform fails outright when the quota runs out instead of waiting, and rate limiting is exactly the failure mode batch jobs hit most often.
+
+### What you get back after a full night
 
 | What goes wrong | How StepWise handles it |
 |---|---|
-| Long runs drift, or lose work when interrupted | Completed steps are skipped on resume — re-run the same script with the resume path printed at startup |
+| The process is killed or the machine restarts, and the work is lost | Completed steps are skipped on resume — re-run the same script with the resume path printed at startup |
+| Overnight jobs get cut off by quota | 429 and 503 wait and retry without burning retry budget; recovery is probed with a throwaway session, so 429 errors never poison your real context |
+| It drifts silently in the middle, and nobody notices | In debug mode every step gets an automatic review: an independent reviewer checks goal clarity, missing or redundant input, and detours, and must quote source text verbatim to back each finding |
 | "Done" is only a claim | Declare the output format; StepWise checks the file exists *and* validates, then auto-generates a repair prompt and retries |
 | Hard to tell why a long run failed, or to analyze where its time and tokens went | Every step is observable — duration and token spend itemized, the agent's reasoning and tool calls captured as they happen, task time counted separately from quota wait, and any step re-runnable exactly as it ran |
-| Overnight jobs get cut off by quota | 429 and 503 wait and retry without burning retry budget; recovery is probed with a throwaway session, so 429 errors never poison your real context |
 | Parallel agents trample each other | Each worker gets its own git worktree and items come off a shared queue; branches are committed but never auto-merged into your main branch |
+| Locked into a single agent CLI | Claude Code (default), OpenCode, CodeAgent, and Pi share one workflow script, so switching backends does not mean rewriting |
 | The same trap springs every week | What worked is distilled into a Skill, which your agent CLI loads natively next session |
-| A vague prompt means the same trap next round | In debug mode every step gets an automatic review: an independent reviewer checks goal clarity, missing or redundant input, and detours, and must quote source text verbatim to back each finding |
 | The blast radius is too large | `setAllowRead` / `setAllowWrite` scope a step to specific directories — a prompt-level guardrail, not an OS sandbox |
+
+### When you do not need it
+
+StepWise only solves the class of problem described above. Interactive work where you chat and edit as you go, a two- or three-step task that does not justify a framework, or simply wanting one agent's stronger single-shot ability — all of these are easier with Claude Code's native features.
+
+For cross-machine, distributed, auditable long-running recovery, StepWise is the wrong tool too: that layer belongs to durable execution infrastructure like Temporal or Restate, which pay for it by introducing external services and state stores. StepWise's trade-off is the opposite — single process, no external dependencies, state entirely on disk, and one run is one inspectable, archivable folder.
 
 ---
 
