@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="#why-stepwise">Why StepWise</a> • <a href="#how-it-works">How It Works</a> • <a href="#quick-start">Quick Start</a> • <a href="#examples">Examples</a> • <a href="#documentation">Documentation</a> • <a href="README_CN.md">中文文档</a>
+  <a href="#why-stepwise">Why StepWise</a> • <a href="#how-it-works">How It Works</a> • <a href="#quick-start">Quick Start</a> • <a href="#examples">Examples</a> • <a href="#execution-output-layout">Layout</a> • <a href="#documentation">Documentation</a> • <a href="README_CN.md">中文文档</a>
 </p>
 
 <p align="center">
@@ -32,6 +32,7 @@ Each of those worries is handled inside the step itself rather than bolted on af
 | Overnight jobs get cut off by quota | 429 and 503 wait and retry without burning retry budget; recovery is probed with a throwaway session, so 429 errors never poison your real context |
 | Parallel agents trample each other | Each worker gets its own git worktree and items come off a shared queue; branches are committed but never auto-merged into your main branch |
 | The same trap springs every week | What worked is distilled into a Skill, which your agent CLI loads natively next session |
+| A vague prompt means the same trap next round | In debug mode every step gets an automatic review: an independent reviewer checks goal clarity, missing or redundant input, and detours, and must quote source text verbatim to back each finding |
 | The blast radius is too large | `setAllowRead` / `setAllowWrite` scope a step to specific directories — a prompt-level guardrail, not an OS sandbox |
 
 ---
@@ -187,30 +188,56 @@ await agent.execPrompt('Step 3: Process item $name', { data: { name: 'item1' } }
 
 **Self-check review in debug mode**
 
-Every successfully completed AI step in debug mode automatically triggers a review.
-The framework opens a **brand-new session** and hands that step's prompt, output and
-execution trace to an independent reviewer, which inspects four dimensions: whether
-the goal is clear, whether input information is missing, whether it is redundant,
-and whether tool calls / reasoning went down detour paths.
+After every AI step succeeds in debug mode, the framework opens a new session and hands that step's prompt, output, and execution trace to an independent reviewer, which checks whether the goal is clear, whether input is missing or redundant, and whether tool calls went down detours. The reviewer must quote source text verbatim to back each finding — anything it cannot quote is dropped. The report lands in `self_check.md` next to `output.txt`; see [Execution Output Layout](#execution-output-layout).
 
-Because it is a new session, the reviewer has no memory of the original execution
-and can only judge from the files; the prompt also requires every conclusion to
-**quote source text verbatim**, dropping anything it cannot quote. Dimensions with
-no findings are omitted entirely.
+---
 
-The report lands in `self_check.md`, a sibling of `output.txt`:
+## Execution Output Layout
+
+One run is one folder, created under `stepwise_exec_infos/` in your working directory. The resume path printed at startup is that folder's name:
 
 ```
-logs/
-├── 1_collect/
-│   ├── prompt.txt / output.txt / verbose_output.txt   ← evidence
-│   ├── command.sh / execution_info.json / usage.json
-│   └── self_check.md          ← the review report
-└── 1_self_check/              ← the reviewer's own execution logs
+stepwise_exec_infos/
+└── <TaskName>_<YYYYMMDD>_<HHmmss>_<ms>/          ← one run = one folder
+    ├── logs/
+    │   ├── performance.json                     ← cumulative duration / token stats (machine-readable)
+    │   └── performance.txt                      ← same, readable
+    ├── report/                                  ← reports produced by execReport
+    │
+    └── <AgentName>_<timestamp>/                 ← one per agent / worker
+        ├── data/
+        │   └── progress.json                    ← checkpoint state (index, status, session id)
+        ├── logs/
+        │   ├── execute.log                      ← per-step start / end / retry / skip
+        │   ├── 1_collect/                       ← the 1st collect step
+        │   │   ├── prompt.txt                   ←   the prompt actually sent
+        │   │   ├── output.txt                   ←   final output
+        │   │   ├── verbose_output.txt           ←   full reasoning and tool-call trace
+        │   │   ├── command.sh                   ←   re-runnable as-is with ./command.sh
+        │   │   ├── execution_info.json          ←   argv, session id, environment
+        │   │   ├── usage.json                   ←   token usage (NDJSON executors)
+        │   │   ├── schema.json                  ←   schema definition for execPromptSchema
+        │   │   ├── post_check_prompt.txt        ←   the postCheckPrompt text
+        │   │   ├── error.txt                    ←   failure reason (only on failure)
+        │   │   └── self_check.md                ←   self-check report (debug mode only)
+        │   ├── 2_task/                          ← 2nd step, and so on
+        │   └── 1_self_check/                    ← reviewer's own logs (debug mode only)
+        └── collect/
+            └── 1_collect/
+                └── collect_1.json               ← output of collection steps
 ```
 
-A failed self-check never interrupts the main flow, and it consumes no task index
-and never writes `progress.json`, so checkpoint recovery is unaffected.
+Step folders are named `{index}_{type}`, where the type comes from the `exec*` call (`task` / `collect` / `check` / `report` / `schema` / `shell`). Files that only appear conditionally:
+
+| File | Appears when |
+|---|---|
+| `error.txt` | That step failed |
+| `usage.json` | Using Claude Code / CodeAgent (NDJSON executors) |
+| `schema.json` | `execPromptSchema` |
+| `post_check_prompt.txt` | That step set `postCheckPrompt` |
+| `self_check.md` | Self-check review in debug mode |
+
+Nothing here is write-only: `progress.json` decides where a resume picks up, `command.sh` lets any single step be re-run outside the framework, and `verbose_output.txt` preserves exactly what the agent saw, did, and where it wandered.
 
 ---
 

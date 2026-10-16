@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="#为什么需要-stepwise">为什么需要</a> • <a href="#工作原理">工作原理</a> • <a href="#快速开始">快速开始</a> • <a href="#用法示例">用法示例</a> • <a href="#文档">文档</a> • <a href="README.md">English</a>
+  <a href="#为什么需要-stepwise">为什么需要</a> • <a href="#工作原理">工作原理</a> • <a href="#快速开始">快速开始</a> • <a href="#用法示例">用法示例</a> • <a href="#执行结果目录结构">目录结构</a> • <a href="#文档">文档</a> • <a href="README.md">English</a>
 </p>
 
 <p align="center">
@@ -32,6 +32,7 @@ StepWise 的解法是让**每一步本身成为一个检查点**。它是一个 
 | 跑一晚上的任务被配额打断 | 429 与 503 自动等待重试，且不消耗重试预算；先用用完即弃的会话探测是否恢复，429 报错不会污染真实上下文 |
 | 并行的 agent 互相踩文件 | 每个 Worker 独占一个 git worktree，任务从共享队列领取；分支只提交到自己分支，绝不自动合并进主分支 |
 | 同一个坑每周再踩一次 | 有效经验被自动沉淀成 Skill，agent CLI 下次会话原生加载 |
+| 提示词写得不到位，下一轮又踩同样的坑 | debug 模式下每步自动追加一次自检复盘：独立审查者复核目标清晰度、输入缺失与冗余、过程弯路，结论必须逐字引用原文佐证 |
 | 影响范围太大 | `setAllowRead` / `setAllowWrite` 把单步限制在指定目录内——这是提示词级护栏，不是操作系统级沙箱 |
 
 ---
@@ -187,25 +188,56 @@ await agent.execPrompt('步骤3：处理条目 $name', { data: { name: 'item1' }
 
 **debug 模式下的自检复盘**
 
-调试模式每成功执行一个 AI 步骤，框架会自动追加一次自检复盘。它**新开一个会话**，
-把这一步的提示词、输出和执行轨迹交给一个独立审查者，复盘四个维度：目标是否清晰、
-输入是否缺失、输入是否冗余、工具调用与思考是否走了弯路。
+调试模式下每成功执行一个 AI 步骤，框架会新开一个会话，把这一步的提示词、输出和执行轨迹交给一个独立审查者，复盘目标是否清晰、输入是否缺失或冗余、工具调用是否走了弯路。审查者必须逐字引用原文佐证每条结论，引用不到就不输出；报告写在同目录的 `self_check.md`。详见[执行结果目录结构](#执行结果目录结构)。
 
-因为是新会话，审查者对原过程没有记忆，只能依据文件判断；提示词同时强制要求
-**每条结论逐字引用原文**，引用不到就不输出。没有问题的维度整节省略。
+---
 
-报告写在与 `output.txt` 同级的 `self_check.md`：
+## 执行结果目录结构
+
+一次运行就是一个文件夹，位于工作目录下的 `stepwise_exec_infos/`。启动时打印的恢复路径就是这个文件夹名：
 
 ```
-logs/
-├── 1_collect/
-│   ├── prompt.txt / output.txt / verbose_output.txt   ← 证据
-│   ├── command.sh / execution_info.json / usage.json
-│   └── self_check.md          ← 自检报告
-└── 1_self_check/              ← 审查者自身的执行日志
+stepwise_exec_infos/
+└── <TaskName>_<YYYYMMDD>_<HHmmss>_<ms>/          ← 一次运行 = 一个文件夹
+    ├── logs/
+    │   ├── performance.json                     ← 耗时 / token 累计统计（机器可读）
+    │   └── performance.txt                      ← 同上，可读版
+    ├── report/                                  ← execReport 产出的报告
+    │
+    └── <AgentName>_<timestamp>/                 ← 每个 Agent / Worker 一个
+        ├── data/
+        │   └── progress.json                    ← 断点恢复状态（步骤序号、状态、会话 ID）
+        ├── logs/
+        │   ├── execute.log                      ← 每步的开始 / 结束 / 重试 / 跳过
+        │   ├── 1_collect/                       ← 第 1 个 collect 步骤
+        │   │   ├── prompt.txt                   ←   实际发出的提示词
+        │   │   ├── output.txt                   ←   最终输出
+        │   │   ├── verbose_output.txt           ←   思考过程与工具调用全量轨迹
+        │   │   ├── command.sh                   ←   可直接 ./command.sh 原样重跑
+        │   │   ├── execution_info.json          ←   命令行、会话 ID、环境变量
+        │   │   ├── usage.json                   ←   token 用量（NDJSON 执行器）
+        │   │   ├── schema.json                  ←   execPromptSchema 的 schema 定义
+        │   │   ├── post_check_prompt.txt        ←   postCheckPrompt 原文
+        │   │   ├── error.txt                    ←   失败原因（仅失败时）
+        │   │   └── self_check.md                ←   自检报告（仅 debug 模式）
+        │   ├── 2_task/                          ← 第 2 个步骤，以此类推
+        │   └── 1_self_check/                    ← 自检审查者自身的日志（仅 debug 模式）
+        └── collect/
+            └── 1_collect/
+                └── collect_1.json               ← 收集类任务的输出
 ```
 
-自检失败不会中断主流程，也不占用任务序号、不写 `progress.json`，断点恢复不受影响。
+步骤目录名格式为 `{序号}_{类型}`，类型取自 `exec*` 接口（`task` / `collect` / `check` / `report` / `schema` / `shell`）。按条件出现的文件：
+
+| 文件 | 何时出现 |
+|---|---|
+| `error.txt` | 该步骤执行失败 |
+| `usage.json` | 使用 Claude Code / CodeAgent 等 NDJSON 执行器 |
+| `schema.json` | `execPromptSchema` |
+| `post_check_prompt.txt` | 该步骤配置了 `postCheckPrompt` |
+| `self_check.md` | debug 模式下的自检报告 |
+
+没有任何东西是不可还原的：`progress.json` 决定断点续跑从哪继续，`command.sh` 让任何一步都能脱离框架单独重跑，`verbose_output.txt` 保留了 AI 当时究竟看到了什么、做了什么、走过哪些弯路。
 
 ---
 
