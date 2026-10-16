@@ -142,7 +142,49 @@ Enables or disables debug mode.
 
 - Collection prompts add "only collect 1 item" instruction
 - Return only the first data item
+- Appends a **self-check review** after every successful AI task step (see below)
 - Used for quick workflow validation
+
+**Self-Check Review**
+
+With debug mode enabled, every successful `execPrompt` / `execCollectPrompt` /
+`execCheckPrompt` / `execReport` / `execPromptSchema` step triggers a review. The
+framework opens a **brand-new session** and hands that step's `prompt.txt`,
+`output.txt` and `verbose_output.txt` to an independent third-party reviewer, which
+inspects four dimensions: whether the goal is clear, whether input information is
+missing, whether it is redundant, and whether tool calls / reasoning went down
+detour paths.
+
+Because it runs in a fresh session, the reviewer has no memory of the original
+execution and can only judge from those files. The prompt also requires every
+conclusion to **quote source text verbatim** — anything it cannot quote is dropped,
+which prevents fabrication. Dimensions with no findings are omitted entirely.
+
+**Artifacts**
+
+```
+stepwise_exec_infos/<Task>_<ts>/<Agent>_<ts>/
+├── logs/
+│   ├── 1_collect/                ← the reviewed step
+│   │   ├── prompt.txt            ← evidence
+│   │   ├── output.txt            ← evidence
+│   │   ├── verbose_output.txt    ← evidence
+│   │   ├── command.sh / execution_info.json / usage.json
+│   │   └── self_check.md         ← the review report (sibling of output.txt)
+│   └── 1_self_check/             ← the reviewer's own execution logs
+```
+
+The report file is always named `self_check.md`. The reviewer's logs live in a
+separate `1_self_check/` directory because it has to read `verbose_output.txt`;
+sharing the directory would append its own read records into that evidence file
+and overwrite the parent step's `command.sh`.
+
+**Notes**
+
+- A failed self-check never interrupts the main flow; it is only recorded in `execute.log`
+- The self-check consumes no task index and never writes `progress.json`, so checkpoint recovery is unaffected
+- Its cost is tracked separately as the `selfCheck` type in `performance.txt`
+- On checkpoint re-runs the report is overwritten with the latest result, while the reviewer's logs append to the previous `1_self_check/`
 
 **Example**
 

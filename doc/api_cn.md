@@ -143,7 +143,45 @@ setResumePath('AnalyzeCodebase_20260307_103000_123');
 
 - 收集任务的提示词添加"只收集1条数据"的说明
 - 返回结果只包含第一条数据
+- 每个 AI 任务步骤执行成功后，自动追加一次**自检复盘**（见下）
 - 用于快速验证流程
+
+**自检复盘**
+
+开启调试模式后，`execPrompt` / `execCollectPrompt` / `execCheckPrompt` / `execReport` /
+`execPromptSchema` 每成功执行一步，框架会**新开一个会话**，把这一步的
+`prompt.txt`、`output.txt`、`verbose_output.txt` 交给一个独立的第三方审查者，
+复盘四个维度：目标是否清晰、输入信息是否缺失、输入信息是否冗余、
+工具调用与思考是否走了弯路。
+
+因为运行在全新会话中，审查者对原过程没有任何记忆，只能依据上述文件判断；
+同时提示词强制要求**每条结论逐字引用原文**，引用不到就不输出，以避免编造。
+没有问题的维度会在报告中整节省略。
+
+**产物位置**
+
+```
+stepwise_exec_infos/<任务名>_<时间戳>/<Agent名>_<时间戳>/
+├── logs/
+│   ├── 1_collect/                ← 被审查的步骤
+│   │   ├── prompt.txt            ← 证据
+│   │   ├── output.txt            ← 证据
+│   │   ├── verbose_output.txt    ← 证据
+│   │   ├── command.sh / execution_info.json / usage.json
+│   │   └── self_check.md         ← 自检报告（与 output.txt 同级）
+│   └── 1_self_check/             ← 审查者自身的执行日志
+```
+
+报告文件名固定为 `self_check.md`。审查者的执行日志放在独立的 `1_self_check/`
+目录：它需要读取 `verbose_output.txt`，若共用目录会把自己的读取记录追加进这份
+证据文件，同时会覆盖父任务的 `command.sh` 等产物。
+
+**注意事项**
+
+- 自检失败不会中断主流程，只在 `execute.log` 中记录
+- 自检不占用任务序号，也不写入 `progress.json`，不影响断点恢复
+- 自检耗时在 `performance.txt` 中以 `selfCheck` 类型单独统计
+- 断点恢复重跑时，报告会覆盖为最新结果，审查者日志追加到上次的 `1_self_check/`
 
 **示例**
 

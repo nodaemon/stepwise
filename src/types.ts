@@ -248,7 +248,7 @@ export type TaskStatusType = 'pending' | 'in_progress' | 'completed';
 /**
  * 任务类型
  */
-export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell' | 'schema';
+export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell' | 'schema' | 'self_check';
 
 /**
  * 任务状态
@@ -396,8 +396,9 @@ export interface ShellResult {
  * - shell: execShell
  * - summarize: summarize 方法
  * - postCheck: ExecOptions.postCheckPrompt 选项触发的验证检查
+ * - selfCheck: debug 模式下 AI 任务执行后的自检复盘
  */
-export type PerformanceType = 'prompt' | 'shell' | 'summarize' | 'postCheck';
+export type PerformanceType = 'prompt' | 'shell' | 'summarize' | 'postCheck' | 'selfCheck';
 
 /**
  * 单个类型的性能统计

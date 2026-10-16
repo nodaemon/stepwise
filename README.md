@@ -185,6 +185,33 @@ await agent.execCollectPrompt('Step 2: Collect data', fmt); // skipped
 await agent.execPrompt('Step 3: Process item $name', { data: { name: 'item1' } }); // resumes here
 ```
 
+**Self-check review in debug mode**
+
+Every successfully completed AI step in debug mode automatically triggers a review.
+The framework opens a **brand-new session** and hands that step's prompt, output and
+execution trace to an independent reviewer, which inspects four dimensions: whether
+the goal is clear, whether input information is missing, whether it is redundant,
+and whether tool calls / reasoning went down detour paths.
+
+Because it is a new session, the reviewer has no memory of the original execution
+and can only judge from the files; the prompt also requires every conclusion to
+**quote source text verbatim**, dropping anything it cannot quote. Dimensions with
+no findings are omitted entirely.
+
+The report lands in `self_check.md`, a sibling of `output.txt`:
+
+```
+logs/
+├── 1_collect/
+│   ├── prompt.txt / output.txt / verbose_output.txt   ← evidence
+│   ├── command.sh / execution_info.json / usage.json
+│   └── self_check.md          ← the review report
+└── 1_self_check/              ← the reviewer's own execution logs
+```
+
+A failed self-check never interrupts the main flow, and it consumes no task index
+and never writes `progress.json`, so checkpoint recovery is unaffected.
+
 ---
 
 ## Documentation

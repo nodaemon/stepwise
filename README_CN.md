@@ -185,6 +185,28 @@ await agent.execCollectPrompt('步骤2：收集数据', fmt);       // 跳过
 await agent.execPrompt('步骤3：处理条目 $name', { data: { name: 'item1' } }); // 从这里恢复
 ```
 
+**debug 模式下的自检复盘**
+
+调试模式每成功执行一个 AI 步骤，框架会自动追加一次自检复盘。它**新开一个会话**，
+把这一步的提示词、输出和执行轨迹交给一个独立审查者，复盘四个维度：目标是否清晰、
+输入是否缺失、输入是否冗余、工具调用与思考是否走了弯路。
+
+因为是新会话，审查者对原过程没有记忆，只能依据文件判断；提示词同时强制要求
+**每条结论逐字引用原文**，引用不到就不输出。没有问题的维度整节省略。
+
+报告写在与 `output.txt` 同级的 `self_check.md`：
+
+```
+logs/
+├── 1_collect/
+│   ├── prompt.txt / output.txt / verbose_output.txt   ← 证据
+│   ├── command.sh / execution_info.json / usage.json
+│   └── self_check.md          ← 自检报告
+└── 1_self_check/              ← 审查者自身的执行日志
+```
+
+自检失败不会中断主流程，也不占用任务序号、不写 `progress.json`，断点恢复不受影响。
+
 ---
 
 ## 文档

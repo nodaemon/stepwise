@@ -38,6 +38,23 @@ export const MAX_PROBE_ATTEMPTS = 10;
 /** 校验错误提示词最多显示的错误条数（超出则在末尾补充说明，避免提示词超长） */
 export const MAX_DISPLAY_ERRORS = 50;
 
+/** debug 模式自检报告文件名（与 output.txt 同级，落在任务日志目录下） */
+export const SELF_CHECK_FILE = 'self_check.md';
+
+// ============ 任务日志目录内的文件名 ============
+// 以下三个文件构成任务的完整证据集：写入方（StepWise / executor）
+// 与读取方（debug 模式自检复盘）必须使用同一常量，改名时不会出现
+// 「写端已改、读端仍指向旧名」而导致自检静默降级的情况
+
+/** 提示词文件名（写入方：各 exec 方法执行前） */
+export const PROMPT_FILE = 'prompt.txt';
+
+/** 最终输出文件名（写入方：writeTaskLogs / shell 任务） */
+export const OUTPUT_FILE = 'output.txt';
+
+/** 执行轨迹文件名（写入方：executor 子进程执行期间实时追加） */
+export const TRACE_FILE = 'verbose_output.txt';
+
 /** 429 探测恢复单次探测超时时间（毫秒）：30 秒 */
 export const PROBE_TIMEOUT_MS = 30 * 1000;
 
@@ -70,7 +87,7 @@ export const CODEAGENT_COMMAND = 'codeagent';
 export const PI_COMMAND = 'pi';
 
 /** 任务类型 */
-export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell' | 'schema';
+export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell' | 'schema' | 'self_check';
 
 /** 任务类型名称映射 */
 export const TASK_TYPE_NAMES: Record<TaskType, string> = {
@@ -82,5 +99,6 @@ export const TASK_TYPE_NAMES: Record<TaskType, string> = {
   check: 'check',
   summarize: 'summarize',
   shell: 'shell',
-  schema: 'schema'
+  schema: 'schema',
+  self_check: 'self_check'
 };

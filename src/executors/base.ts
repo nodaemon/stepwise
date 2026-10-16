@@ -7,7 +7,7 @@ import * as childProcess from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ExecutionResult } from '../types';
-import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS, PROBE_TIMEOUT_MS, MAX_PROBE_ATTEMPTS } from '../constants';
+import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS, PROBE_TIMEOUT_MS, MAX_PROBE_ATTEMPTS, TRACE_FILE } from '../constants';
 import { Logger } from '../utils/logger';
 import { parseEnvEntries } from '../utils/envHelper';
 import { buildReproScript, writeReproScript } from '../utils/reproScript';
@@ -411,7 +411,7 @@ export abstract class BaseExecutor implements AgentExecutor {
       let derivedSessionIdNotified = false;
 
       if (taskLogDir) {
-        const verboseFile = path.join(taskLogDir, 'verbose_output.txt');
+        const verboseFile = path.join(taskLogDir, TRACE_FILE);
         verboseStream = fs.createWriteStream(verboseFile, { encoding: 'utf-8', flags: 'a' });
         // 如果文件已存在且有内容，添加分隔标记
         if (fs.existsSync(verboseFile) && fs.statSync(verboseFile).size > 0) {

@@ -14,6 +14,27 @@ import {
 import { ensureDir } from './fileHelper';
 
 /**
+ * 创建一份全类型为空的统计结构
+ * 新增 PerformanceType 时必须同步补充此处（record 与 loadReport 共用）
+ */
+function createEmptyTypeStatsMap(): Record<PerformanceType, PerformanceTypeStats> {
+  const emptyStats: PerformanceTypeStats = {
+    count: 0,
+    totalDuration: 0,
+    totalRetryWaitMs: 0,
+    maxDuration: 0,
+    minDuration: Infinity
+  };
+  return {
+    prompt: { ...emptyStats },
+    shell: { ...emptyStats },
+    summarize: { ...emptyStats },
+    postCheck: { ...emptyStats },
+    selfCheck: { ...emptyStats }
+  };
+}
+
+/**
  * 性能追踪器单例类
  */
 export class PerformanceTracker {
@@ -59,28 +80,15 @@ export class PerformanceTracker {
 
     if (!stats) {
       // 初始化所有类型的统计
-      const emptyStats: PerformanceTypeStats = {
-        count: 0,
-        totalDuration: 0,
-        totalRetryWaitMs: 0,
-        maxDuration: 0,
-        minDuration: Infinity
-      };
-
-      stats = {
-        key,
-        types: {
-          prompt: { ...emptyStats },
-          shell: { ...emptyStats },
-          summarize: { ...emptyStats },
-          postCheck: { ...emptyStats }
-        }
-      };
-
+      stats = { key, types: createEmptyTypeStatsMap() };
       this.statsMap.set(key, stats);
     }
 
     // 更新对应类型的统计
+    // 防御性补齐：已加载的旧统计数据可能缺少新增类型，取到 undefined 会导致自增抛错
+    if (!stats.types[type]) {
+      stats.types[type] = createEmptyTypeStatsMap()[type];
+    }
     const typeStats = stats.types[type];
     typeStats.count++;
     typeStats.totalDuration += duration;
@@ -250,6 +258,9 @@ export class PerformanceTracker {
             typeStats.totalRetryWaitMs = 0;
           }
         }
+        // 向后兼容归一化：旧报告不含后续新增的类型（如 selfCheck），
+        // 补齐空结构，否则 record() 取到 undefined 后自增会抛错
+        stat.types = { ...createEmptyTypeStatsMap(), ...stat.types };
         this.statsMap.set(stat.key, stat);
       }
     } catch (error) {
