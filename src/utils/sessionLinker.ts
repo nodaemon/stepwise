@@ -138,7 +138,11 @@ export const SESSION_LINK_LOG_PREFIX = '[session软链]';
  */
 export type SessionLinkLog = (message: string) => void;
 
-/** 默认日志实现：输出到 console，绝不静默 */
+/**
+ * 默认日志实现：输出到 console，绝不静默。
+ * 生产路径不经过此处——StepWise 是唯一调用方且总是传入写 execute.log 的回调，
+ * 这里仅为直接调用（测试/脚本）未传 log 时兜底，保证日志不失声。
+ */
 const defaultLog: SessionLinkLog = (message: string): void => {
   console.log(`${SESSION_LINK_LOG_PREFIX} ${message}`);
 };

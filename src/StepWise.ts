@@ -480,8 +480,10 @@ export class StepWise {
   }
 
   /**
-   * 创建软链流程的日志回调（双通道：控制台 + 任务汇总日志 execute.log）
+   * 创建软链流程的日志回调（仅写入任务汇总日志 execute.log，不打印控制台）
    *
+   * 软链诊断日志在每个 exec 步骤都会产生，打印控制台会刷屏（并行多 worker 时尤甚），
+   * 排查 session 问题查 execute.log 即可。
    * 前缀与 sessionLinker 共用 SESSION_LINK_LOG_PREFIX，保证同一子系统的日志可统一检索。
    * 抽成方法而非内联闭包：handleParallelCrossCwdSession 在每个 exec 步骤都会执行，
    * 避免每次重建闭包，也让编排层主体聚焦闸门逻辑。
@@ -489,7 +491,6 @@ export class StepWise {
   private createSessionLinkLogger(): SessionLinkLog {
     return (message: string): void => {
       const line = `${SESSION_LINK_LOG_PREFIX} ${message}`;
-      console.log(line);
       this.logger?.writeSummaryLog(line);
     };
   }
