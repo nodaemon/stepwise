@@ -736,6 +736,11 @@ interface JsonSchemaDef {
   recursiveFields?: string[];
   /** recursive === true only: max recursion depth, default 3, range 1~10 */
   maxDepth?: number;
+  /** Top level only: reusable substructure definitions, mapped to standard JSON Schema $defs;
+      components may ref each other (self-reference allowed), circular refs rejected at build time */
+  defs?: Record<string, JsonSchemaDef>;
+  /** JSON Pointer reference (e.g. '#/$defs/Dependency'); a ref node may only carry ref + description */
+  ref?: string;
 }
 ```
 
@@ -744,6 +749,18 @@ interface JsonSchemaDef {
 **Tuple (prefixItems)**: for `type: 'array'`, use `prefixItems` instead of `items` to define a fixed-length tuple — each element's type is declared by position, and the array length must strictly equal `prefixItems.length`. Components can be any type (including object/array) but cannot themselves be marked `recursive` (use an independent recursive tree inside a component). Mutually exclusive with `items`.
 
 **Fixed value (const)**: primitive fields (string/number/boolean) can carry a `const` constraint; the output value must strictly equal it. Useful for fixed node names or tags.
+
+**Reusable substructures (defs / ref)**: when the same substructure is referenced in many places, define it once under the top-level `defs` (the framework maps it to standard JSON Schema `$defs`) and write `{ ref: '#/$defs/<ComponentName>' }` at each reference site (mapped to `$ref`). In the prompt the component body is rendered once while reference sites keep a `$ref` marker for the model to look up and expand — for a 10-field component referenced 10 times this measures roughly 10000 → 700 tokens (-93%). A component referencing itself, `items: { ref: '#/$defs/TreeNode' }`, is an unbounded-depth recursive tree and can replace the `recursive`/`maxDepth` layer-by-layer expansion. Validation is performed natively by AJV 8, and error paths still point at the real expanded location (e.g. `/wbs/0/id`).
+
+**defs / ref boundary rules** (all checked at build time, before the prompt is ever sent):
+
+- A `ref` node may only carry `ref` + `description` (`type` and `$ref` are AND semantics in AJV and must not be mixed)
+- `ref` must point at a component defined in the top-level `defs`; components themselves may not define `defs`
+- Circular references between components throw with the reference chain (`A -> B -> A`); a component referencing itself is allowed
+- `recursive` and `ref`/`defs` cannot be mixed on the same schema node — use a self-referencing `defs` component instead
+- `defs` on nested levels is ignored with a `console.warn` (only the top-level schema's `defs` takes effect)
+
+> Deduplicated rendering (internal function `expandRefs`) and build-time validation (internal function `validateRefsAndDefs`) run automatically when `execPromptSchema` is called. They are **not exported from the `stepwise` package** and are deliberately absent from the "Exported schema utilities" list below; users never call them.
 
 **Output Location**: saved to the TaskName directory's `report/` subdirectory (shared by all agents), file named `outputFile`.
 
@@ -838,6 +855,35 @@ const result = await agent.execPromptSchema(
   },
   'fixed_tree.json'
 );
+```
+
+**Example (defs reuse + self-referencing recursive tree)**
+
+```typescript
+const result = await agent.execPromptSchema(
+  'Generate the WBS tree and the risk tree',
+  {
+    type: 'object',
+    description: 'Project analysis',
+    defs: {
+      TreeNode: {
+        type: 'object',
+        description: 'Tree node',
+        properties: {
+          id: { type: 'string', description: 'Node id' },
+          children: { type: 'array', description: 'Child nodes', items: { ref: '#/$defs/TreeNode' } }
+        }
+      }
+    },
+    properties: {
+      wbs: { type: 'array', description: 'Work tree', items: { ref: '#/$defs/TreeNode' } },
+      riskTree: { ref: '#/$defs/TreeNode', description: 'Risk tree' }
+    }
+  },
+  'wbs.json'
+);
+// The TreeNode body appears only once in the prompt; wbs / riskTree are $ref markers
+// Validation error paths point at the expanded location, e.g. /wbs/0/id
 ```
 
 **Exported schema utilities** (from `stepwise`):
@@ -1130,7 +1176,10 @@ Processes array elements in parallel, automatically creating git worktrees for i
 - Automatically creates git worktree for each Worker
 - Automatically binds worker identifier
 - Automatically handles Resume logic
-- Automatically merges branches after task completion
+- **Unconditionally** consolidates all Workers' reports after the task: arrays from each Worker's `report/*.json` are merged by filename into `{TaskName directory}/report/` (this always runs, regardless of `skipBranchMerge`)
+- By default runs a deterministic finalization script: for each Worker, `git add -A` + `git commit --allow-empty` (with the `stepwise@local` identity injected) inside the worktree to commit to its own branch, then `git worktree remove` deletes the worktree while **the branch is kept**
+- **No change is ever merged into the main branch** (to avoid an AI merge deleting code by mistake); on completion it prints the branch list and suggests integrating manually with `git merge <branch>` / `git branch -d <branch>`
+- Finalization is a fixed script that does not depend on the AI; a failure on a single Worker is recorded but never aborts the rest
 
 **Example**
 
@@ -1191,9 +1240,14 @@ interface ForEachParallelOptions {
    */
   cwd?: string;
   /**
-   * Skip the finalization script that commits each worktree's changes to its own branch.
-   * - true: Skip finalization (worktree changes will NOT be committed to branches)
-   * - false or undefined: Run the deterministic finalization script (commits each worktree's changes to its own branch, keeps the branch, removes the worktree; does NOT auto-merge into the main branch)
+   * Whether to skip the finalization script (preserveWorkerBranches). The option name is a
+   * historical leftover: the framework never merges changes into the main branch — this switch
+   * actually controls the whole "commit changes + delete worktree" finalization stage.
+   * - true: Skip finalization — worktree changes are not committed and the worktree directory is
+   *   not removed; branches may not contain the latest changes
+   * - false or undefined: Run finalization (default) — commit each worktree's changes to its own
+   *   branch, keep the branch, remove the worktree; nothing is merged into the main branch
+   * Note: regardless of this switch, Worker reports are always consolidated into {TaskName directory}/report/
    * @default false
    */
   skipBranchMerge?: boolean;
@@ -1377,6 +1431,10 @@ interface PropertyDef {
   type: 'string' | 'number' | 'boolean' | 'object' | 'array';
   description?: string;  // Field description (optional)
   required?: boolean;    // Whether required, defaults to true
+  /** Reusable substructure definitions (same semantics as JsonSchemaDef.defs) */
+  defs?: Record<string, PropertyDef>;
+  /** JSON Pointer reference (e.g. '#/$defs/Dependency'), same semantics as JsonSchemaDef.ref */
+  ref?: string;
 }
 ```
 
@@ -1385,6 +1443,8 @@ interface PropertyDef {
 - `required` defaults to `true` if not specified
 - The first required field is automatically used for deduplication
 - JSON Schema is automatically generated for AI guidance
+- `OutputFormat` is flat and has no top-level container slot: `defs` is attached to any field, and the framework merges it into the generated `$defs` (on a duplicate name the later one wins with a `console.warn`)
+- A `defs` component carried by an `array` field is wrapped as "array element" semantics, i.e. `{ type: 'array', items: ... }`, so that a property-level `$ref` resolves directly against array data
 
 ---
 

@@ -732,6 +732,10 @@ interface JsonSchemaDef {
   recursiveFields?: string[];
   /** 仅 recursive === true 时有效：递归最大深度，默认 3，范围 1~10 */
   maxDepth?: number;
+  /** 仅顶层有效：可复用子结构定义，对应 JSON Schema 标准 $defs；组件可互相 ref（允许自引用），禁止循环引用（构建期检测） */
+  defs?: Record<string, JsonSchemaDef>;
+  /** JSON Pointer 引用（如 '#/$defs/Dependency'）；含 ref 的字段上仅允许 ref + description，其它字段出现即构建期抛异常 */
+  ref?: string;
 }
 ```
 
@@ -740,6 +744,18 @@ interface JsonSchemaDef {
 **元组（prefixItems）**：`type: 'array'` 时用 `prefixItems` 代替 `items` 定义固定长度元组——按位置声明每个元素的类型，数组长度必须严格等于 `prefixItems.length`。分量可为任意 type（含 object/array），但分量本身不可标记 `recursive`（分量内的嵌套字段可以用独立递归树）。与 `items` 互斥。
 
 **固定值（const）**：基础类型字段（string/number/boolean）可加 `const` 约束，输出值必须严格等于该值。常用于固定节点名、固定标签。
+
+**可复用子结构（defs / ref）**：同一段子结构被多处引用时，在顶层 `defs` 里定义一次（框架映射为 JSON Schema 标准 `$defs`），引用处只写 `{ ref: '#/$defs/<组件名>' }`（映射为 `$ref`）。prompt 中组件全文只渲染一次、引用点保留 `$ref` 标记由模型按名回查展开——10 字段子结构 × 10 处引用，实测约 10000 → 700 tokens（-93%）。组件内 `items: { ref: '#/$defs/TreeNode' }` 自引用即无限深度递归树，可替代 `recursive`/`maxDepth` 逐层展开。校验由 AJV 8 原生完成，错误路径仍指向展开后的真实位置（如 `/wbs/0/id`）。
+
+**defs / ref 边界规则**（均在构建期校验，prompt 发出之前立即暴露）：
+
+- `ref` 节点仅允许 `ref` + `description`（AJV 中 `type` 与 `$ref` 是 AND 语义，不可混写）
+- `ref` 必须指向顶层 `defs` 中已定义的组件；组件内不允许再定义 `defs`
+- 组件间循环引用抛异常并附引用链（`A -> B -> A`）；组件引用自身合法
+- `recursive` 与 `ref`/`defs` 不能在同一 schema 节点混用，需改用 defs 自引用
+- 嵌套层的 `defs` 被忽略并 `console.warn`（仅顶层 schema 的 `defs` 有效）
+
+> 去重渲染（内部函数 `expandRefs`）与构建期校验（内部函数 `validateRefsAndDefs`）由框架在调用 `execPromptSchema` 时自动完成，**不从 `stepwise` 包导出**，不列入下方「导出的 Schema 工具函数」清单。用户无需手动调用。
 
 **输出位置**：保存到 TaskName 目录的 `report/` 子目录（所有 agent 共享），文件名为 `outputFile`。
 
@@ -834,6 +850,35 @@ const result = await agent.execPromptSchema(
   },
   'fixed_tree.json'
 );
+```
+
+**示例（defs 复用 + 自引用递归树）**
+
+```typescript
+const result = await agent.execPromptSchema(
+  '生成 WBS 工作树与风险树',
+  {
+    type: 'object',
+    description: '项目分析',
+    defs: {
+      TreeNode: {
+        type: 'object',
+        description: '树节点',
+        properties: {
+          id: { type: 'string', description: '节点编号' },
+          children: { type: 'array', description: '子节点', items: { ref: '#/$defs/TreeNode' } }
+        }
+      }
+    },
+    properties: {
+      wbs: { type: 'array', description: '工作树', items: { ref: '#/$defs/TreeNode' } },
+      riskTree: { ref: '#/$defs/TreeNode', description: '风险树' }
+    }
+  },
+  'wbs.json'
+);
+// prompt 中 TreeNode 全文只出现一次，wbs / riskTree 处为 $ref 标记
+// 校验错误路径指向展开位置，如 /wbs/0/id
 ```
 
 **导出的 Schema 工具函数**（来自 `stepwise`）：
@@ -1126,7 +1171,10 @@ if (fs.existsSync(reportPath)) {
 - 自动为每个 Worker 创建 git worktree
 - 自动绑定 worker 标识
 - 自动处理 Resume 逻辑
-- 任务完成后自动合并分支
+- 任务结束后**无条件**整合所有 Worker 的报告：把各 Worker 目录 `report/*.json` 中的数组按文件名合并到 `{TaskName 目录}/report/`（与 `skipBranchMerge` 无关，始终执行）
+- 默认执行确定性收尾脚本：逐个 Worker 在 worktree 内 `git add -A` + `git commit --allow-empty`（注入 `stepwise@local` 身份）提交到自己的分支，随后 `git worktree remove` 删除 worktree，**分支保留**
+- **不会把任何改动合并到主分支**（避免 AI 合并误删代码）；结束时会打印分支清单并提示按需手动 `git merge <分支名>` / `git branch -d <分支名>`
+- 收尾全程为固定脚本、不依赖 AI，单个 Worker 失败只记录错误、不阻断整体
 
 **示例**
 
@@ -1187,9 +1235,11 @@ interface ForEachParallelOptions {
    */
   cwd?: string;
   /**
-   * 跳过收尾脚本（把各 worktree 的改动提交到各自分支的确定性脚本）
-   * - true: 跳过收尾（worktree 的改动不会提交到分支）
-   * - false 或 undefined: 执行确定性收尾脚本（把各 worktree 的改动提交到各自分支、保留分支、删除 worktree；不会自动合并到主分支）
+   * 是否跳过收尾脚本（preserveWorkerBranches）。选项名为历史遗留：
+   * 框架从不把改动合并到主分支，该开关实际控制的是「提交改动 + 删除 worktree」这一整段收尾。
+   * - true: 跳过收尾——worktree 改动不提交，且 worktree 目录不会被删除，分支可能不含最新改动
+   * - false 或 undefined: 执行收尾（默认）——把各 worktree 的改动提交到各自分支、保留分支、删除 worktree；不会合并到主分支
+   * 注意：无论该开关取值如何，Worker 报告都会整合到 {TaskName 目录}/report/
    * @default false
    */
   skipBranchMerge?: boolean;
@@ -1373,6 +1423,10 @@ interface PropertyDef {
   type: 'string' | 'number' | 'boolean' | 'object' | 'array';
   description?: string;  // 字段描述（可选）
   required?: boolean;    // 是否必填，默认 true
+  /** 可复用子结构定义（语义同 JsonSchemaDef.defs） */
+  defs?: Record<string, PropertyDef>;
+  /** JSON Pointer 引用（如 '#/$defs/Dependency'），语义同 JsonSchemaDef.ref */
+  ref?: string;
 }
 ```
 
@@ -1381,6 +1435,8 @@ interface PropertyDef {
 - `required` 未指定时默认为 `true`
 - 第一个必填字段自动用于去重
 - 自动生成 JSON Schema 用于 AI 引导
+- `OutputFormat` 是扁平结构、无顶层容器位置：`defs` 挂在任一字段上，框架会合并进生成的 `$defs`（多字段同名时后者覆盖并 `console.warn`）
+- `array` 字段携带的 defs 组件按「数组元素」语义包装为 `{ type: 'array', items: ... }`，使属性层 `$ref` 解析后可直接校验数组数据
 
 ---
 

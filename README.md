@@ -271,9 +271,6 @@ Nothing here is write-only: `progress.json` decides where a resume picks up, `co
 
 - [API Reference](doc/api.md) — full API documentation
 - [Examples](demos.md) — complete runnable examples
-- [Architecture](agents.md) — layering, global state, and the core class
-- [Design goals](goals.md) — what the framework is trying to solve
-- [Roadmap](TODO.md) — what is being worked on
 - [中文文档](README_CN.md) — Chinese documentation
 
 ---
@@ -308,7 +305,7 @@ npm run test:coverage
 - **Add a CLI backend**: create `src/executors/xxx.ts` extending `BaseExecutor` and implement the four abstract members; everything else is inherited
 - **Add tests**: `tests/` is split by feature, and edge cases such as `probeRateLimit`, `selfCheck`, and `sessionLinkLog` still have room
 - **Improve docs**: see `doc/api.md` for the API and `demos.md` for runnable examples
-- **Discuss the design**: `goals.md` records the goals and trade-offs, `agents.md` the architecture, `TODO.md` what is in flight
+- **Read the code**: start from the code map above; `tests/` is split by feature and is the most accurate description of behavior
 
 Found a bug or want to help improve StepWise? Open an Issue or send a Pull Request.
 

@@ -271,9 +271,6 @@ stepwise_exec_infos/
 
 - [API 文档](doc/api_cn.md) — 完整 API 说明
 - [示例](demos_cn.md) — 可直接运行的完整示例
-- [架构文档](agents.md) — 分层结构、全局状态与核心类职责
-- [设计目标](goals.md) — 框架要解决什么问题
-- [路线图](TODO.md) — 正在做的事
 - [English](README.md) — English documentation
 
 ---
@@ -308,7 +305,7 @@ npm run test:coverage
 - **接入新的 CLI 后端**：新增 `src/executors/xxx.ts` 并继承 `BaseExecutor`，实现四个抽象方法即可，其余逻辑复用基类
 - **补测试**：`tests/` 已按功能拆分，`probeRateLimit`、`selfCheck`、`sessionLinkLog` 等边界场景仍有空间
 - **完善文档**：API 说明见 `doc/api_cn.md`，可运行示例见 `demos_cn.md`
-- **讨论设计**：目标与取舍记录在 `goals.md`，架构细节见 `agents.md`，在做的事见 `TODO.md`
+- **读实现**：从上方「代码地图」入手，`tests/` 按功能拆分，是最准的行为说明
 
 发现问题或想参与迭代，欢迎提交 Issue 或 Pull Request。
 
