@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/License-MulanPSL2-blue.svg" alt="License">
+  <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License">
 </p>
 
 ---
@@ -313,4 +313,4 @@ npm run test:coverage
 
 ## 开源协议
 
-MulanPSL2 — 木兰宽松许可证，第 2 版。详见[协议全文](https://license.coscl.org.cn/MulanPSL2)。
+Apache-2.0 — Apache 许可证，第 2 版。详见[协议全文](https://www.apache.org/licenses/LICENSE-2.0)。

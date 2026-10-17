@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/License-MulanPSL2-blue.svg" alt="License">
+  <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License">
 </p>
 
 ---
@@ -313,4 +313,4 @@ Found a bug or want to help improve StepWise? Open an Issue or send a Pull Reque
 
 ## License
 
-MulanPSL2 — Mulan Permissive Software License, Version 2. See [the license](https://license.coscl.org.cn/MulanPSL2).
+Apache-2.0 — Apache License, Version 2.0. See [the license](https://www.apache.org/licenses/LICENSE-2.0).
