@@ -1,9 +1,15 @@
 {
-  "name": "stepwise",
+  "name": "@dreamcheck/stepwise",
   "version": "1.0.0",
   "description": "Step-by-step task orchestration for Claude Code - build reliable AI workflows with checkpoint recovery",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "README_CN.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist",
@@ -18,10 +24,15 @@
     "orchestration",
     "automation",
     "task-orchestration",
-    "checkpoint-recovery"
+    "checkpoint-recovery",
+    "typescript"
   ],
   "author": "",
-  "license": "MulanPSL2",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://gitee.com/nodaemon/stepwise.git"
+  },
   "dependencies": {
     "ajv": "^8.18.0",
     "source-map-support": "^0.5.21",
@@ -35,5 +46,8 @@
     "jest": "^29.7.0",
     "ts-jest": "^29.1.0",
     "typescript": "^5.3.0"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
   }
 }
