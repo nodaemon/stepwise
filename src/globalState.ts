@@ -19,7 +19,7 @@ interface GlobalState {
   debugMode: boolean;
   /** 跳过 summarize（反思性能 skill） */
   skipSummarize: boolean;
-  /** 智能体类型：'claude'、'opencode' 或 'pi'，默认 'claude' */
+  /** 智能体类型：'claude'、'opencode'、'codeagent'、'pi' 或 'mcode'，默认 'claude' */
   agentType: AgentType;
   /** 已注册的 StepWise 名字列表 */
   registeredNames: Set<string>;
@@ -164,6 +164,7 @@ export function enableDebugMode(enabled: boolean = true): void {
  * - 'opencode': 使用 OpenCode 智能体
  * - 'codeagent': 使用 CodeAgent 智能体（命令参数与 claude 基本一致，另额外携带 --skip-safe-check）
  * - 'pi': 使用 Pi 智能体（@earendil-works/pi-coding-agent）
+ * - 'mcode': 使用 mcode 智能体（Minimax Code；会话 ID 由 mcode 自行分配，不支持 fork）
  * 注意：应在 setTaskName() 之前调用，同一任务内所有 Agent 使用相同智能体类型
  */
 export function setAgentType(type: AgentType): void {

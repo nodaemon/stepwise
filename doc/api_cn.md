@@ -286,7 +286,7 @@ const data = loadCollectData('/abs/path/my_data.json');
 
 | 参数 | 类型 | 描述 |
 |------|------|------|
-| type | AgentType | 智能体类型：`'claude'`、`'opencode'`、`'codeagent'` 或 `'pi'` |
+| type | AgentType | 智能体类型：`'claude'`、`'opencode'`、`'codeagent'`、`'pi'` 或 `'mcode'` |
 
 **行为**
 
@@ -295,6 +295,7 @@ const data = loadCollectData('/abs/path/my_data.json');
 - 默认使用 `'claude'`（Claude Code 智能体）
 - `'codeagent'` 的命令行参数和输出格式与 `'claude'` 完全一致，仅可执行程序名（`codeagent`）不同。CodeAgent 的配置目录默认为 `~/.cac`，可通过 `CODEAGENT3_CONFIG_DIR` 环境变量覆盖
 - `'pi'` 使用 Pi 智能体（`@earendil-works/pi-coding-agent`）；纯文本输出，无需权限标志，session 通过 `--session-id` 自动判断创建/恢复。Pi 的配置目录默认为 `~/.pi/agent`，可通过 `PI_CODING_AGENT_DIR` 环境变量覆盖
+- `'mcode'` 使用 mcode 智能体（Minimax Code，`@minimax-ai/code`），以 `mcode exec --output-format stream-json` 无头执行。需要先完成 `mcode login`。**会话 ID 由 mcode 自行分配**（形如 `mvs_<hex>`），恢复时框架会把它写回 `progress.json`，因此断点续跑与崩溃恢复正常；**不支持 fork**（`sessionId` + `newSession:true` 会直接抛错），也不支持跨目录（worktree）复用主仓库会话
 
 **示例**
 
@@ -307,6 +308,10 @@ setTaskName('MyTask');
 
 // 使用 CodeAgent 智能体（参数与 claude 基本一致，另额外携带 --skip-safe-check）
 setAgentType('codeagent');
+setTaskName('MyTask');
+
+// 使用 mcode 智能体（Minimax Code）
+setAgentType('mcode');
 setTaskName('MyTask');
 
 // 或使用默认的 Claude Code 智能体
@@ -530,7 +535,7 @@ interface ExecutionResult {
   error?: string;       // 错误信息
   timestamp: number;    // 执行时间戳
   duration: number;     // 执行耗时（毫秒）
-  tokenUsage?: TokenUsage; // token 消耗与 AI 耗时（仅 Claude/CodeAgent；Pi/OpenCode 为 undefined）
+  tokenUsage?: TokenUsage; // token 消耗与 AI 耗时（仅 Claude/CodeAgent/mcode；Pi/OpenCode 为 undefined）
 }
 ```
 
@@ -548,7 +553,7 @@ interface TokenUsage {
 }
 ```
 
-`tokenUsage` 仅由基于 NDJSON 的执行器（Claude/CodeAgent）上报；Pi/OpenCode 为 `undefined`。存在时会按步导出到 `logs/<N_task>/usage.json`（结构：`{ taskIndex, sessionId, duration, tokenUsage }`）。
+`tokenUsage` 仅由基于 NDJSON 的执行器（Claude/CodeAgent/mcode）上报；Pi/OpenCode 为 `undefined`。存在时会按步导出到 `logs/<N_task>/usage.json`（结构：`{ taskIndex, sessionId, duration, tokenUsage }`）。
 
 **示例**
 
@@ -1315,13 +1320,14 @@ interface WorkerContext<T> {
 智能体类型。
 
 ```typescript
-type AgentType = 'claude' | 'opencode' | 'codeagent' | 'pi';
+type AgentType = 'claude' | 'opencode' | 'codeagent' | 'pi' | 'mcode';
 ```
 
 - `'claude'`: 使用 Claude Code 智能体（默认）
 - `'opencode'`: 使用 OpenCode 智能体
 - `'codeagent'`: 使用 CodeAgent 智能体（命令行参数与 claude 基本一致，另额外携带 CodeAgent 独有的 --skip-safe-check）
 - `'pi'`: 使用 Pi 智能体（`@earendil-works/pi-coding-agent`；纯文本输出，无需权限标志，session 通过 `--session-id` 自动判断创建/恢复）
+- `'mcode'`: 使用 mcode 智能体（`@minimax-ai/code`；`mcode exec --output-format stream-json` 无头输出；会话 ID 由 mcode 自行分配，不支持 fork 与跨目录恢复）
 
 ---
 
@@ -1357,6 +1363,8 @@ interface ExecOptions {
 > **fork 中断恢复**：fork 执行期间，派生的新 ID 一旦从子进程输出（system/init 块）即被实时写入 `progress.json`。因此即使 fork 步骤中断，`setResumePath` 恢复时也会用派生 ID 续传（`--resume <派生ID>`），不会重新派生。恢复命中该步骤的 in_progress 记录时，历史派生 ID 优先于再次传入的 `sessionId`+`newSession`。
 >
 > **OpenCode 限制**：OpenCode 的派生 ID 仅在执行结束后通过 `session list` 可取，无法在执行中途获取。故 OpenCode 的 fork 步骤若中断，恢复时会重新派生新 ID（无法续传原派生分支）。Claude/CodeAgent 不受此限。此外，OpenCode 仅当 sessionId 为 `ses_` 前缀时才附加 `--session`/`--fork`；非 `ses_` 前缀的 sessionId 会导致 `--fork` 被忽略并打印警告（fork 不生效）。
+
+> **mcode 不支持 fork**：mcode 自行分配会话 ID（形如 `mvs_<hex>`，调用方无法指定），没有从已有会话派生新会话的能力，因此 `sessionId` + `newSession: true` 在 mcode 下会**直接抛错**而非静默降级。同时 mcode 硬性校验会话的 `workspaceDir` 必须与 `--cwd` 一致，故也无法跨目录（worktree）复用主仓库会话。
 
 **文件访问限制**
 
@@ -1452,7 +1460,7 @@ interface ExecutionResult {
   error?: string;       // 错误信息
   timestamp: number;    // 执行时间戳
   duration: number;     // 执行耗时（毫秒）
-  tokenUsage?: TokenUsage; // token 消耗与 AI 耗时（仅 Claude/CodeAgent；Pi/OpenCode 为 undefined）
+  tokenUsage?: TokenUsage; // token 消耗与 AI 耗时（仅 Claude/CodeAgent/mcode；Pi/OpenCode 为 undefined）
 }
 ```
 
@@ -1674,7 +1682,7 @@ stepwise_exec_infos/
     │   │   │   ├── debug.log               # 调试日志
     │   │   │   ├── post_check_prompt.txt   # 后检查提示词（如有）
     │   │   │   ├── execution_info.json     # 执行信息
-    │   │   │   └── usage.json              # token 用量与 AI 耗时（Claude/CodeAgent，有则写出）
+    │   │   │   └── usage.json              # token 用量与 AI 耗时（Claude/CodeAgent/mcode，有则写出）
     │   │   ├── 2_collect/
     │   │   │   ├── ...（同上）
     │   │   └── execute.log                 # 执行汇总日志

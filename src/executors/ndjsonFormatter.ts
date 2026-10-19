@@ -63,34 +63,53 @@ function truncate(text: string, maxLength: number): string {
 
 /**
  * 格式化工具输入参数（按工具名定制）
+ *
+ * 工具名大小写不敏感：Claude 用首字母大写（Read/Write/Edit/Bash/Grep/Glob），
+ * mcode 用全小写（read/write/edit/bash/grep/glob）。
+ *
+ * 文件路径参数两种命名都兼容：Claude 的 read/write 用 file_path，
+ * mcode 的 read/write 用 path（mcode 的 edit 才是 file_path）。
  */
 function formatToolInput(toolName: string, input: Record<string, any>): string {
   const lines: string[] = [];
 
-  switch (toolName) {
-    case 'Read':
-    case 'Write':
-    case 'Edit':
-      if (input.file_path) lines.push(`  File: ${input.file_path}`);
-      if (input.old_string) lines.push(`  Old: ${truncate(input.old_string, TOOL_INPUT_MAX_LENGTH)}`);
-      if (input.new_string) lines.push(`  New: ${truncate(input.new_string, TOOL_INPUT_MAX_LENGTH)}`);
+  switch (toolName.toLowerCase()) {
+    case 'read':
+      // Claude 的 read 用 file_path，mcode 的 read 用 path
+      if (input.path ?? input.file_path) lines.push(`  File: ${input.path ?? input.file_path}`);
+      if (input.offset !== undefined) lines.push(`  Offset: ${input.offset}`);
+      if (input.limit !== undefined) lines.push(`  Limit: ${input.limit}`);
+      break;
+
+    case 'write':
+      if (input.path ?? input.file_path) lines.push(`  File: ${input.path ?? input.file_path}`);
       if (input.content) lines.push(`  Content: ${truncate(input.content, TOOL_INPUT_MAX_LENGTH)}`);
       break;
 
-    case 'Bash':
+    case 'edit':
+    case 'multiedit':
+      if (input.path ?? input.file_path) lines.push(`  File: ${input.path ?? input.file_path}`);
+      if (input.old_string) lines.push(`  Old: ${truncate(input.old_string, TOOL_INPUT_MAX_LENGTH)}`);
+      if (input.new_string) lines.push(`  New: ${truncate(input.new_string, TOOL_INPUT_MAX_LENGTH)}`);
+      if (input.replace_all !== undefined) lines.push(`  Replace all: ${input.replace_all}`);
+      break;
+
+    case 'bash':
       if (input.command) lines.push(`  Command: ${truncate(input.command, TOOL_INPUT_MAX_LENGTH)}`);
       if (input.description) lines.push(`  Description: ${input.description}`);
       break;
 
-    case 'Grep':
-      if (input.pattern) lines.push(`  Pattern: ${input.pattern}`);
+    case 'grep':
+      if (input.pattern) lines.push(`  Pattern: ${truncate(input.pattern, TOOL_INPUT_MAX_LENGTH)}`);
       if (input.path) lines.push(`  Path: ${input.path}`);
       if (input.glob) lines.push(`  Glob: ${input.glob}`);
+      if (input.ignoreCase !== undefined) lines.push(`  Ignore case: ${input.ignoreCase}`);
       break;
 
-    case 'Glob':
-      if (input.pattern) lines.push(`  Pattern: ${input.pattern}`);
+    case 'glob':
+      if (input.pattern) lines.push(`  Pattern: ${truncate(input.pattern, TOOL_INPUT_MAX_LENGTH)}`);
       if (input.path) lines.push(`  Path: ${input.path}`);
+      if (input.limit !== undefined) lines.push(`  Limit: ${input.limit}`);
       break;
 
     default:
@@ -103,6 +122,24 @@ function formatToolInput(toolName: string, input: Record<string, any>): string {
   }
 
   return lines.join('\n');
+}
+
+/**
+ * 格式化模型标识
+ *
+ * mcode 的 turn.completed.model 是对象 {providerId, modelId, variant, ...}，
+ * 直接插值会得到 "[object Object]"；Claude 的 model 是字符串。
+ */
+function formatModelName(model: any): string {
+  if (typeof model === 'string') return model;
+  if (model && typeof model === 'object') {
+    const modelId = model.modelId || model.id || model.name;
+    if (typeof modelId === 'string' && modelId) {
+      return model.variant ? `${modelId} (${model.variant})` : modelId;
+    }
+    return JSON.stringify(model);
+  }
+  return String(model);
 }
 
 /**
@@ -778,6 +815,149 @@ export function formatNDJsonLine(line: string): NDJsonLineResult {
 
     case 'auth_status':
       lines.push(`[Auth] ${parsed.isAuthenticating ? 'Authenticating...' : 'Authenticated'}`);
+      lines.push('');
+      break;
+
+    // ============================================================
+    // mcode (mcode exec --output-format stream-json) 事件格式
+    // 依据 @minimax-ai/code 0.6.12 实测核实（0.6.5 事件结构一致）。
+    // 公共信封为
+    //   {schemaVersion, sequence, timestampMs, runId, sessionId, turnId, ...payload}
+    //
+    // 重要：信封中的 sessionId 来自 mcode 已解析的真实会话（mcode 自行分配
+    // mvs_<hex>，调用方无法指定），且在首个事件 exec.started 即可读到，
+    // 因此可经 BaseExecutor.onDerivedSessionId 实时回写 progress.json。
+    // ============================================================
+
+    case 'exec.started':
+      lines.push('--- Exec Start ---');
+      if (parsed.runId) lines.push(`Run: ${parsed.runId}`);
+      if (parsed.sessionId) {
+        lines.push(`Session: ${parsed.sessionId}`);
+        sessionId = parsed.sessionId;
+      }
+      lines.push('');
+      break;
+
+    case 'session.started':
+    case 'session.resumed':
+      if (parsed.sessionId) {
+        lines.push(`--- Session ${parsed.type === 'session.resumed' ? 'Resumed' : 'Started'} ---`);
+        lines.push(`Session: ${parsed.sessionId}`);
+        sessionId = parsed.sessionId;
+        lines.push('');
+      }
+      break;
+
+    case 'turn.started':
+      lines.push('--- Turn Start ---');
+      lines.push('');
+      break;
+
+    // 流式增量事件：同一 item 的完整内容会在 item.completed 给出，
+    // 两边都输出会导致 verbose_output.txt 中内容翻倍，故此处不输出
+    case 'item.started':
+    case 'item.updated':
+      break;
+
+    case 'item.completed': {
+      const item = parsed.item;
+      if (!item || typeof item !== 'object') break;
+
+      if (item.type === 'reasoning') {
+        const thinkingText = item.content || '';
+        if (thinkingText) {
+          lines.push('[Thinking]');
+          lines.push(thinkingText);
+          lines.push('[/Thinking]');
+          lines.push('');
+        }
+      } else if (item.type === 'agent_message') {
+        const text = item.content || '';
+        if (text) {
+          lines.push(text);
+          lines.push('');
+          assistantText = text;
+          // 覆盖式记录：最后一条 agent_message 即最终答复
+          finalResultText = text;
+        }
+      } else if (item.type === 'tool_call') {
+        // mcode 的 toolCall 结构：{id, name, status, input, output}
+        // - input：工具入参（Claude 用 tool_input，mcode 用 input）
+        // - output：工具执行结果 {content:[{type:'text',text}], details:{...}}，
+        //   由 item.completed 一并给出（item.started/updated 阶段还没有）
+        const tc = item.toolCall || {};
+        const toolName = tc.name || 'unknown';
+        lines.push(`[${toolName}]`);
+        const toolInput = tc.input ?? tc.arguments;
+        if (toolInput && typeof toolInput === 'object') {
+          lines.push(formatToolInput(toolName, toolInput));
+        }
+        // 工具执行结果：与 Claude 的 tool_result 对齐，输出到 verbose 日志
+        const toolOutput = tc.output;
+        if (toolOutput !== undefined && toolOutput !== null) {
+          const outputContent = Array.isArray((toolOutput as any)?.content)
+            ? (toolOutput as any).content
+            : toolOutput;
+          const resultText = extractToolResultContent(outputContent);
+          if (resultText && resultText !== '{}') {
+            lines.push('[Tool Result]');
+            lines.push(`  ${truncate(resultText, TOOL_RESULT_MAX_LENGTH)}`);
+            lines.push('[/Tool Result]');
+          }
+        }
+        lines.push('');
+      }
+      break;
+    }
+
+    case 'turn.completed': {
+      lines.push('--- Turn Complete ---');
+      // mcode 的 model 是对象，需取 modelId（直接插值会得到 [object Object]）
+      if (parsed.model) lines.push(`Model: ${formatModelName(parsed.model)}`);
+      if (typeof parsed.durationMs === 'number') {
+        lines.push(`Duration: ${(parsed.durationMs / 1000).toFixed(1)}s`);
+      }
+      if (parsed.usageSource) lines.push(`Usage source: ${parsed.usageSource}`);
+      if (parsed.usageIncomplete) lines.push('Usage incomplete: true');
+
+      // mcode 的 usage 是 camelCase，与 Claude 的 snake_case 字段命名不同
+      const u = parsed.usage;
+      usage = (u && typeof u.inputTokens === 'number' && typeof u.outputTokens === 'number')
+        ? {
+            inputTokens: u.inputTokens,
+            outputTokens: u.outputTokens,
+            cacheCreationTokens: u.cacheWriteTokens ?? 0,
+            cacheReadTokens: u.cacheReadTokens ?? 0,
+            costUsd: 0,                  // mcode 不上报成本
+            durationMs: parsed.durationMs ?? 0,
+            durationApiMs: 0             // mcode 无「纯 API 耗时」口径
+          }
+        : null;
+      lines.push('');
+      break;
+    }
+
+    case 'turn.failed':
+      lines.push('--- Turn Failed ---');
+      lines.push(`  Status: ${parsed.status || ''}`);
+      if (parsed.error) {
+        lines.push(`  Error: ${parsed.error.message || JSON.stringify(parsed.error)}`);
+      }
+      if (typeof parsed.durationMs === 'number') {
+        lines.push(`  Duration: ${(parsed.durationMs / 1000).toFixed(1)}s`);
+      }
+      lines.push('');
+      break;
+
+    case 'exec.completed':
+      lines.push('--- Exec Completed ---');
+      if (parsed.result) {
+        lines.push(`  Status: ${parsed.result.status || ''}`);
+        if (parsed.result.error) {
+          lines.push(`  Error: ${parsed.result.error.message || JSON.stringify(parsed.result.error)}`);
+        }
+      }
       lines.push('');
       break;
 

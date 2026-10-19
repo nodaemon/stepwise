@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  StepWise is a TypeScript SDK that drives Claude Code / OpenCode / CodeAgent / Pi headlessly.<br>
+  StepWise is a TypeScript SDK that drives Claude Code / OpenCode / CodeAgent / Pi / mcode headlessly.<br>
   Write the goal and walk away; what you come back to is a verifiable, traceable, reproducible result — not a claim that it finished.
 </p>
 
@@ -51,7 +51,7 @@ The second one matters most: on non-interactive `claude -p` and SDK runs the pla
 | "Done" is only a claim | Declare the output format; StepWise checks the file exists *and* validates, then auto-generates a repair prompt and retries |
 | Hard to tell why a long run failed, or to analyze where its time and tokens went | Every step is observable — duration and token spend itemized, the agent's reasoning and tool calls captured as they happen, task time counted separately from quota wait, and any step re-runnable exactly as it ran |
 | Parallel agents trample each other | Each worker gets its own git worktree and items come off a shared queue; branches are committed but never auto-merged into your main branch |
-| Locked into a single agent CLI | Claude Code (default), OpenCode, CodeAgent, and Pi share one workflow script, so switching backends does not mean rewriting |
+| Locked into a single agent CLI | Claude Code (default), OpenCode, CodeAgent, Pi, and mcode share one workflow script, so switching backends does not mean rewriting |
 | The same trap springs every week | What worked is distilled into a Skill, which your agent CLI loads natively next session |
 | The blast radius is too large | `setAllowRead` / `setAllowWrite` scope a step to specific directories — a prompt-level guardrail, not an OS sandbox |
 
@@ -73,7 +73,7 @@ For cross-machine, distributed, auditable long-running recovery, StepWise is the
 
 ## Quick Start
 
-Requires **Node.js 16+** (the build target is `moduleResolution: Node16`) and at least one coding agent CLI on your `PATH` — Claude Code (default), OpenCode, CodeAgent, or Pi. With OpenCode, set `"permission": "allow"` in `opencode.json` so it stops asking for confirmations.
+Requires **Node.js 16+** (the build target is `moduleResolution: Node16`) and at least one coding agent CLI on your `PATH` — Claude Code (default), OpenCode, CodeAgent, Pi, or mcode. With OpenCode, set `"permission": "allow"` in `opencode.json` so it stops asking for confirmations.
 
 StepWise is not published to npm yet, so build it from source:
 
@@ -258,7 +258,7 @@ Step folders are named `{index}_{type}`, where the type comes from the `exec*` c
 | File | Appears when |
 |---|---|
 | `error.txt` | That step failed |
-| `usage.json` | Using Claude Code / CodeAgent (NDJSON executors) |
+| `usage.json` | Using Claude Code / CodeAgent / mcode (NDJSON executors) |
 | `schema.json` | `execPromptSchema` |
 | `post_check_prompt.txt` | That step set `postCheckPrompt` |
 | `self_check.md` | Self-check review in debug mode |
@@ -294,7 +294,7 @@ npm run test:coverage
 
 | Path | Responsibility |
 |---|---|
-| `src/executors/` | Adapter layer per CLI backend. `base.ts` defines the `BaseExecutor` abstract class (`agentType` / `buildArgs` / `getCommand` / `buildProbeArgs`); `claude.ts`, `opencode.ts`, `pi.ts`, and `codeagent.ts` are the implementations; `ndjsonFormatter.ts` parses streamed output |
+| `src/executors/` | Adapter layer per CLI backend. `base.ts` defines the `BaseExecutor` abstract class (`agentType` / `buildArgs` / `getCommand` / `buildProbeArgs`); `claude.ts`, `opencode.ts`, `pi.ts`, `codeagent.ts`, and `mcode.ts` are the implementations; `ndjsonFormatter.ts` parses streamed output |
 | `src/utils/` | `validator.ts` output validation and repair retries, `sessionLinker.ts` cross-worktree session handling, `performanceTracker.ts` duration and token accounting, `reproScript.ts` emits `command.sh`, `promptBuilder.ts` prompts and self-check reviews |
 | `src/StepWise.ts` | Core class: step scheduling, checkpoint recovery, restore, quota waiting |
 | `src/forEachParallel.ts` | Parallel worker pool, shared queue, worktree isolation |

@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  StepWise 是一个 TypeScript SDK，以无头模式驱动 Claude Code / OpenCode / CodeAgent / Pi。<br>
+  StepWise 是一个 TypeScript SDK，以无头模式驱动 Claude Code / OpenCode / CodeAgent / Pi / mcode。<br>
   你写下目标就可以离开；回来时拿到的是一份可验证、可追溯、可复现的执行结果，而不是一句「已完成」。
 </p>
 
@@ -51,7 +51,7 @@ StepWise 补的就是这几件事，把一次长任务从「agent 尽力而为�
 | AI 说「做完了」只是一句空话 | 声明输出格式；StepWise 先确认文件存在、再校验内容，然后自动生成修复提示词并重试 |
 | 长任务为什么出错、耗时与 token 消耗等难以分析 | 每一步都可观测——耗时与 token 消耗逐项统计，AI 的思考过程与工具调用全程留痕，任务时间与限额等待分开算，任何一步都能原样重跑 |
 | 并行的 agent 互相踩文件 | 每个 Worker 独占一个 git worktree，任务从共享队列领取；分支只提交到自己分支，绝不自动合并进主分支 |
-| 只能绑死一家 agent CLI | Claude Code（默认）、OpenCode、CodeAgent、Pi 共用同一套工作流脚本，换后端不必重写 |
+| 只能绑死一家 agent CLI | Claude Code（默认）、OpenCode、CodeAgent、Pi、mcode 共用同一套工作流脚本，换后端不必重写 |
 | 同一个坑每周再踩一次 | 有效经验被自动沉淀成 Skill，agent CLI 下次会话原生加载 |
 | 影响范围太大 | `setAllowRead` / `setAllowWrite` 把单步限制在指定目录内——这是提示词级护栏，不是操作系统级沙箱 |
 
@@ -73,7 +73,7 @@ StepWise 只解决上面这一类问题。边聊边改的交互式开发、只�
 
 ## 快速开始
 
-需要 **Node.js 16+**（构建目标为 `moduleResolution: Node16`），以及 `PATH` 上至少一个 AI 编程助手 CLI——Claude Code（默认）、OpenCode、CodeAgent 或 Pi。使用 OpenCode 时，请在 `opencode.json` 中设置 `"permission": "allow"`，否则它会不停弹确认。
+需要 **Node.js 16+**（构建目标为 `moduleResolution: Node16`），以及 `PATH` 上至少一个 AI 编程助手 CLI——Claude Code（默认）、OpenCode、CodeAgent、Pi 或 mcode。使用 OpenCode 时，请在 `opencode.json` 中设置 `"permission": "allow"`，否则它会不停弹确认。
 
 StepWise 尚未发布到 npm，请从源码构建：
 
@@ -258,7 +258,7 @@ stepwise_exec_infos/
 | 文件 | 何时出现 |
 |---|---|
 | `error.txt` | 该步骤执行失败 |
-| `usage.json` | 使用 Claude Code / CodeAgent 等 NDJSON 执行器 |
+| `usage.json` | 使用 Claude Code / CodeAgent / mcode 等 NDJSON 执行器 |
 | `schema.json` | `execPromptSchema` |
 | `post_check_prompt.txt` | 该步骤配置了 `postCheckPrompt` |
 | `self_check.md` | debug 模式下的自检报告 |
@@ -294,7 +294,7 @@ npm run test:coverage
 
 | 目录 | 职责 |
 |---|---|
-| `src/executors/` | 各 CLI 后端的适配层。`base.ts` 定义 `BaseExecutor` 抽象类（`agentType` / `buildArgs` / `getCommand` / `buildProbeArgs`），`claude.ts` `opencode.ts` `pi.ts` `codeagent.ts` 是各自的实现，`ndjsonFormatter.ts` 解析流式输出 |
+| `src/executors/` | 各 CLI 后端的适配层。`base.ts` 定义 `BaseExecutor` 抽象类（`agentType` / `buildArgs` / `getCommand` / `buildProbeArgs`），`claude.ts` `opencode.ts` `pi.ts` `codeagent.ts` `mcode.ts` 是各自的实现，`ndjsonFormatter.ts` 解析流式输出 |
 | `src/utils/` | `validator.ts` 输出校验与修复重试、`sessionLinker.ts` 跨 worktree 会话管理、`performanceTracker.ts` 耗时与 token 统计、`reproScript.ts` 生成 `command.sh`、`promptBuilder.ts` 提示词与自检复盘 |
 | `src/StepWise.ts` | 核心类：步骤调度、断点续跑、恢复、配额等待 |
 | `src/forEachParallel.ts` | 并行 worker 池、共享队列、worktree 隔离 |

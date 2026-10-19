@@ -480,6 +480,8 @@ async function main() {
   setAgentType('claude');
   // setAgentType('opencode');
   // setAgentType('codeagent');
+  // setAgentType('pi');
+  // setAgentType('mcode');   // Minimax Code；需先 mcode login，且不支持 fork
 
   const agent = new StepWise('myAgent');
   await agent.execPrompt('执行任务');

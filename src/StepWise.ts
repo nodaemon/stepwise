@@ -444,6 +444,12 @@ export class StepWise {
     taskIndex: number
   ): { fork: boolean; useResume: boolean } {
     const fork = !!(options?.sessionId && options.newSession);
+    // 后端能力前置校验：mcode 等不支持 fork 的后端在此提前失败。
+    // 必须早于 recordTaskStart()——否则任务已被标记 in_progress，
+    // 续跑时仍会走到同一处失败，进度状态无法自愈。
+    if (fork) {
+      this.executor?.assertForkSupported?.();
+    }
     const useResume = options?.sessionId
       ? true
       : this.shouldUseResume(taskIndex, options?.newSession);
@@ -467,6 +473,9 @@ export class StepWise {
    * 按执行器类型获取 session 存储 config 目录标记
    * - claude → '.claude'，codeagent → '.cac'，pi → '.pi'
    * - opencode 不按 cwd 文件隔离（全局 db），返回 null
+   * - mcode 会话按日期分区存于 $MINIMAX_DATA_DIR/v2/sessions/，同样不按 cwd
+   *   文件隔离；且 mcode 硬性校验会话的 workspaceDir 必须与 --cwd 严格一致，
+   *   跨目录 resume 本就不可能，返回 null 以跳过软链处理
    *
    * 返回的是「目录标记」而非字面路径：实际目录由 sessionLinker 解析，
    * codeagent 会优先取 CODEAGENT3_CONFIG_DIR，pi 会优先取 PI_CODING_AGENT_DIR。
@@ -474,6 +483,7 @@ export class StepWise {
   private getConfigSubdir(): string | null {
     const agentType = _getAgentType();
     if (agentType === 'opencode') return null;
+    if (agentType === 'mcode') return null;
     if (agentType === 'codeagent') return '.cac';
     if (agentType === 'pi') return '.pi';
     return '.claude';
@@ -515,7 +525,7 @@ export class StepWise {
 
     const configSubdir = this.getConfigSubdir();
     if (!configSubdir) {
-      linkLog('OpenCode 不按 cwd 文件隔离（全局 db），跳过跨目录处理');
+      linkLog('该执行器不按 cwd 文件隔离（OpenCode 全局 db / mcode 按日期分区且校验 workspaceDir），跳过跨目录处理');
       return;
     }
 

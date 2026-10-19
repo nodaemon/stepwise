@@ -86,6 +86,11 @@ export const CODEAGENT_COMMAND = 'codeagent';
 /** Pi 命令（@earendil-works/pi-coding-agent） */
 export const PI_COMMAND = 'pi';
 
+// ============ mcode 相关常量 ============
+
+/** mcode 命令（Minimax Code，@minimax-ai/code） */
+export const MCODE_COMMAND = 'mcode';
+
 /** 任务类型 */
 export type TaskType = 'task' | 'collect' | 'process' | 'process_collect' | 'report' | 'check' | 'summarize' | 'shell' | 'schema' | 'self_check';
 

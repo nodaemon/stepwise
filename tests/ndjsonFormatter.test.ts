@@ -614,4 +614,284 @@ describe('result 块 usage 提取', () => {
     const raw = JSON.stringify({ type: 'system', subtype: 'init', session_id: 's-1' });
     expect(parseAndFormatNDJson(raw).usage).toBeNull();
   });
+
+  // ============================================================
+  // mcode (mcode exec --output-format stream-json) 事件格式
+  // ============================================================
+  describe('mcode stream-json 事件', () => {
+    const SESSION = 'mvs_1bb5c3c79d9f4735a4026694fcaa57ed';
+
+    /** 构造带公共信封的 mcode 事件行 */
+    const ev = (type: string, payload: Record<string, any> = {}) =>
+      JSON.stringify({
+        schemaVersion: 1,
+        sequence: 1,
+        timestampMs: 1700000000000,
+        runId: 'exec_abc',
+        sessionId: SESSION,
+        turnId: 'turn_abc',
+        type,
+        ...payload
+      });
+
+    describe('会话生命周期', () => {
+      it('exec.started 应提取 sessionId（mcode 自行分配的真实 ID）', () => {
+        const result = formatNDJsonLine(ev('exec.started'));
+
+        expect(result.sessionId).toBe(SESSION);
+        expect(result.formatted).toContain('--- Exec Start ---');
+        expect(result.formatted).toContain(`Session: ${SESSION}`);
+      });
+
+      it('session.started 应提取 sessionId', () => {
+        const result = formatNDJsonLine(ev('session.started'));
+
+        expect(result.sessionId).toBe(SESSION);
+        expect(result.formatted).toContain('--- Session Started ---');
+      });
+
+      it('session.resumed 应提取 sessionId 并标明恢复', () => {
+        const result = formatNDJsonLine(ev('session.resumed'));
+
+        expect(result.sessionId).toBe(SESSION);
+        expect(result.formatted).toContain('--- Session Resumed ---');
+      });
+    });
+
+    describe('item 事件', () => {
+      it('item.completed 的 agent_message 应作为最终结果文本', () => {
+        const result = formatNDJsonLine(ev('item.completed', {
+          item: { id: 'a1:message', type: 'agent_message', content: '最终答复' }
+        }));
+
+        expect(result.finalResultText).toBe('最终答复');
+        expect(result.assistantText).toBe('最终答复');
+        expect(result.formatted).toContain('最终答复');
+      });
+
+      it('多条 agent_message 应以后者覆盖（最后一条即最终答复）', () => {
+        const raw = [
+          ev('item.completed', { item: { id: 'a1', type: 'agent_message', content: '中间思考' } }),
+          ev('item.completed', { item: { id: 'a2', type: 'agent_message', content: '最终答复' } })
+        ].join('\n');
+
+        expect(parseAndFormatNDJson(raw).finalResultText).toBe('最终答复');
+      });
+
+      it('item.completed 的 reasoning 应输出 [Thinking] 包裹的完整内容', () => {
+        const result = formatNDJsonLine(ev('item.completed', {
+          item: { id: 'a1:reasoning', type: 'reasoning', content: '推理过程' }
+        }));
+
+        expect(result.formatted).toContain('[Thinking]');
+        expect(result.formatted).toContain('推理过程');
+        expect(result.formatted).toContain('[/Thinking]');
+      });
+
+      it('item.completed 的 tool_call 应输出工具名与参数（mcode 用 input 而非 arguments）', () => {
+        const result = formatNDJsonLine(ev('item.completed', {
+          item: {
+            id: 'a1:tool:0',
+            type: 'tool_call',
+            // mcode 真实结构：{id, name, status, input, output}
+            toolCall: { id: 'tc1', name: 'read', status: 2, input: { path: '/tmp/x.txt', limit: 20 } }
+          }
+        }));
+
+        expect(result.formatted).toContain('[read]');
+        expect(result.formatted).toContain('File: /tmp/x.txt');
+        expect(result.formatted).toContain('Limit: 20');
+      });
+
+      it('item.completed 的 tool_call 应输出工具执行结果（toolCall.output.content）', () => {
+        const result = formatNDJsonLine(ev('item.completed', {
+          item: {
+            id: 'a1:tool:0',
+            type: 'tool_call',
+            toolCall: {
+              id: 'tc1',
+              name: 'bash',
+              status: 2,
+              input: { command: 'ls', description: '列出目录' },
+              output: {
+                content: [{ type: 'text', text: 'file1.txt\nfile2.txt' }],
+                details: { status: 'completed' }
+              }
+            }
+          }
+        }));
+
+        expect(result.formatted).toContain('[bash]');
+        expect(result.formatted).toContain('Command: ls');
+        expect(result.formatted).toContain('Description: 列出目录');
+        expect(result.formatted).toContain('[Tool Result]');
+        expect(result.formatted).toContain('file1.txt');
+        expect(result.formatted).toContain('[/Tool Result]');
+      });
+
+      it('工具执行结果过长时应截断', () => {
+        const long = 'x'.repeat(6000);
+        const result = formatNDJsonLine(ev('item.completed', {
+          item: {
+            id: 'a1:tool:0',
+            type: 'tool_call',
+            toolCall: {
+              id: 'tc1',
+              name: 'bash',
+              status: 2,
+              input: { command: 'cat big' },
+              output: { content: [{ type: 'text', text: long }] }
+            }
+          }
+        }));
+
+        expect(result.formatted).toContain('truncated');
+        expect(result.formatted).not.toContain(long);
+      });
+
+      it('流式增量事件不应输出，避免与 item.completed 内容重复', () => {
+        const started = formatNDJsonLine(ev('item.started', {
+          item: { id: 'a1:message', type: 'agent_message', contentDelta: '增量片段' }
+        }));
+        const updated = formatNDJsonLine(ev('item.updated', {
+          item: { id: 'a1:message', type: 'agent_message', contentDelta: '增量片段' }
+        }));
+
+        expect(started.formatted).toBeNull();
+        expect(updated.formatted).toBeNull();
+        expect(started.isJsonParsed).toBe(true);
+      });
+    });
+
+    describe('turn 事件与 token 用量', () => {
+      it('turn.completed 应把 camelCase usage 映射为 TokenUsage', () => {
+        const result = formatNDJsonLine(ev('turn.completed', {
+          // mcode 真实结构：model 是对象 {providerId, modelId, variant, ...}
+          model: {
+            providerId: 'minimax',
+            modelId: 'MiniMax-M3.1-Flash',
+            variant: 'thinking',
+            providerSource: 'provider',
+            providerKind: 'minimax-managed'
+          },
+          usageSource: 'completed_responses',
+          usage: {
+            inputTokens: 100,
+            outputTokens: 200,
+            reasoningTokens: 30,
+            cacheReadTokens: 400,
+            cacheWriteTokens: 500,
+            totalTokens: 700
+          },
+          durationMs: 44000
+        }));
+
+        expect(result.formatted).toContain('--- Turn Complete ---');
+        expect(result.usage).toEqual({
+          inputTokens: 100,
+          outputTokens: 200,
+          cacheCreationTokens: 500,  // cacheWriteTokens
+          cacheReadTokens: 400,
+          costUsd: 0,                // mcode 不上报成本
+          durationMs: 44000,
+          durationApiMs: 0           // mcode 无「纯 API 耗时」口径
+        });
+      });
+
+      it('turn.completed 的 model 是对象时应输出 modelId 而非 [object Object]', () => {
+        const result = formatNDJsonLine(ev('turn.completed', {
+          model: {
+            providerId: 'minimax',
+            modelId: 'MiniMax-M3.1-Flash',
+            variant: 'thinking',
+            providerSource: 'provider',
+            providerKind: 'minimax-managed'
+          },
+          durationMs: 2488
+        }));
+
+        expect(result.formatted).toContain('Model: MiniMax-M3.1-Flash (thinking)');
+        expect(result.formatted).not.toContain('[object Object]');
+      });
+
+      it('turn.completed 缺少 usage 时 usage 应为 null', () => {
+        const result = formatNDJsonLine(ev('turn.completed', { durationMs: 1000 }));
+        expect(result.usage).toBeNull();
+      });
+
+      it('turn.failed 应输出失败状态与错误信息', () => {
+        const result = formatNDJsonLine(ev('turn.failed', {
+          status: 'failed',
+          error: { category: 'runtime', message: 'rate limited' },
+          durationMs: 1200
+        }));
+
+        expect(result.formatted).toContain('--- Turn Failed ---');
+        expect(result.formatted).toContain('rate limited');
+      });
+
+      it('exec.completed 应输出最终状态', () => {
+        const result = formatNDJsonLine(ev('exec.completed', {
+          result: { status: 'succeeded', output: 'done' }
+        }));
+
+        expect(result.formatted).toContain('--- Exec Completed ---');
+        expect(result.formatted).toContain('succeeded');
+      });
+    });
+
+    it('未知 mcode 事件应原样输出原始行（向前兼容）', () => {
+      const line = ev('some.future.event', { foo: 'bar' });
+      const result = formatNDJsonLine(line);
+
+      expect(result.formatted).toBe(line);
+      expect(result.isJsonParsed).toBe(true);
+    });
+
+    it('完整 mcode 会话流应聚合出 sessionId / 最终文本 / token 用量', () => {
+      const raw = [
+        ev('exec.started'),
+        ev('session.started'),
+        ev('turn.started'),
+        ev('item.started', { item: { id: 'a1:reasoning', type: 'reasoning', contentDelta: '思考' } }),
+        ev('item.completed', { item: { id: 'a1:reasoning', type: 'reasoning', content: '思考' } }),
+        ev('item.completed', {
+          item: {
+            id: 'a2:tool:0',
+            type: 'tool_call',
+            toolCall: {
+              id: 'tc1',
+              name: 'bash',
+              status: 2,
+              input: { command: 'ls' },
+              output: { content: [{ type: 'text', text: 'file1.txt' }] }
+            }
+          }
+        }),
+        ev('item.completed', { item: { id: 'a3:message', type: 'agent_message', content: '完成' } }),
+        ev('turn.completed', {
+          usage: { inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4 },
+          durationMs: 5000
+        }),
+        ev('exec.completed', { result: { status: 'succeeded' } })
+      ].join('\n');
+
+      const parsed = parseAndFormatNDJson(raw);
+
+      expect(parsed.parsedSuccessfully).toBe(true);
+      expect(parsed.sessionId).toBe(SESSION);
+      expect(parsed.finalResultText).toBe('完成');
+      expect(parsed.usage?.inputTokens).toBe(1);
+      expect(parsed.formattedTranscript).toContain('--- Exec Start ---');
+      expect(parsed.formattedTranscript).toContain('[bash]');
+      expect(parsed.formattedTranscript).toContain('Command: ls');
+      expect(parsed.formattedTranscript).toContain('[Tool Result]');
+      expect(parsed.formattedTranscript).toContain('file1.txt');
+      expect(parsed.formattedTranscript).toContain('--- Turn Complete ---');
+      // 增量片段只在 item.completed 输出一次，不因流式事件而重复
+      const transcript = parsed.formattedTranscript;
+      expect(transcript.match(/思考/g) || []).toHaveLength(1);
+      expect(parsed.parseErrors).toEqual([]);
+    });
+  });
 });

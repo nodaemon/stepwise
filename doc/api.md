@@ -289,7 +289,7 @@ Sets the agent type, determining which agent will execute tasks.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| type | AgentType | Agent type: `'claude'`, `'opencode'`, `'codeagent'`, or `'pi'` |
+| type | AgentType | Agent type: `'claude'`, `'opencode'`, `'codeagent'`, `'pi'`, or `'mcode'` |
 
 **Behavior**
 
@@ -298,6 +298,7 @@ Sets the agent type, determining which agent will execute tasks.
 - Defaults to `'claude'` (Claude Code agent)
 - `'codeagent'` uses the same command-line arguments and output format as `'claude'`, plus the CodeAgent-only `--skip-safe-check` flag (Claude does not accept it); only the executable name (`codeagent`) differs. CodeAgent's config directory defaults to `~/.cac`; override with the `CODEAGENT3_CONFIG_DIR` environment variable
 - `'pi'` uses the Pi agent (`@earendil-works/pi-coding-agent`); plain-text output, no permission flags needed, session auto-detected via `--session-id`. Pi's config directory defaults to `~/.pi/agent`; override with the `PI_CODING_AGENT_DIR` environment variable
+- `'mcode'` uses the mcode agent (Minimax Code, `@minimax-ai/code`) via `mcode exec --output-format stream-json`. Run `mcode login` first. **Session IDs are assigned by mcode itself** (`mvs_<hex>`); the framework writes the real ID back to `progress.json`, so checkpoint recovery and crash recovery keep working. **fork is not supported** — `sessionId` + `newSession:true` throws — and a session cannot be reused across directories (worktrees)
 
 **Example**
 
@@ -310,6 +311,10 @@ setTaskName('MyTask');
 
 // Or use the CodeAgent agent (same args as claude plus --skip-safe-check, different executable)
 setAgentType('codeagent');
+setTaskName('MyTask');
+
+// Use the mcode agent (Minimax Code)
+setAgentType('mcode');
 setTaskName('MyTask');
 
 // Or use the default Claude Code agent
@@ -533,7 +538,7 @@ interface ExecutionResult {
   error?: string;       // Error message
   timestamp: number;    // Execution timestamp
   duration: number;     // Execution duration (milliseconds)
-  tokenUsage?: TokenUsage; // Token consumption & AI durations (Claude/CodeAgent only; undefined for Pi/OpenCode)
+  tokenUsage?: TokenUsage; // Token consumption & AI durations (Claude/CodeAgent/mcode only; undefined for Pi/OpenCode)
 }
 ```
 
@@ -551,7 +556,7 @@ interface TokenUsage {
 }
 ```
 
-`tokenUsage` is only reported by NDJSON-based executors (Claude/CodeAgent); it is `undefined` for Pi/OpenCode. When present, it is also exported per step to `logs/<N_task>/usage.json` (structure: `{ taskIndex, sessionId, duration, tokenUsage }`).
+`tokenUsage` is only reported by NDJSON-based executors (Claude/CodeAgent/mcode); it is `undefined` for Pi/OpenCode. When present, it is also exported per step to `logs/<N_task>/usage.json` (structure: `{ taskIndex, sessionId, duration, tokenUsage }`).
 
 **Example**
 
@@ -1323,13 +1328,14 @@ interface WorkerContext<T> {
 Agent type.
 
 ```typescript
-type AgentType = 'claude' | 'opencode' | 'codeagent' | 'pi';
+type AgentType = 'claude' | 'opencode' | 'codeagent' | 'pi' | 'mcode';
 ```
 
 - `'claude'`: Use Claude Code agent (default)
 - `'opencode'`: Use OpenCode agent
 - `'codeagent'`: Use CodeAgent agent (same command-line args as claude plus the CodeAgent-only `--skip-safe-check` flag)
 - `'pi'`: Use Pi agent (`@earendil-works/pi-coding-agent`; plain-text output, no permission flags, session auto-detected via `--session-id`)
+- `'mcode'`: Use mcode agent (`@minimax-ai/code`; headless `mcode exec --output-format stream-json`; session IDs are assigned by mcode, and fork / cross-directory resume are not supported)
 
 ---
 
@@ -1365,6 +1371,8 @@ interface ExecOptions {
 > **Resuming a fork after interruption**: while a fork runs, the derived new ID is written to `progress.json` as soon as it appears in the child process output (the `system/init` block). So even if the fork step is interrupted, `setResumePath` resumes with the derived ID (`--resume <derived-id>`) instead of deriving again. When the resume hits the step's `in_progress` record, the historical derived ID takes precedence over any `sessionId`+`newSession` passed again.
 >
 > **OpenCode limitation**: OpenCode's derived ID is only obtainable after execution completes (via `session list`), not mid-execution. So an interrupted OpenCode fork step will re-derive a new ID on resume (it cannot continue the original derived branch). Claude/CodeAgent are unaffected. Additionally, OpenCode only attaches `--session`/`--fork` when the sessionId has the `ses_` prefix; a non-`ses_` sessionId causes `--fork` to be silently ignored with a warning (no fork occurs).
+
+> **mcode does not support fork**: mcode assigns its own session IDs (`mvs_<hex>`; callers cannot supply one) and provides no way to derive a new session from an existing one, so `sessionId` + `newSession: true` **throws** under mcode instead of silently degrading. mcode also strictly validates that a session's `workspaceDir` matches `--cwd`, so a session cannot be reused across directories (worktrees) either.
 
 **File Access Restriction**
 
@@ -1460,7 +1468,7 @@ interface ExecutionResult {
   error?: string;       // Error message
   timestamp: number;    // Execution timestamp
   duration: number;     // Execution duration (milliseconds)
-  tokenUsage?: TokenUsage; // Token consumption & AI durations (Claude/CodeAgent only; undefined for Pi/OpenCode)
+  tokenUsage?: TokenUsage; // Token consumption & AI durations (Claude/CodeAgent/mcode only; undefined for Pi/OpenCode)
 }
 ```
 
@@ -1682,7 +1690,7 @@ stepwise_exec_infos/
     │   │   │   ├── debug.log               # Debug log
     │   │   │   ├── post_check_prompt.txt   # Post-check prompt (if any)
     │   │   │   ├── execution_info.json     # Execution info
-    │   │   │   └── usage.json              # Token usage & AI durations (Claude/CodeAgent, written when available)
+    │   │   │   └── usage.json              # Token usage & AI durations (Claude/CodeAgent/mcode, written when available)
     │   │   ├── 2_collect/
     │   │   │   ├── ... (same as above)
     │   │   └── execute.log                 # Execution summary log

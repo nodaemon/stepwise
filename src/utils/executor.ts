@@ -10,6 +10,7 @@ import { ClaudeExecutor } from '../executors/claude';
 import { OpenCodeExecutor } from '../executors/opencode';
 import { CodeAgentExecutor } from '../executors/codeagent';
 import { PiExecutor } from '../executors/pi';
+import { McodeExecutor } from '../executors/mcode';
 
 // 向后兼容：重新导出类型（从 executors/types.ts）
 export type { AgentExecutorOptions as ExecutorOptions } from '../executors/types';
@@ -23,6 +24,7 @@ const executorFactories: Record<AgentType, () => AgentExecutor> = {
   opencode: () => new OpenCodeExecutor(),
   codeagent: () => new CodeAgentExecutor(),
   pi: () => new PiExecutor(),
+  mcode: () => new McodeExecutor(),
 };
 
 /**

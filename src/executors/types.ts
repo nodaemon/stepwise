@@ -88,7 +88,7 @@ export interface AgentExecutor {
    * 执行器类型标识
    * 返回当前执行器对应的智能体类型
    */
-  readonly agentType: 'claude' | 'opencode' | 'codeagent' | 'pi';
+  readonly agentType: 'claude' | 'opencode' | 'codeagent' | 'pi' | 'mcode';
 
   /**
    * 执行提示词任务
@@ -97,4 +97,13 @@ export interface AgentExecutor {
    * @returns 执行结果，包含 sessionId、output、success 等信息
    */
   execute(prompt: string, options: AgentExecutorOptions): Promise<ExecutionResult>;
+
+  /**
+   * fork 能力前置校验（可选）
+   *
+   * StepWise 在写入 progress（标记任务 in_progress）之前调用，用于让不支持
+   * fork 的后端提前失败，避免任务永久停留在 in_progress 且续跑必然再次失败。
+   * 未实现该方法的后端视为支持 fork。
+   */
+  assertForkSupported?(): void;
 }

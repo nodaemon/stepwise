@@ -31,7 +31,7 @@ function nowTimestamp(): string {
  * 速率限制信息
  * 当检测到 API 限额达到上限时返回
  */
-interface RateLimitInfo {
+export interface RateLimitInfo {
   /** 重置时间 */
   resetTime: Date;
   /** 提示消息 */
@@ -60,7 +60,7 @@ export class ExecutorError extends Error {
  */
 export abstract class BaseExecutor implements AgentExecutor {
   /** 子类必须实现：返回执行器类型 */
-  abstract readonly agentType: 'claude' | 'opencode' | 'codeagent' | 'pi';
+  abstract readonly agentType: 'claude' | 'opencode' | 'codeagent' | 'pi' | 'mcode';
 
   /** 子类必须实现：构建命令行参数 */
   protected abstract buildArgs(
@@ -95,6 +95,22 @@ export abstract class BaseExecutor implements AgentExecutor {
    */
   protected usesNDJsonOutput(): boolean {
     return false;
+  }
+
+  /**
+   * fork 能力前置校验
+   *
+   * fork（从已有会话派生新会话）并非所有后端都支持：mcode 的会话 ID 由
+   * mcode 自行分配（调用方无法指定），没有派生新会话的能力。
+   *
+   * StepWise 在写入 progress（标记任务 in_progress）之前调用本方法，
+   * 使不支持 fork 的后端在污染进度状态之前就失败——否则任务会永久停留在
+   * in_progress，且续跑时必然再次失败、无法自愈。
+   *
+   * 基类默认支持 fork（不做任何校验）。
+   */
+  assertForkSupported(): void {
+    // 默认支持 fork，无需校验
   }
 
   /**

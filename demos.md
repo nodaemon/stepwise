@@ -489,6 +489,8 @@ async function main() {
   setAgentType('claude');
   // setAgentType('opencode');
   // setAgentType('codeagent');
+  // setAgentType('pi');
+  // setAgentType('mcode');   // Minimax Code; run `mcode login` first, fork unsupported
 
   const agent = new StepWise('myAgent');
   await agent.execPrompt('Execute task');

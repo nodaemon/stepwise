@@ -4,8 +4,9 @@
  * - 'opencode': 使用 OpenCode 智能体（自动降级机制）
  * - 'codeagent': 使用 CodeAgent 智能体（命令参数与 claude 基本一致，仅可执行程序名不同；另额外携带 claude 不支持的 --skip-safe-check）
  * - 'pi': 使用 Pi 智能体（@earendil-works/pi-coding-agent，纯文本输出，无 JSON 解析）
+ * - 'mcode': 使用 mcode 智能体（Minimax Code，stream-json 输出；会话 ID 由 mcode 自行分配，不支持 fork）
  */
-export type AgentType = 'claude' | 'opencode' | 'codeagent' | 'pi';
+export type AgentType = 'claude' | 'opencode' | 'codeagent' | 'pi' | 'mcode';
 
 /**
  * JSON 输出校验选项
@@ -169,8 +170,8 @@ export interface JsonSchemaDef {
 
 /**
  * token 消耗与 AI 耗时
- * 来自 Claude stream-json result 块的 usage/duration 字段
- * 仅 NDJSON 执行器（Claude/CodeAgent）产出；Pi/OpenCode 不支持
+ * 来自 NDJSON 执行器的 usage/duration 字段
+ * 仅 NDJSON 执行器（Claude/CodeAgent/mcode）产出；Pi/OpenCode 不支持
  */
 export interface TokenUsage {
   /** 输入 token 数 */
