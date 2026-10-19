@@ -1,6 +1,6 @@
 {
   "name": "@dreamcheck/stepwise",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Step-by-step task orchestration for Claude Code - build reliable AI workflows with checkpoint recovery",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
