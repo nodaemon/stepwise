@@ -236,10 +236,11 @@ stepwise_exec_infos/
         ├── logs/
         │   ├── execute.log                      ← 每步的开始 / 结束 / 重试 / 跳过
         │   ├── 1_collect/                       ← 第 1 个 collect 步骤
-        │   │   ├── prompt.txt                   ←   实际发出的提示词
+        │   │   ├── prompt.txt                   ←   实际发出的提示词（任务提示词日志）
+        │   │   ├── prompt_stdin.txt             ←   送入 stdin 的提示词（按执行覆盖的传输槽位）
         │   │   ├── output.txt                   ←   最终输出
         │   │   ├── verbose_output.txt           ←   思考过程与工具调用全量轨迹
-        │   │   ├── command.sh                   ←   可直接 ./command.sh 原样重跑
+        │   │   ├── command.sh                   ←   可直接 ./command.sh 原样重跑（提示词经管道注入）
         │   │   ├── execution_info.json          ←   命令行、会话 ID、环境变量
         │   │   ├── usage.json                   ←   token 用量（NDJSON 执行器）
         │   │   ├── schema.json                  ←   execPromptSchema 的 schema 定义

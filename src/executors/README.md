@@ -59,15 +59,21 @@ export class AiderExecutor extends BaseExecutor {
     return 'aider';
   }
 
-  /** 构建命令行参数 */
+  /**
+   * 构建命令行参数（**不含提示词**）
+   *
+   * 提示词统一由基类经 stdin 管道下发，本方法只负责其余参数。
+   * 若该 CLI 需要显式声明"从 stdin 读提示词"，把对应开关写在本方法内
+   * （如 mcode 的 --input -）。
+   */
   protected buildArgs(
-    prompt: string,
     sessionId: string,
     isResume: boolean,
-    debugFile?: string
+    debugFile?: string,
+    fork?: boolean
   ): string[] {
     const args: string[] = [];
-    // ... 构建参数逻辑
+    // ... 构建参数逻辑（不含提示词）
     return args;
   }
 
@@ -119,8 +125,8 @@ export { AiderExecutor } from './aider';
 |------|------|
 | `agentType` | 返回执行器类型标识 |
 | `getCommand()` | 返回 CLI 命令名称 |
-| `buildArgs()` | 构建命令行参数 |
-| `buildProbeArgs()` | 构建 429 探测命令参数。不适用探测的执行器（如 OpenCode）应抛出含「探测不适用」的错误，`base.ts` 会捕获并跳过探测循环 |
+| `buildArgs()` | 构建命令行参数（**不含提示词**——提示词统一经 stdin 管道下发，见「提示词传递方式」） |
+| `buildProbeArgs()` | 构建 429 探测命令参数（同样不含提示词，探测提示词由基类经 stdin 传入）。不适用探测的执行器（如 OpenCode）应抛出含「探测不适用」的错误，`base.ts` 会捕获并跳过探测循环 |
 
 ## 可重写方法
 
@@ -134,6 +140,71 @@ export { AiderExecutor } from './aider';
 | `assertForkSupported()` | fork 能力断言，默认不做校验。不支持 fork 的后端（mcode）覆写为抛错，由 `StepWise` 在写入 progress（标记 `in_progress`）之前调用，避免任务卡在 `in_progress` 且续跑必然再次失败 |
 | `getRateLimitPatterns()` | 速率限制检测正则表达式 |
 | `checkRateLimitError()` | 速率限制错误检测逻辑 |
+
+## 提示词传递方式
+
+**提示词统一经 stdin 管道下发，永远不进入命令行参数。**
+
+### 为什么
+
+Linux 对单个 argv 字符串的硬上限是 `MAX_ARG_STRLEN = 32 × PAGE_SIZE = 131072` 字节（128 KiB）。
+提示词若作为命令行参数传递，超过 128 KiB 就会让 `spawn` 直接失败并报 `E2BIG`（Argument list too long），
+且该失败会在重试循环里连续发生三次。管道传输不受此限制（只受内存/磁盘限制）。
+
+### 契约
+
+- `buildArgs()` 的返回值中**永远不含提示词**——签名里就没有 `prompt` 形参，不存在"按长度/按执行器切换"的分支
+- 基类在 `runCommand()` 中统一 `child.stdin.end(prompt, 'utf-8')`
+- 各 CLI 读 stdin 所需的开关写在自己的 `buildArgs()` 内部
+- **有代码守卫**：基类在 `runCommand()` 里断言参数中不含提示词，
+  违规时立即抛出指向 `buildArgs()` 的报错，而不是等到超长提示词触发 `E2BIG` 才暴露。
+  新增执行器时若误把提示词 push 进参数，会立刻看到：
+
+  ```
+  [claude] 提示词出现在命令行参数中。提示词必须经 stdin 管道下发
+  （Linux 单个 argv 上限 128 KiB，超长提示词会直接报 E2BIG），请检查 buildArgs() 是否误将 prompt 放入参数。
+  ```
+
+### 各 CLI 的 stdin 开关
+
+| CLI | 命令形态（`<` 表示提示词来自 stdin） | 备注 |
+|---|---|---|
+| Claude | `claude --dangerously-skip-permissions --verbose --output-format stream-json (--session-id U \| --resume U [--fork-session]) -p < prompt` | `-p` 是打印模式开关 |
+| CodeAgent | 同 Claude，额外带 `--skip-safe-check` | `-p` 打印模式下从 stdin 读提示词（已实测确认） |
+| Pi | `pi --session-id U --mode json -p < prompt` | 会 trim stdin 首尾空白 |
+| mcode | `mcode exec --permission full --output-format stream-json [--session mvs_x] --input - < prompt` | `--input` 只接受 `-`；与位置参数提示词**互斥** |
+| OpenCode | `opencode run --thinking [--session ses_x] [--fork] < prompt` | 无需额外开关，会自动读 stdin |
+
+### 落盘与复现
+
+- 运行时提示词在内存里直接进管道，**不需要临时文件**
+- 有任务日志目录时，执行器会把**实际送入 stdin 的原始字节**写入 `<taskLogDir>/prompt_stdin.txt`
+  ——这是提示词传输用的**临时槽位**（每次执行覆盖），内容始终与该目录里 `command.sh`
+  所引用的那次执行一致，复现脚本不会跑偏
+- 执行器**不写** `prompt.txt`：那是 StepWise 侧的任务提示词日志（语义 = 这一步要求 agent 做什么，
+  同一步骤内稳定不变）。同一任务目录内会用不同提示词重复执行（postCheck、输出校验重试、
+  会话末尾 summarize），若由执行器覆盖 `prompt.txt`，debug 模式自检复盘读到的证据就会变成
+  postCheck/校验提示词而非任务提示词
+- `command.sh` 末行因此变为管道形式，可直接 `sh command.sh` 原样重跑：
+
+  ```sh
+  cat '/abs/path/logs/3_task/prompt_stdin.txt' | claude --dangerously-skip-permissions ... -p
+  ```
+
+- `execution_info.json` 的 `args` 不再含提示词，另记录 `promptDelivery: "stdin"` 与 `promptStdinFile`
+
+### 迁移说明（面向继承 BaseExecutor 的第三方执行器）
+
+`buildArgs()` 的签名已去掉 `prompt` 形参：
+
+```diff
+- protected abstract buildArgs(prompt: string, sessionId: string, isResume: boolean, debugFile?: string, fork?: boolean): string[];
++ protected abstract buildArgs(sessionId: string, isResume: boolean, debugFile?: string, fork?: boolean): string[];
+```
+
+迁移步骤：删掉 `prompt` 形参 → 删掉把提示词 push 进 args 的语句 → 若该 CLI 需要显式声明
+"从 stdin 读提示词"，把对应开关写进 `buildArgs()` 内部（如 mcode 的 `--input -`）。
+`buildProbeArgs()` 同样去掉提示词，探测提示词由基类经 `spawnSync` 的 `input` 选项传入。
 
 ## isResume 参数说明
 
@@ -160,6 +231,7 @@ mcode（Minimax Code）的会话模型与其它后端不同，接入时需注意
 - **限额文案口径不同**：mcode 判定 provider 限额错误的正则含空格分隔的 `rate limit`（基类只认 `429` / `rate_limit_error` / `usage limit exceeded`），故 `McodeExecutor` 覆写 `checkRateLimitError()` 补齐该口径，否则限额等待与 429 探测循环不会触发。
 - **工具过程可从事件流还原**：`item.completed` 的 `tool_call` 事件带完整 `toolCall`（`{id, name, status, input, output}`），其中 `input` 是工具入参、`output.content` 是工具执行结果，`verbose_output.txt` 中两者都会渲染。
 - **不支持跨 cwd 恢复**：会话存于 `$MINIMAX_DATA_DIR/v2/sessions/<日期>/…`（按日期分区，不按 cwd），但 `workspaceDir` 校验是硬性的。因此 `StepWise.getConfigSubdir()` 对 mcode 返回 `null`，跳过 `sessionLinker` 的跨目录软链逻辑。
+- **提示词经 stdin 传入**：mcode 的 `--input` 只接受 `-`（读 stdin），且与位置参数提示词**互斥**（同时给出会直接报错）。因此 `buildArgs()` 用 `--input -` 而非位置参数传提示词。
 - **429 探测会产生会话**：mcode 没有「不落盘 session」开关（除非指定 `--session` / `--continue`），每次探测都会新建一个会话目录。这是为了更快恢复限额所做的自觉取舍。
 
 ## 测试

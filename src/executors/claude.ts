@@ -9,9 +9,13 @@ import { AgentType } from '../types';
 /**
  * Claude Code 执行器
  *
- * 命令格式：
- * - 新会话: claude --dangerously-skip-permissions --session-id <uuid> -p "prompt"
- * - 恢复会话: claude --dangerously-skip-permissions --resume <uuid> -p "prompt"
+ * 命令格式（提示词经 stdin 管道下发，不出现在命令行参数中）：
+ * - 新会话: claude --dangerously-skip-permissions --session-id <uuid> -p  < prompt
+ * - 恢复会话: claude --dangerously-skip-permissions --resume <uuid> -p  < prompt
+ *
+ * 说明：`-p` 是打印模式开关，claude 在 -p 模式下会从 stdin 读取提示词；
+ * 提示词若走命令行参数，Linux 单个 argv 上限 128 KiB，超长提示词会直接
+ * 导致 spawn 报 E2BIG，故统一经管道下发。
  *
  * 本类同时作为 CodeAgent 执行器的基类（CodeAgent 命令参数与 Claude 基本一致，
  * 差别仅是可执行程序名，以及 CodeAgent 独有的 --skip-safe-check），
@@ -51,9 +55,11 @@ export class ClaudeExecutor extends BaseExecutor {
   }
 
   /**
-   * 构建命令行参数
+   * 构建命令行参数（**不含提示词**）
    *
-   * @param prompt 提示词内容
+   * 提示词统一由基类经 stdin 管道下发：`-p`（打印模式）保留，
+   * 但不再携带提示词本身。
+   *
    * @param sessionId 会话 ID
    * @param isResume 是否使用恢复模式
    * @param debugFile debug 日志文件路径（可选）
@@ -61,7 +67,6 @@ export class ClaudeExecutor extends BaseExecutor {
    * @returns 命令行参数数组
    */
   protected buildArgs(
-    prompt: string,
     sessionId: string,
     isResume: boolean,
     debugFile?: string,
@@ -97,8 +102,8 @@ export class ClaudeExecutor extends BaseExecutor {
       args.push('--session-id', sessionId);
     }
 
-    // 提示词
-    args.push('-p', prompt);
+    // 打印模式开关：提示词由基类经 stdin 管道下发（claude -p 会从 stdin 读提示词）
+    args.push('-p');
 
     return args;
   }
@@ -110,14 +115,15 @@ export class ClaudeExecutor extends BaseExecutor {
    *
    * 探测与正式执行使用相同 cwd，故同样需要 buildSafetyArgs()：
    * 目录首次使用时探测命令也会触发安全确认
+   *
+   * 探测提示词同样经 stdin 管道下发（见基类 probeRateLimit），不在参数中携带
    */
   protected buildProbeArgs(): string[] {
     return [
       '--dangerously-skip-permissions',
       ...this.buildSafetyArgs(),
       '--no-session-persistence',
-      '-p',
-      'reply ok'
+      '-p'
     ];
   }
 }

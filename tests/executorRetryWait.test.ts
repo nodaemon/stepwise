@@ -10,7 +10,7 @@ class TestExecutor extends BaseExecutor {
   readonly agentType = 'claude' as const;
   protected getCommand(): string { return 'echo'; }
   protected buildArgs(): string[] { return []; }
-  protected buildProbeArgs(): string[] { return ['--no-session-persistence', '-p', 'reply ok']; }
+  protected buildProbeArgs(): string[] { return ['--no-session-persistence', '-p']; }
 }
 
 describe('execute 重试等待累计', () => {

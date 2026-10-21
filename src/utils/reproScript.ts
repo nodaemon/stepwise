@@ -19,10 +19,25 @@ import { parseEnvEntries } from './envHelper';
  *
  * 单引号内 $ ` \ " 均为字面量，无需额外处理；仅需转义单引号本身：
  *   it's  ->  'it'\''s'
- * 与 BaseExecutor.buildCommandString() 的转义规则保持一致。
  */
 export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * 按需加引号
+ *
+ * 仅当参数含 shell 特殊字符（空白、引号、反引号、$、\ 等）时才加引号，
+ * 否则原样输出——命令行可读性更好。
+ *
+ * 与 shellQuote() 共用同一套转义规则：命令行拼装（buildCommandString）与
+ * 复现脚本拼装（管道前缀）都走这里，避免两处规则各写一份、日久漂移。
+ */
+export function quoteIfNeeded(value: string): string {
+  if (/[\s'"`\$\n\r\t\\]/.test(value)) {
+    return shellQuote(value);
+  }
+  return value;
 }
 
 /**

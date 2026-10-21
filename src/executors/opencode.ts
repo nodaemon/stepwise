@@ -16,9 +16,9 @@ function isWindows(): boolean {
 /**
  * OpenCode 执行器
  *
- * 命令格式：
- * - 新会话: opencode run --thinking "prompt"
- * - 恢复会话: opencode run --thinking --session <session-id> "prompt"
+ * 命令格式（提示词经 stdin 管道下发，不出现在命令行参数中）：
+ * - 新会话: opencode run --thinking  < prompt
+ * - 恢复会话: opencode run --thinking --session <session-id>  < prompt
  *
  * Session ID 获取策略：
  * 1. 首次执行时不传 --session，让 OpenCode 创建新会话
@@ -52,12 +52,14 @@ export class OpenCodeExecutor extends BaseExecutor {
   }
 
   /**
-   * 构建命令行参数
+   * 构建命令行参数（**不含提示词**）
+   *
+   * 提示词统一由基类经 stdin 管道下发：opencode 在没有位置消息时
+   * 会自动从 stdin 读取消息内容。
    *
    * @param fork 是否 fork 模式（从 sessionId 派生新会话，原会话保留）
    */
   protected buildArgs(
-    prompt: string,
     sessionId: string,
     isResume: boolean,
     debugFile?: string,
@@ -81,7 +83,7 @@ export class OpenCodeExecutor extends BaseExecutor {
       console.warn(`[OpenCode] sessionId "${sessionId}" 非 ses_ 格式，无法附加 --fork，fork 模式被忽略`);
     }
 
-    args.push(prompt);
+    // 提示词不在此处携带：opencode 会从 stdin 读取消息
 
     return args;
   }

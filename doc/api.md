@@ -170,6 +170,7 @@ stepwise_exec_infos/<Task>_<ts>/<Agent>_<ts>/
 │   │   ├── output.txt            ← evidence
 │   │   ├── verbose_output.txt    ← evidence
 │   │   ├── command.sh / execution_info.json / usage.json
+│   │   ├── prompt_stdin.txt        ← stdin transport slot (overwritten per execution, not evidence)
 │   │   └── self_check.md         ← the review report (sibling of output.txt)
 │   └── 1_self_check/             ← the reviewer's own execution logs
 ```
@@ -557,6 +558,18 @@ interface TokenUsage {
 ```
 
 `tokenUsage` is only reported by NDJSON-based executors (Claude/CodeAgent/mcode); it is `undefined` for Pi/OpenCode. When present, it is also exported per step to `logs/<N_task>/usage.json` (structure: `{ taskIndex, sessionId, duration, tokenUsage }`).
+
+**Prompt Delivery**
+
+The prompt is delivered to the agent CLI through **stdin**, never as a command-line argument:
+
+```sh
+cat '<abs>/logs/<N_task>/prompt_stdin.txt' | claude --dangerously-skip-permissions --verbose --output-format stream-json --session-id <uuid> -p
+```
+
+Linux caps a single argv string at 128 KiB (`MAX_ARG_STRLEN`), so a longer prompt passed as an argument makes `spawn` fail with `E2BIG` ("Argument list too long"). A pipe has no such limit.
+
+The exact bytes written to the child's stdin are persisted to `logs/<N_task>/prompt_stdin.txt` before execution, which keeps `command.sh` directly re-runnable. That file is a per-execution transport slot (overwritten on every execution in the same directory), kept separate from `prompt.txt` — the task-prompt log written by StepWise, which must stay stable because the debug-mode self-check reads it as evidence. `execution_info.json` records `promptDelivery: "stdin"` and the `promptStdinFile` path rather than embedding the prompt in `args`.
 
 **Example**
 
@@ -1684,6 +1697,7 @@ stepwise_exec_infos/
     │   ├── logs/                           # Execution logs
     │   │   ├── 1_task/
     │   │   │   ├── prompt.txt              # Task prompt
+    │   │   │   ├── prompt_stdin.txt        # Prompt fed to stdin (overwritten per execution)
     │   │   │   ├── command.sh              # Reproduction script (POSIX shell, directly executable)
     │   │   │   ├── output.txt              # Standard output summary
     │   │   │   ├── verbose_output.txt      # Detailed output (AI thinking, tool calls, etc.) ★Key debug file

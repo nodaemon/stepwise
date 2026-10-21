@@ -27,16 +27,16 @@ describe('429 探测恢复常量', () => {
 });
 
 describe('buildProbeArgs 各执行器', () => {
-  it('ClaudeExecutor 应返回 --dangerously-skip-permissions --no-session-persistence -p "reply ok"', () => {
+  it('ClaudeExecutor 应返回 --dangerously-skip-permissions --no-session-persistence -p（提示词经 stdin 下发）', () => {
     const executor = new ClaudeExecutor();
     const args = (executor as any).buildProbeArgs();
-    expect(args).toEqual(['--dangerously-skip-permissions', '--no-session-persistence', '-p', 'reply ok']);
+    expect(args).toEqual(['--dangerously-skip-permissions', '--no-session-persistence', '-p']);
   });
 
-  it('PiExecutor 应返回 --no-session --mode json -p "reply ok"', () => {
+  it('PiExecutor 应返回 --no-session --mode json -p（提示词经 stdin 下发）', () => {
     const executor = new PiExecutor();
     const args = (executor as any).buildProbeArgs();
-    expect(args).toEqual(['--no-session', '--mode', 'json', '-p', 'reply ok']);
+    expect(args).toEqual(['--no-session', '--mode', 'json', '-p']);
   });
 
   it('OpenCodeExecutor 调用 buildProbeArgs 应抛错', () => {
@@ -52,7 +52,7 @@ describe('probeRateLimit', () => {
     readonly agentType = 'claude' as const;
     protected getCommand(): string { return 'echo'; }
     protected buildArgs(): string[] { return []; }
-    protected buildProbeArgs(): string[] { return ['--no-session-persistence', '-p', 'reply ok']; }
+    protected buildProbeArgs(): string[] { return ['--no-session-persistence', '-p']; }
   }
 
   const options: AgentExecutorOptions = { cwd: process.cwd() };
@@ -128,10 +128,12 @@ describe('probeRateLimit', () => {
     await (executor as any).probeRateLimit(options);
     expect(mockSpawnSync).toHaveBeenCalledWith(
       'echo',
-      ['--no-session-persistence', '-p', 'reply ok'],
+      ['--no-session-persistence', '-p'],
       expect.objectContaining({
         cwd: process.cwd(),
-        timeout: 30000
+        timeout: 30000,
+        // 探测提示词经 stdin 下发，不进入命令行参数
+        input: 'reply ok'
       })
     );
   });

@@ -41,12 +41,20 @@ export const MAX_DISPLAY_ERRORS = 50;
 /** debug 模式自检报告文件名（与 output.txt 同级，落在任务日志目录下） */
 export const SELF_CHECK_FILE = 'self_check.md';
 
-// ============ 任务日志目录内的文件名 ============
+// ============ 任务日志目录内的证据集文件名 ============
 // 以下三个文件构成任务的完整证据集：写入方（StepWise / executor）
 // 与读取方（debug 模式自检复盘）必须使用同一常量，改名时不会出现
 // 「写端已改、读端仍指向旧名」而导致自检静默降级的情况
 
-/** 提示词文件名（写入方：各 exec 方法执行前） */
+/**
+ * 任务提示词日志文件名（写入方：各 exec 方法执行前）
+ *
+ * 语义是「这一步要求 agent 做什么」——同一步骤内稳定不变。
+ * 执行器不写此文件：同一任务目录内可能用不同提示词重复执行
+ * （postCheck、输出校验重试、会话末尾 summarize），
+ * 若由执行器写入会覆盖任务提示词，进而污染 debug 模式自检复盘所依据的证据。
+ * 实际送入 stdin 的提示词落在 PROMPT_STDIN_FILE。
+ */
 export const PROMPT_FILE = 'prompt.txt';
 
 /** 最终输出文件名（写入方：writeTaskLogs / shell 任务） */
@@ -55,8 +63,37 @@ export const OUTPUT_FILE = 'output.txt';
 /** 执行轨迹文件名（写入方：executor 子进程执行期间实时追加） */
 export const TRACE_FILE = 'verbose_output.txt';
 
+// ============ 提示词传输槽位 ============
+// 不属于证据集：每次执行覆盖，内容随最近一次执行变化
+
+/**
+ * 送入 stdin 的提示词文件名（写入方：执行器，每次执行覆盖）
+ *
+ * 这是提示词传输用的临时槽位，不是日志条目：同一任务目录内每次执行都会覆盖它，
+ * 因此其内容始终与该目录里 command.sh 所引用的那次执行一致，复现脚本不会跑偏。
+ * 与 PROMPT_FILE（任务提示词日志）、post_check_prompt.txt（后检查提示词日志）分属不同语义。
+ */
+export const PROMPT_STDIN_FILE = 'prompt_stdin.txt';
+
+/**
+ * 提示词投递通道
+ *
+ * 提示词统一经 stdin 管道下发，不进入命令行参数（Linux 单个 argv 上限 128 KiB，
+ * 超长提示词会直接导致 spawn 报 E2BIG）。此常量仅用于在日志与
+ * execution_info.json 中显式标注投递方式。
+ */
+export const PROMPT_DELIVERY = 'stdin';
+
 /** 429 探测恢复单次探测超时时间（毫秒）：30 秒 */
 export const PROBE_TIMEOUT_MS = 30 * 1000;
+
+/**
+ * 429 探测使用的提示词
+ *
+ * 与正式执行一样，探测提示词也经 stdin 管道下发，不进入命令行参数，
+ * 以维持「提示词永远不进 argv」这一不变量。
+ */
+export const PROBE_PROMPT = 'reply ok';
 
 // ============ Shell 任务相关常量 ============
 

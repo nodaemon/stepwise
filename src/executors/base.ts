@@ -7,10 +7,10 @@ import * as childProcess from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ExecutionResult } from '../types';
-import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS, PROBE_TIMEOUT_MS, MAX_PROBE_ATTEMPTS, TRACE_FILE } from '../constants';
+import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS, PROBE_TIMEOUT_MS, MAX_PROBE_ATTEMPTS, TRACE_FILE, PROMPT_STDIN_FILE, PROMPT_DELIVERY, PROBE_PROMPT } from '../constants';
 import { Logger } from '../utils/logger';
 import { parseEnvEntries } from '../utils/envHelper';
-import { buildReproScript, writeReproScript } from '../utils/reproScript';
+import { buildReproScript, writeReproScript, shellQuote, quoteIfNeeded } from '../utils/reproScript';
 import { AgentExecutorOptions, AgentExecutor, ExecutorRawResult } from './types';
 import { parseAndFormatNDJson, formatNDJsonLine } from './ndjsonFormatter';
 
@@ -62,9 +62,18 @@ export abstract class BaseExecutor implements AgentExecutor {
   /** 子类必须实现：返回执行器类型 */
   abstract readonly agentType: 'claude' | 'opencode' | 'codeagent' | 'pi' | 'mcode';
 
-  /** 子类必须实现：构建命令行参数 */
+  /**
+   * 子类必须实现：构建命令行参数（**不含提示词**）
+   *
+   * 提示词由基类统一经 stdin 管道下发给 CLI，基类负责写入子进程 stdin，
+   * 并落盘到 <taskLogDir>/prompt_stdin.txt 供复现脚本引用。
+   * 本方法只负责其余参数；CLI 读 stdin 所需的开关也写在这里
+   * （如 mcode 需要 --input -，claude/pi 需要 -p 进入打印模式）。
+   *
+   * 严禁把提示词放进返回值：Linux 单个 argv 字符串上限 128 KiB，
+   * 超长提示词会让 spawn 直接报 E2BIG。基类在 runCommand() 里有断言拦截。
+   */
   protected abstract buildArgs(
-    prompt: string,
     sessionId: string,
     isResume: boolean,
     debugFile?: string,
@@ -365,18 +374,42 @@ export abstract class BaseExecutor implements AgentExecutor {
     // 构建 debug 日志文件路径
     const debugFile = taskLogDir ? path.join(taskLogDir, 'debug.log') : undefined;
 
-    // 构建命令参数（由子类实现）
-    const args = this.buildArgs(prompt, sessionId, options.useResume === true, debugFile, options.fork === true);
+    // 构建命令参数（由子类实现，参数中不含提示词——见 buildArgs 的契约）
+    const args = this.buildArgs(sessionId, options.useResume === true, debugFile, options.fork === true);
+
+    // 守卫：提示词必须经 stdin 管道下发，不得进入命令行参数。
+    // 一旦有人把提示词重新 push 进 args，这里立刻失败并给出明确指引，
+    // 而不是等到超长提示词触发 spawn E2BIG 才暴露。
+    if (prompt && args.includes(prompt)) {
+      throw new Error(
+        `[${this.agentType}] 提示词出现在命令行参数中。提示词必须经 stdin 管道下发` +
+        `（Linux 单个 argv 上限 128 KiB，超长提示词会直接报 E2BIG），请检查 buildArgs() 是否误将 prompt 放入参数。`
+      );
+    }
+
     const command = this.getCommand();
     const fullCommand = this.buildCommandString(command, args);
 
+    // 提示词落盘：实际送入 stdin 的原始字节写入 prompt_stdin.txt（传输槽位，每次执行覆盖），
+    // 供 command.sh 用管道引用。细节见 writeStdinPromptFile()。
+    const stdinPromptFile = taskLogDir ? path.join(taskLogDir, PROMPT_STDIN_FILE) : null;
+    if (stdinPromptFile) {
+      this.writeStdinPromptFile(stdinPromptFile, prompt);
+    }
+
+    // 复现命令：提示词不在 argv 中，改用管道把文件喂给 CLI
+    // （无任务日志目录时没有文件可引用，只能记录 CLI 调用本身）
+    const reproCommand = stdinPromptFile
+      ? `cat ${shellQuote(stdinPromptFile)} | ${fullCommand}`
+      : fullCommand;
+
     return new Promise((resolve, reject) => {
       // 记录命令到汇总日志
-      options.logger?.writeSummaryLog(`执行命令: ${fullCommand}`);
+      options.logger?.writeSummaryLog(`执行命令: ${reproCommand}`);
 
       // 保存执行信息到日志目录
       if (taskLogDir) {
-        this.saveExecutionInfo(taskLogDir, fullCommand, sessionId, args, cwd, timeout, options.useResume, debugFile, options.env);
+        this.saveExecutionInfo(taskLogDir, reproCommand, sessionId, args, cwd, timeout, options.useResume, debugFile, options.env, stdinPromptFile);
       }
 
       // 执行命令
@@ -414,8 +447,14 @@ export abstract class BaseExecutor implements AgentExecutor {
         reject(timeoutError);
       }, timeout);
 
-      // 关闭 stdin
-      child.stdin?.end();
+      // 提示词经 stdin 管道下发
+      // 管道传输不受命令行长度限制（Linux 单个 argv 上限为 128 KiB，提示词可能远超）
+      // 必须挂 error 监听：子进程提前退出（参数错误、鉴权失败）会让管道写入触发 EPIPE，
+      // 未处理的 stream error 会变成未捕获异常掀翻整个进程
+      child.stdin?.on('error', () => {
+        // 子进程提前退出导致的 EPIPE，忽略（执行结果由 stdout/stderr 与退出码判定）
+      });
+      child.stdin?.end(prompt, 'utf-8');
 
       let stdout = '';
       let stderr = '';
@@ -568,6 +607,32 @@ export abstract class BaseExecutor implements AgentExecutor {
   }
 
   /**
+   * 写入送入 stdin 的提示词文件
+   *
+   * 写的是 prompt_stdin.txt：提示词传输用的临时槽位，同一任务目录内每次执行覆盖。
+   * 内容与本次送入子进程 stdin 的字节完全一致，因此该目录里的 command.sh
+   * （同样由本次执行覆盖）引用它时，复现的一定是同一次执行。
+   *
+   * 刻意不写 prompt.txt——那是 StepWise 侧的任务提示词日志，
+   * 同目录内 postCheck / 输出校验重试 / summarize 会用不同提示词重复执行，
+   * 覆盖它会让自检复盘拿到的证据错位。
+   *
+   * 落盘失败只告警不抛错：管道传输不依赖该文件，文件仅服务于复现与复盘。
+   */
+  private writeStdinPromptFile(stdinPromptFile: string, prompt: string): void {
+    try {
+      // 目录兜底：任务日志目录由 StepWise 创建，此处再确认一次，
+      // 避免目录缺失时整个执行因写文件失败而中断
+      fs.mkdirSync(path.dirname(stdinPromptFile), { recursive: true });
+      fs.writeFileSync(stdinPromptFile, prompt, 'utf-8');
+    } catch (error) {
+      console.warn(
+        `[${this.agentType}] 提示词文件写入失败（不影响执行，提示词经管道下发）: ${error}`
+      );
+    }
+  }
+
+  /**
    * 保存执行信息到日志文件
    */
   private saveExecutionInfo(
@@ -579,7 +644,8 @@ export abstract class BaseExecutor implements AgentExecutor {
     timeout: number,
     useResume?: boolean,
     debugFile?: string,
-    env?: string[]
+    env?: string[],
+    stdinPromptFile?: string | null
   ): void {
     // 保存执行信息 JSON
     const execInfoFile = path.join(taskLogDir, 'execution_info.json');
@@ -593,7 +659,11 @@ export abstract class BaseExecutor implements AgentExecutor {
       useResume: useResume === true,
       debugFile,
       // 使用 null 区分"未设置"和"显式设置为空数组"
-      env: env ?? null
+      env: env ?? null,
+      // 提示词投递通道：提示词不在 args 中，经 stdin 管道下发
+      promptDelivery: PROMPT_DELIVERY,
+      // 本次实际送入 stdin 的提示词文件（复现脚本通过它把提示词喂给 CLI）
+      promptStdinFile: stdinPromptFile ?? null
     };
     fs.writeFileSync(execInfoFile, JSON.stringify(execInfo, null, 2), 'utf-8');
 
@@ -667,7 +737,9 @@ export abstract class BaseExecutor implements AgentExecutor {
         env,
         timeout: PROBE_TIMEOUT_MS,
         shell: process.platform === 'win32',
-        encoding: 'utf-8'
+        encoding: 'utf-8',
+        // 探测提示词同样经 stdin 下发，不进入命令行参数
+        input: PROBE_PROMPT
       });
 
       // 超时（signal 非空）
@@ -965,17 +1037,12 @@ export abstract class BaseExecutor implements AgentExecutor {
   /**
    * 构建完整的命令字符串（用于日志记录）
    * 对包含特殊字符的参数进行引号处理
+   *
+   * 转义规则复用 utils/reproScript 的 quoteIfNeeded()，
+   * 与复现脚本里管道前缀（shellQuote）保持同一套规则。
    */
   protected buildCommandString(command: string, args: string[]): string {
-    const escapedArgs = args.map(arg => {
-      // 如果参数包含空格、换行、引号等特殊字符，需要用单引号包裹
-      if (/[\s'"`\$\n\r\t\\]/.test(arg)) {
-        // 转义单引号
-        const escaped = arg.replace(/'/g, "'\\''");
-        return `'${escaped}'`;
-      }
-      return arg;
-    });
+    const escapedArgs = args.map(quoteIfNeeded);
     return `${command} ${escapedArgs.join(' ')}`;
   }
 }

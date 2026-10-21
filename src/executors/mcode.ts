@@ -4,9 +4,9 @@
  * mcode 是一个终端编程智能体，无头模式入口为 `mcode exec`。本执行器基于
  * mcode 0.6.5 的 `mcode exec --output-format stream-json` 事件流实现。
  *
- * 命令格式：
- * - 新会话: mcode exec --permission full --output-format stream-json "prompt"
- * - 恢复会话: mcode exec --permission full --output-format stream-json --session <mvs_id> "prompt"
+ * 命令格式（提示词经 stdin 管道下发，不出现在命令行参数中）：
+ * - 新会话: mcode exec --permission full --output-format stream-json --input -  < prompt
+ * - 恢复会话: mcode exec --permission full --output-format stream-json --session <mvs_id> --input -  < prompt
  *
  * 权限：
  * 无头宿主无法应答交互式权限确认（mcode 的 `--permission ask` 在无头下直接报错），
@@ -196,9 +196,11 @@ export class McodeExecutor extends BaseExecutor {
   }
 
   /**
-   * 构建命令行参数
+   * 构建命令行参数（**不含提示词**）
    *
-   * @param prompt 提示词内容
+   * 提示词统一由基类经 stdin 管道下发：mcode 需要显式声明 `--input -`
+   * 才会从 stdin 读取（且 --input 与位置参数提示词互斥，故位置参数不再携带提示词）。
+   *
    * @param sessionId 会话 ID（仅 isResume 且形如 mvs_* 时才实际传给 mcode）
    * @param isResume 是否使用恢复模式
    * @param debugFile debug 日志文件路径（mcode 无此参数，忽略）
@@ -206,7 +208,6 @@ export class McodeExecutor extends BaseExecutor {
    * @returns 命令行参数数组
    */
   protected buildArgs(
-    prompt: string,
     sessionId: string,
     isResume: boolean,
     debugFile?: string,
@@ -247,8 +248,9 @@ export class McodeExecutor extends BaseExecutor {
       }
     }
 
-    // 提示词
-    args.push(prompt);
+    // 从 stdin 读取提示词
+    // mcode 的 --input 只接受 "-"；且与位置参数提示词互斥（同时给出会直接报错）
+    args.push('--input', '-');
 
     return args;
   }
@@ -264,8 +266,10 @@ export class McodeExecutor extends BaseExecutor {
    *
    * 探测用 --output-format json（体积小，base.ts 仅扫描是否含 429），
    * 正式执行仍用 stream-json。
+   *
+   * 探测提示词同样经 stdin 管道下发（见基类 probeRateLimit），不在参数中携带
    */
   protected buildProbeArgs(): string[] {
-    return ['exec', '--permission', 'full', '--output-format', 'json', 'reply ok'];
+    return ['exec', '--permission', 'full', '--output-format', 'json', '--input', '-'];
   }
 }

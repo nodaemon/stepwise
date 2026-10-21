@@ -155,9 +155,11 @@ export class PiExecutor extends BaseExecutor {
   }
 
   /**
-   * 构建命令行参数
+   * 构建命令行参数（**不含提示词**）
    *
-   * @param prompt 提示词内容
+   * 提示词统一由基类经 stdin 管道下发：`-p`（打印模式）保留，
+   * 但不再携带提示词本身。
+   *
    * @param sessionId 会话 ID
    * @param isResume 是否使用恢复模式（Pi 的 --session-id 自动判断创建/恢复，此参数仅用于逻辑判断）
    * @param debugFile debug 日志文件路径（Pi 无此参数，忽略）
@@ -165,7 +167,6 @@ export class PiExecutor extends BaseExecutor {
    * @returns 命令行参数数组
    */
   protected buildArgs(
-    prompt: string,
     sessionId: string,
     isResume: boolean,
     debugFile?: string,
@@ -194,7 +195,8 @@ export class PiExecutor extends BaseExecutor {
     // print 模式 + JSON 事件流，stdout 为 NDJSON，每行一个 AgentSessionEvent，
     // 包含完整过程（思考、文本、工具调用与结果），由 ndjsonFormatter 格式化输出
     args.push('--mode', 'json');
-    args.push('-p', prompt);
+    // 打印模式开关：提示词由基类经 stdin 管道下发（pi -p 会从 stdin 读提示词）
+    args.push('-p');
 
     return args;
   }
@@ -204,9 +206,11 @@ export class PiExecutor extends BaseExecutor {
    * 使用 --no-session 避免探测 session 落盘
    * --mode json 用于检测 429 错误（Pi 的 --mode json 退出码始终为 0，
    * 需要通过 NDJSON 中的 message_end stopReason 判断）
+   *
+   * 探测提示词同样经 stdin 管道下发（见基类 probeRateLimit），不在参数中携带
    */
   protected buildProbeArgs(): string[] {
-    return ['--no-session', '--mode', 'json', '-p', 'reply ok'];
+    return ['--no-session', '--mode', 'json', '-p'];
   }
 
   /**

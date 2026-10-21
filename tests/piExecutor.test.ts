@@ -202,7 +202,8 @@ describe('PiExecutor', () => {
       exec.currentCwd = testCwd;
       exec.forkNewSessionId = 'derived-uuid-1234';
 
-      const args = exec.buildArgs('test prompt', realSessionId, true, undefined, true);
+      // 注意：buildArgs() 不再接收 prompt 形参——提示词统一经 stdin 管道下发
+      const args = exec.buildArgs(realSessionId, true, undefined, true);
       expect(args).toContain('--fork');
       expect(args).toContain(realSessionId);
       expect(args).toContain('--session-id');
@@ -215,7 +216,7 @@ describe('PiExecutor', () => {
       exec.forkNewSessionId = null;
 
       const newUuid = 'fresh-uuid-5678';
-      const args = exec.buildArgs('test prompt', newUuid, true, undefined, false);
+      const args = exec.buildArgs(newUuid, true, undefined, false);
       expect(args).not.toContain('--fork');
       expect(args).toContain('--session-id');
       expect(args).toContain(newUuid);

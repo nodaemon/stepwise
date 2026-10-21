@@ -11,8 +11,9 @@ import { McodeExecutor } from '../src/executors/mcode';
  */
 describe('McodeExecutor', () => {
   const executor = new McodeExecutor();
-  const buildArgs = (prompt: string, sessionId: string, isResume: boolean, fork = false): string[] =>
-    (executor as any).buildArgs(prompt, sessionId, isResume, undefined, fork);
+  // 注意：buildArgs() 不再接收 prompt 形参——提示词统一经 stdin 管道下发
+  const buildArgs = (sessionId: string, isResume: boolean, fork = false): string[] =>
+    (executor as any).buildArgs(sessionId, isResume, undefined, fork);
   const buildProbeArgs = (): string[] => (executor as any).buildProbeArgs();
 
   /** 合法的 mcode 会话 ID */
@@ -42,7 +43,7 @@ describe('McodeExecutor', () => {
   });
 
   describe('buildArgs：新会话', () => {
-    const args = buildArgs('hello', 'framework-uuid-placeholder', false);
+    const args = buildArgs('framework-uuid-placeholder', false);
 
     it('应使用 mcode exec 无头入口', () => {
       expect(args[0]).toBe('exec');
@@ -61,33 +62,35 @@ describe('McodeExecutor', () => {
       expect(args).not.toContain('--session');
     });
 
-    it('提示词应为最后一个参数', () => {
-      expect(args[args.length - 1]).toBe('hello');
+    it('提示词不应出现在命令行参数中（统一经 stdin 管道下发）', () => {
+      expect(args[args.length - 1]).toBe('-');
+      expect(args).toContain('--input');
+      expect(args[args.indexOf('--input') + 1]).toBe('-');
     });
   });
 
   describe('buildArgs：恢复会话', () => {
     it('合法 mvs_ 会话 ID 应附加 --session', () => {
-      const args = buildArgs('continue', MCODE_SESSION_ID, true);
+      const args = buildArgs(MCODE_SESSION_ID, true);
       expect(args).toContain('--session');
       expect(args[args.indexOf('--session') + 1]).toBe(MCODE_SESSION_ID);
     });
 
     it('框架预生成的 UUID 应降级为新建会话，不传 --session 且不抛异常', () => {
-      const args = buildArgs('resume', '11111111-2222-4333-8444-555555555555', true);
+      const args = buildArgs('11111111-2222-4333-8444-555555555555', true);
       expect(args).not.toContain('--session');
       expect(args[0]).toBe('exec');
     });
 
     it('降级时应输出告警，说明无法续接原上下文', () => {
-      buildArgs('resume', 'not-a-mcode-session-id', true);
+      buildArgs('not-a-mcode-session-id', true);
       expect(console.warn).toHaveBeenCalledWith(
         expect.stringContaining('不是 mcode 会话 ID')
       );
     });
 
     it('合法 ID 时不应告警', () => {
-      buildArgs('continue', MCODE_SESSION_ID, true);
+      buildArgs(MCODE_SESSION_ID, true);
       expect(console.warn).not.toHaveBeenCalled();
     });
   });
@@ -119,7 +122,7 @@ describe('McodeExecutor', () => {
       (executor as any).runCommand = jest.fn(
         async (prompt: string, sessionId: string, options: any) => {
           calls.push(
-            (executor as any).buildArgs(prompt, sessionId, options.useResume === true, undefined, options.fork)
+            (executor as any).buildArgs(sessionId, options.useResume === true, undefined, options.fork)
           );
           attempt++;
           if (attempt === 1) {
@@ -143,7 +146,7 @@ describe('McodeExecutor', () => {
 
     it('已捕获真实会话 ID 时，buildArgs 应优先使用它而非框架预生成的 UUID', () => {
       (executor as any).derivedSessionId = MCODE_SESSION_ID;
-      const args = buildArgs('retry', '11111111-2222-4333-8444-555555555555', true);
+      const args = buildArgs('11111111-2222-4333-8444-555555555555', true);
 
       expect(args[args.indexOf('--session') + 1]).toBe(MCODE_SESSION_ID);
       expect(console.warn).not.toHaveBeenCalled();
@@ -190,8 +193,9 @@ describe('McodeExecutor', () => {
       expect(probe[probe.indexOf('--permission') + 1]).toBe('full');
     });
 
-    it('应发送一个简单请求用于探测限额是否恢复', () => {
-      expect(probe).toContain('reply ok');
+    it('应从 stdin 读取探测请求（--input -）', () => {
+      expect(probe).toContain('--input');
+      expect(probe[probe.indexOf('--input') + 1]).toBe('-');
     });
   });
 });

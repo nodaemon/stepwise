@@ -8,9 +8,12 @@
  * 因此本类直接继承 ClaudeExecutor，复用其 buildArgs() 逻辑，
  * 仅覆盖 agentType 标识、CLI 命令名与安全确认参数。
  *
- * 命令格式：
- * - 新会话: codeagent --dangerously-skip-permissions --skip-safe-check --session-id <uuid> -p "prompt"
- * - 恢复会话: codeagent --dangerously-skip-permissions --skip-safe-check --resume <uuid> -p "prompt"
+ * 命令格式（提示词经 stdin 管道下发，不出现在命令行参数中）：
+ * - 新会话: codeagent --dangerously-skip-permissions --skip-safe-check --session-id <uuid> -p  < prompt
+ * - 恢复会话: codeagent --dangerously-skip-permissions --skip-safe-check --resume <uuid> -p  < prompt
+ *
+ * 说明：codeagent 在 -p 打印模式下从 stdin 读取提示词（已实测确认：
+ * `codeagent -p < hello.txt` 与 `codeagent -p "hello"` 效果一致）。
  */
 import { ClaudeExecutor } from './claude';
 
