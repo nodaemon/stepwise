@@ -170,7 +170,6 @@ stepwise_exec_infos/<Task>_<ts>/<Agent>_<ts>/
 │   │   ├── output.txt            ← evidence
 │   │   ├── verbose_output.txt    ← evidence
 │   │   ├── command.sh / execution_info.json / usage.json
-│   │   ├── prompt_stdin.txt        ← stdin transport slot (overwritten per execution, not evidence)
 │   │   └── self_check.md         ← the review report (sibling of output.txt)
 │   └── 1_self_check/             ← the reviewer's own execution logs
 ```
@@ -564,12 +563,14 @@ interface TokenUsage {
 The prompt is delivered to the agent CLI through **stdin**, never as a command-line argument:
 
 ```sh
-cat '<abs>/logs/<N_task>/prompt_stdin.txt' | claude --dangerously-skip-permissions --verbose --output-format stream-json --session-id <uuid> -p
+cat '<abs>/logs/<N_task>/prompt.txt' | claude --dangerously-skip-permissions --verbose --output-format stream-json --session-id <uuid> -p
 ```
 
 Linux caps a single argv string at 128 KiB (`MAX_ARG_STRLEN`), so a longer prompt passed as an argument makes `spawn` fail with `E2BIG` ("Argument list too long"). A pipe has no such limit.
 
-The exact bytes written to the child's stdin are persisted to `logs/<N_task>/prompt_stdin.txt` before execution, which keeps `command.sh` directly re-runnable. That file is a per-execution transport slot (overwritten on every execution in the same directory), kept separate from `prompt.txt` — the task-prompt log written by StepWise, which must stay stable because the debug-mode self-check reads it as evidence. `execution_info.json` records `promptDelivery: "stdin"` and the `promptStdinFile` path rather than embedding the prompt in `args`.
+Prompts are recorded **per prompt type** in the task log directory, so nothing overwrites anything else: the task prompt goes to `prompt.txt`, the post-check to `post_check_prompt.txt`, the end-of-session summary to `summarize_prompt.txt`, and output-validation retries to `file_missing_prompt.txt` / `validation_fix_prompt.txt`. `command.sh` references the one matching the execution it was written for, so replaying it always replays the same execution. At runtime a fixed-name stdin temporary file is used by every execution; it is deleted once the child process exits, leaving no residue behind.
+
+`execution_info.json` records `promptDelivery: "stdin"` and the `promptLogFile` path rather than embedding the prompt in `args`.
 
 **Example**
 
@@ -1696,9 +1697,8 @@ stepwise_exec_infos/
     │   │   └── progress.json
     │   ├── logs/                           # Execution logs
     │   │   ├── 1_task/
-    │   │   │   ├── prompt.txt              # Task prompt
-    │   │   │   ├── prompt_stdin.txt        # Prompt fed to stdin (overwritten per execution)
-    │   │   │   ├── command.sh              # Reproduction script (POSIX shell, directly executable)
+    │   │   │   ├── prompt.txt              # Task prompt (what was actually sent)
+    │       │   │   │   ├── command.sh              # Reproduction script (POSIX shell, directly executable)
     │   │   │   ├── output.txt              # Standard output summary
     │   │   │   ├── verbose_output.txt      # Detailed output (AI thinking, tool calls, etc.) ★Key debug file
     │   │   │   ├── debug.log               # Debug log

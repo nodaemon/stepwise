@@ -17,7 +17,7 @@ import { CodeAgentExecutor } from '../src/executors/codeagent';
 import { PiExecutor } from '../src/executors/pi';
 import { McodeExecutor } from '../src/executors/mcode';
 import { OpenCodeExecutor } from '../src/executors/opencode';
-import { PROBE_PROMPT, PROMPT_FILE, PROMPT_STDIN_FILE } from '../src/constants';
+import { PROBE_PROMPT, PROMPT_FILE, STDIN_PROMPT_FILE } from '../src/constants';
 import { AgentExecutorOptions } from '../src/executors/types';
 import { StepWise, setTaskName, enableDebugMode, _resetState } from '../src';
 
@@ -186,56 +186,89 @@ describe('提示词投递：落盘与复现脚本', () => {
     fs.rmSync(taskLogDir, { recursive: true, force: true });
   });
 
-  it('prompt_stdin.txt 应与实际下发的提示词逐字节一致', async () => {
+  it('提示词记录文件应与实际下发的提示词逐字节一致', async () => {
     const executor = new EchoExecutor();
     const options: AgentExecutorOptions = { cwd: process.cwd(), taskLogDir };
 
     await executor.execute(HUGE_PROMPT, options);
 
-    const promptFile = path.join(taskLogDir, PROMPT_STDIN_FILE);
+    const promptFile = path.join(taskLogDir, PROMPT_FILE);
     expect(fs.existsSync(promptFile)).toBe(true);
     expect(fs.readFileSync(promptFile, 'utf-8')).toBe(HUGE_PROMPT);
   }, 30000);
 
-  it('执行器不得写 prompt.txt（那是 StepWise 的任务提示词日志）', async () => {
+  it('stdin 临时文件用完即删，目录里不留残留', async () => {
     const executor = new EchoExecutor();
     const options: AgentExecutorOptions = { cwd: process.cwd(), taskLogDir };
 
-    // 预置 StepWise 写好的任务提示词
-    const taskPromptFile = path.join(taskLogDir, PROMPT_FILE);
-    fs.writeFileSync(taskPromptFile, 'TASK-PROMPT-FROM-STEPWISE', 'utf-8');
-
     await executor.execute(HUGE_PROMPT, options);
 
-    // 任务提示词日志必须原样保留
-    expect(fs.readFileSync(taskPromptFile, 'utf-8')).toBe('TASK-PROMPT-FROM-STEPWISE');
+    expect(fs.existsSync(path.join(taskLogDir, STDIN_PROMPT_FILE))).toBe(false);
+    // 长期留存的是提示词记录文件
+    expect(fs.existsSync(path.join(taskLogDir, PROMPT_FILE))).toBe(true);
   }, 30000);
 
-  it('command.sh 应以管道形式引用 prompt_stdin.txt，且不含提示词原文', async () => {
+  it('promptLogFile 可指定其他文件名，同目录内不同提示词分开记录', async () => {
+    const executor = new EchoExecutor();
+
+    await executor.execute('FIRST_PROMPT', {
+      cwd: process.cwd(),
+      taskLogDir,
+      promptLogFile: 'post_check_prompt.txt'
+    });
+    await executor.execute('SECOND_PROMPT', {
+      cwd: process.cwd(),
+      taskLogDir,
+      promptLogFile: 'validation_fix_prompt.txt'
+    });
+
+    // 两份记录各自独立，互不覆盖
+    expect(fs.readFileSync(path.join(taskLogDir, 'post_check_prompt.txt'), 'utf-8')).toBe('FIRST_PROMPT');
+    expect(fs.readFileSync(path.join(taskLogDir, 'validation_fix_prompt.txt'), 'utf-8')).toBe('SECOND_PROMPT');
+    // 默认的 prompt.txt 不受影响
+    expect(fs.existsSync(path.join(taskLogDir, PROMPT_FILE))).toBe(false);
+  }, 30000);
+
+  it('command.sh 应以管道形式引用提示词记录文件，且不含提示词原文', async () => {
     const executor = new EchoExecutor();
     const options: AgentExecutorOptions = { cwd: process.cwd(), taskLogDir };
 
     await executor.execute(HUGE_PROMPT, options);
 
-    const promptFile = path.join(taskLogDir, PROMPT_STDIN_FILE);
+    const promptFile = path.join(taskLogDir, PROMPT_FILE);
     const script = fs.readFileSync(path.join(taskLogDir, 'command.sh'), 'utf-8');
 
     expect(script).toContain(`cat '${promptFile}' |`);
     expect(script).not.toContain(MARKER);
+    // 引用的必须是长期留存的记录文件，不是用完即删的 stdin 临时文件
+    expect(script).not.toContain(STDIN_PROMPT_FILE);
   }, 30000);
 
-  it('execution_info.json 的 args 不含提示词，并记录投递通道与提示词文件', async () => {
+  it('command.sh 应引用调用方指定的 promptLogFile', async () => {
+    const executor = new EchoExecutor();
+
+    await executor.execute('POSTCHECK_PROMPT', {
+      cwd: process.cwd(),
+      taskLogDir,
+      promptLogFile: 'post_check_prompt.txt'
+    });
+
+    const script = fs.readFileSync(path.join(taskLogDir, 'command.sh'), 'utf-8');
+    expect(script).toContain(`cat '${path.join(taskLogDir, 'post_check_prompt.txt')}' |`);
+  }, 30000);
+
+  it('execution_info.json 的 args 不含提示词，并记录投递通道与提示词记录文件', async () => {
     const executor = new EchoExecutor();
     const options: AgentExecutorOptions = { cwd: process.cwd(), taskLogDir };
 
     await executor.execute(HUGE_PROMPT, options);
 
-    const promptFile = path.join(taskLogDir, PROMPT_STDIN_FILE);
+    const promptFile = path.join(taskLogDir, PROMPT_FILE);
     const info = JSON.parse(fs.readFileSync(path.join(taskLogDir, 'execution_info.json'), 'utf-8'));
 
     expect(info.args.join(' ')).not.toContain(MARKER);
     expect(info.promptDelivery).toBe('stdin');
-    expect(info.promptStdinFile).toBe(promptFile);
+    expect(info.promptLogFile).toBe(promptFile);
     expect(info.command).toContain(`cat '${promptFile}' |`);
   }, 30000);
 });
@@ -268,7 +301,7 @@ describe('提示词投递：同目录多次执行不污染任务提示词日志'
     enableDebugMode(false);
     setTaskName('PromptDeliveryTest');
     const agent = new StepWise('PromptDeliveryAgent');
-    // 换成真实执行器（会落盘 prompt_stdin.txt），而不是 mock 掉整个执行器模块
+    // 换成真实执行器（会落盘提示词记录文件与 stdin 临时文件），而不是 mock 掉整个执行器模块
     (agent as any).executor = new EchoExecutor();
 
     await agent.execPrompt('ORIGINAL_TASK_PROMPT_MARKER', {
@@ -311,7 +344,7 @@ describe('提示词投递：同目录多次执行不污染任务提示词日志'
     expect(taskPrompt).not.toContain('POSTCHECK_PROMPT_MARKER');
   }, 30000);
 
-  it('每次执行覆盖 prompt_stdin.txt，与 command.sh 引用的一致', async () => {
+  it('同目录内不同提示词分开记录，command.sh 引用对应的那一份', async () => {
     enableDebugMode(false);
     setTaskName('PromptDeliveryTest3');
     const agent = new StepWise('PromptDeliveryAgent3');
@@ -322,13 +355,15 @@ describe('提示词投递：同目录多次执行不污染任务提示词日志'
     });
 
     const taskDir = path.join((agent as any).agentDir, 'logs', '1_task');
-    const stdinFile = path.join(taskDir, PROMPT_STDIN_FILE);
     const script = fs.readFileSync(path.join(taskDir, 'command.sh'), 'utf-8');
 
-    // 传输槽位内容 = 最近一次执行（postCheck）实际下发的提示词
-    expect(fs.readFileSync(stdinFile, 'utf-8')).toContain('POSTCHECK_PROMPT_MARKER');
-    // command.sh 引用的正是该槽位，复现的一定是同一次执行
-    expect(script).toContain(`cat '${stdinFile}' |`);
+    // 同一目录内两种提示词分开记录，互不覆盖
+    expect(fs.readFileSync(path.join(taskDir, PROMPT_FILE), 'utf-8')).toContain('ORIGINAL_TASK_PROMPT_MARKER');
+    expect(fs.readFileSync(path.join(taskDir, 'post_check_prompt.txt'), 'utf-8')).toContain('POSTCHECK_PROMPT_MARKER');
+    // stdin 临时文件用完即删
+    expect(fs.existsSync(path.join(taskDir, STDIN_PROMPT_FILE))).toBe(false);
+    // command.sh 是 postCheck 那次执行写的，引用的是 postCheck 的记录文件
+    expect(script).toContain(`cat '${path.join(taskDir, 'post_check_prompt.txt')}' |`);
   }, 30000);
 });
 

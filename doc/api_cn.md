@@ -168,7 +168,6 @@ stepwise_exec_infos/<任务名>_<时间戳>/<Agent名>_<时间戳>/
 │   │   ├── output.txt            ← 证据
 │   │   ├── verbose_output.txt    ← 证据
 │   │   ├── command.sh / execution_info.json / usage.json
-│   │   ├── prompt_stdin.txt        ← stdin 传输槽位（按执行覆盖，非证据）
 │   │   └── self_check.md         ← 自检报告（与 output.txt 同级）
 │   └── 1_self_check/             ← 审查者自身的执行日志
 ```
@@ -561,17 +560,19 @@ interface TokenUsage {
 提示词经 **stdin 管道**下发给 agent CLI，**不进入命令行参数**：
 
 ```sh
-cat '<abs>/logs/<N_task>/prompt_stdin.txt' | claude --dangerously-skip-permissions --verbose --output-format stream-json --session-id <uuid> -p
+cat '<abs>/logs/<N_task>/prompt.txt' | claude --dangerously-skip-permissions --verbose --output-format stream-json --session-id <uuid> -p
 ```
 
 Linux 对单个 argv 字符串的硬上限是 128 KiB（`MAX_ARG_STRLEN`），提示词若作为命令行参数传递，
 超长时 `spawn` 会直接失败并报 `E2BIG`（Argument list too long）；管道则没有该限制。
 
-实际写入子进程 stdin 的字节会在执行前落盘到 `logs/<N_task>/prompt_stdin.txt`，
-因此 `command.sh` 仍可直接重跑。该文件是**按执行覆盖的传输槽位**，与 `prompt.txt` 分开：
-后者是 StepWise 写任务提示词的日志文件（同一步骤内稳定不变），debug 模式自检要把它当证据读，
-不能被 postCheck、输出校验重试、会话末尾 summarize 这些"同目录内用不同提示词重复执行"的场景覆盖。
-`execution_info.json` 记录 `promptDelivery: "stdin"` 与 `promptStdinFile` 路径，
+提示词在任务日志目录内**按类型分开记录**，互不覆盖：任务本体记在 `prompt.txt`，
+后检查记在 `post_check_prompt.txt`，会话末尾总结记在 `summarize_prompt.txt`，
+输出校验重试记在 `file_missing_prompt.txt` / `validation_fix_prompt.txt`。
+`command.sh` 引用其中与本次执行对应的那一份，因此复现的一定是同一次执行。
+运行时另有一个固定名的 stdin 临时文件供各执行统一使用，子进程退出后即被删除，目录里不留残留。
+
+`execution_info.json` 记录 `promptDelivery: "stdin"` 与 `promptLogFile` 路径，
 `args` 中不再内嵌提示词。
 
 **示例**
@@ -1694,9 +1695,8 @@ stepwise_exec_infos/
     │   │   └── progress.json
     │   ├── logs/                           # 执行日志
     │   │   ├── 1_task/
-    │   │   │   ├── prompt.txt              # 任务提示词
-    │   │   │   ├── prompt_stdin.txt        # 送入 stdin 的提示词（按执行覆盖）
-    │   │   │   ├── command.sh              # 复现脚本（POSIX shell，可直接执行）
+    │   │   │   ├── prompt.txt              # 任务提示词（本次实际下发的提示词）
+    │       │   │   │   ├── command.sh              # 复现脚本（POSIX shell，可直接执行）
     │   │   │   ├── output.txt              # 标准输出摘要
     │   │   │   ├── verbose_output.txt      # 详细输出（AI思考过程、工具调用等）★关键调试文件
     │   │   │   ├── debug.log               # 调试日志

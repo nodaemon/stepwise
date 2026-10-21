@@ -7,7 +7,7 @@ import * as childProcess from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ExecutionResult } from '../types';
-import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS, PROBE_TIMEOUT_MS, MAX_PROBE_ATTEMPTS, TRACE_FILE, PROMPT_STDIN_FILE, PROMPT_DELIVERY, PROBE_PROMPT } from '../constants';
+import { MAX_RETRIES, DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_WAIT_MS, PROBE_TIMEOUT_MS, MAX_PROBE_ATTEMPTS, TRACE_FILE, PROMPT_FILE, STDIN_PROMPT_FILE, PROMPT_DELIVERY, PROBE_PROMPT } from '../constants';
 import { Logger } from '../utils/logger';
 import { parseEnvEntries } from '../utils/envHelper';
 import { buildReproScript, writeReproScript, shellQuote, quoteIfNeeded } from '../utils/reproScript';
@@ -66,7 +66,7 @@ export abstract class BaseExecutor implements AgentExecutor {
    * 子类必须实现：构建命令行参数（**不含提示词**）
    *
    * 提示词由基类统一经 stdin 管道下发给 CLI，基类负责写入子进程 stdin，
-   * 并落盘到 <taskLogDir>/prompt_stdin.txt 供复现脚本引用。
+   * 并落盘到 <taskLogDir>/<promptLogFile> 供复现脚本引用。
    * 本方法只负责其余参数；CLI 读 stdin 所需的开关也写在这里
    * （如 mcode 需要 --input -，claude/pi 需要 -p 进入打印模式）。
    *
@@ -390,17 +390,30 @@ export abstract class BaseExecutor implements AgentExecutor {
     const command = this.getCommand();
     const fullCommand = this.buildCommandString(command, args);
 
-    // 提示词落盘：实际送入 stdin 的原始字节写入 prompt_stdin.txt（传输槽位，每次执行覆盖），
-    // 供 command.sh 用管道引用。细节见 writeStdinPromptFile()。
-    const stdinPromptFile = taskLogDir ? path.join(taskLogDir, PROMPT_STDIN_FILE) : null;
-    if (stdinPromptFile) {
-      this.writeStdinPromptFile(stdinPromptFile, prompt);
+    // 提示词落盘，两份文件各司其职：
+    //
+    // 1) 记录文件（长期留存）：本次实际下发的提示词。复现脚本 command.sh 引用它
+    //    ——提示词不在命令行参数里，复现靠的就是这个文件。文件名由调用方按提示词
+    //    类型指定（options.promptLogFile），同一任务目录内的不同提示词各记各的。
+    //
+    // 2) stdin 临时文件（固定名，进程退出即删）：运行时从它读出提示词喂给子进程。
+    //    所有执行在底层走同一条通路：写固定名文件 → 从它读 → 喂 stdin → 退出即删。
+    const promptLogFile = taskLogDir
+      ? path.join(taskLogDir, options.promptLogFile ?? PROMPT_FILE)
+      : null;
+    if (promptLogFile) {
+      this.writePromptFile(promptLogFile, prompt);
     }
 
-    // 复现命令：提示词不在 argv 中，改用管道把文件喂给 CLI
+    const stdinFile = taskLogDir ? path.join(taskLogDir, STDIN_PROMPT_FILE) : null;
+    if (stdinFile) {
+      this.writeStdinFile(stdinFile, prompt);
+    }
+
+    // 复现命令：提示词不在 argv 中，改用管道把记录文件喂给 CLI
     // （无任务日志目录时没有文件可引用，只能记录 CLI 调用本身）
-    const reproCommand = stdinPromptFile
-      ? `cat ${shellQuote(stdinPromptFile)} | ${fullCommand}`
+    const reproCommand = promptLogFile
+      ? `cat ${shellQuote(promptLogFile)} | ${fullCommand}`
       : fullCommand;
 
     return new Promise((resolve, reject) => {
@@ -409,7 +422,7 @@ export abstract class BaseExecutor implements AgentExecutor {
 
       // 保存执行信息到日志目录
       if (taskLogDir) {
-        this.saveExecutionInfo(taskLogDir, reproCommand, sessionId, args, cwd, timeout, options.useResume, debugFile, options.env, stdinPromptFile);
+        this.saveExecutionInfo(taskLogDir, reproCommand, sessionId, args, cwd, timeout, options.useResume, debugFile, options.env, promptLogFile);
       }
 
       // 执行命令
@@ -449,12 +462,16 @@ export abstract class BaseExecutor implements AgentExecutor {
 
       // 提示词经 stdin 管道下发
       // 管道传输不受命令行长度限制（Linux 单个 argv 上限为 128 KiB，提示词可能远超）
+      // 内容取自 stdin 临时文件（所有执行统一的通路）；读失败则回退到内存中的提示词，
+      // 保证临时文件写失败也不影响执行
+      const stdinContent = stdinFile ? this.readStdinFile(stdinFile) ?? prompt : prompt;
+
       // 必须挂 error 监听：子进程提前退出（参数错误、鉴权失败）会让管道写入触发 EPIPE，
       // 未处理的 stream error 会变成未捕获异常掀翻整个进程
       child.stdin?.on('error', () => {
         // 子进程提前退出导致的 EPIPE，忽略（执行结果由 stdout/stderr 与退出码判定）
       });
-      child.stdin?.end(prompt, 'utf-8');
+      child.stdin?.end(stdinContent, 'utf-8');
 
       let stdout = '';
       let stderr = '';
@@ -597,6 +614,11 @@ export abstract class BaseExecutor implements AgentExecutor {
           flushLineBuffers();
           verboseStream.end();
         }
+        // stdin 临时文件用完即删，目录里不留残留
+        // （长期留存的是提示词记录文件，command.sh 引用的是它）
+        if (stdinFile) {
+          this.removeStdinFile(stdinFile);
+        }
         resolve({
           stdout,
           stderr,
@@ -607,28 +629,68 @@ export abstract class BaseExecutor implements AgentExecutor {
   }
 
   /**
-   * 写入送入 stdin 的提示词文件
+   * 写入提示词记录文件
    *
-   * 写的是 prompt_stdin.txt：提示词传输用的临时槽位，同一任务目录内每次执行覆盖。
-   * 内容与本次送入子进程 stdin 的字节完全一致，因此该目录里的 command.sh
-   * （同样由本次执行覆盖）引用它时，复现的一定是同一次执行。
+   * 写的是「本次实际下发的提示词」，文件名由调用方按提示词类型指定
+   * （options.promptLogFile）：同一任务目录内的任务本体、postCheck、
+   * 输出校验重试、会话末尾 summarize 各记各的，互不覆盖。
    *
-   * 刻意不写 prompt.txt——那是 StepWise 侧的任务提示词日志，
-   * 同目录内 postCheck / 输出校验重试 / summarize 会用不同提示词重复执行，
-   * 覆盖它会让自检复盘拿到的证据错位。
+   * 该文件长期留存，是复现脚本（command.sh）引用的目标——
+   * 提示词不在命令行参数里，复现靠 `cat <记录文件> | <cli>`。
    *
-   * 落盘失败只告警不抛错：管道传输不依赖该文件，文件仅服务于复现与复盘。
+   * 落盘失败只告警不抛错：管道传输不依赖该文件。
    */
-  private writeStdinPromptFile(stdinPromptFile: string, prompt: string): void {
+  private writePromptFile(promptFile: string, prompt: string): void {
     try {
       // 目录兜底：任务日志目录由 StepWise 创建，此处再确认一次，
       // 避免目录缺失时整个执行因写文件失败而中断
-      fs.mkdirSync(path.dirname(stdinPromptFile), { recursive: true });
-      fs.writeFileSync(stdinPromptFile, prompt, 'utf-8');
+      fs.mkdirSync(path.dirname(promptFile), { recursive: true });
+      fs.writeFileSync(promptFile, prompt, 'utf-8');
     } catch (error) {
       console.warn(
-        `[${this.agentType}] 提示词文件写入失败（不影响执行，提示词经管道下发）: ${error}`
+        `[${this.agentType}] 提示词记录文件写入失败（不影响执行，提示词经管道下发）: ${error}`
       );
+    }
+  }
+
+  /**
+   * 写入 stdin 临时文件
+   *
+   * 固定名（STDIN_PROMPT_FILE），所有执行统一使用；
+   * 子进程退出后由 removeStdinFile() 删除，目录里不留残留。
+   */
+  private writeStdinFile(stdinFile: string, prompt: string): void {
+    try {
+      fs.mkdirSync(path.dirname(stdinFile), { recursive: true });
+      fs.writeFileSync(stdinFile, prompt, 'utf-8');
+    } catch (error) {
+      console.warn(
+        `[${this.agentType}] stdin 临时文件写入失败（回退到内存直传，不影响执行）: ${error}`
+      );
+    }
+  }
+
+  /**
+   * 读取 stdin 临时文件内容
+   * @returns 文件内容；读取失败返回 null（调用方回退到内存中的提示词）
+   */
+  private readStdinFile(stdinFile: string): string | null {
+    try {
+      return fs.readFileSync(stdinFile, 'utf-8');
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 删除 stdin 临时文件
+   * 删除失败不影响执行结果，静默忽略。
+   */
+  private removeStdinFile(stdinFile: string): void {
+    try {
+      fs.rmSync(stdinFile, { force: true });
+    } catch {
+      // 临时文件删不掉不影响执行（最多在目录里留一个残留文件）
     }
   }
 
@@ -645,7 +707,7 @@ export abstract class BaseExecutor implements AgentExecutor {
     useResume?: boolean,
     debugFile?: string,
     env?: string[],
-    stdinPromptFile?: string | null
+    promptLogFile?: string | null
   ): void {
     // 保存执行信息 JSON
     const execInfoFile = path.join(taskLogDir, 'execution_info.json');
@@ -662,8 +724,8 @@ export abstract class BaseExecutor implements AgentExecutor {
       env: env ?? null,
       // 提示词投递通道：提示词不在 args 中，经 stdin 管道下发
       promptDelivery: PROMPT_DELIVERY,
-      // 本次实际送入 stdin 的提示词文件（复现脚本通过它把提示词喂给 CLI）
-      promptStdinFile: stdinPromptFile ?? null
+      // 提示词记录文件（长期留存，复现脚本通过它把提示词喂给 CLI）
+      promptLogFile: promptLogFile ?? null
     };
     fs.writeFileSync(execInfoFile, JSON.stringify(execInfo, null, 2), 'utf-8');
 

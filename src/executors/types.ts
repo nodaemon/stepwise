@@ -62,6 +62,18 @@ export interface AgentExecutorOptions {
 
   /** 额外的环境变量数组，格式为 "KEY=VALUE" */
   env?: string[];
+
+  /**
+   * 提示词日志文件名（相对任务日志目录，默认 prompt.txt）
+   *
+   * 执行器把本次实际下发的提示词写入该文件（长期留存），
+   * 复现脚本 command.sh 引用它——提示词不在命令行参数里，复现靠的是这个文件。
+   *
+   * 同一任务目录内会用不同提示词重复执行，调用方应按提示词类型给出不同文件名
+   * （如任务本体用 prompt.txt、postCheck 用 post_check_prompt.txt），
+   * 避免后一次执行覆盖前一次的记录。
+   */
+  promptLogFile?: string;
 }
 
 /**

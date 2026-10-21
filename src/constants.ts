@@ -41,21 +41,33 @@ export const MAX_DISPLAY_ERRORS = 50;
 /** debug 模式自检报告文件名（与 output.txt 同级，落在任务日志目录下） */
 export const SELF_CHECK_FILE = 'self_check.md';
 
-// ============ 任务日志目录内的证据集文件名 ============
-// 以下三个文件构成任务的完整证据集：写入方（StepWise / executor）
-// 与读取方（debug 模式自检复盘）必须使用同一常量，改名时不会出现
-// 「写端已改、读端仍指向旧名」而导致自检静默降级的情况
+// ============ 任务日志目录内的提示词日志文件名 ============
+// 同一任务目录内会用不同提示词重复执行（任务本体、postCheck、输出校验重试、
+// 会话末尾 summarize），每种提示词各记一个文件、互不覆盖——
+// debug 模式自检复盘要按文件核对「这一步到底要求 agent 做什么」。
+// 写入方（StepWise 与执行器）与读取方必须使用同一常量，改名时不会出现
+// 「写端已改、读端仍指向旧名」而导致自检静默降级的情况。
 
 /**
- * 任务提示词日志文件名（写入方：各 exec 方法执行前）
+ * 任务提示词日志文件名（写入方：各 exec 方法执行前 + 执行器实际下发前）
  *
  * 语义是「这一步要求 agent 做什么」——同一步骤内稳定不变。
- * 执行器不写此文件：同一任务目录内可能用不同提示词重复执行
- * （postCheck、输出校验重试、会话末尾 summarize），
- * 若由执行器写入会覆盖任务提示词，进而污染 debug 模式自检复盘所依据的证据。
- * 实际送入 stdin 的提示词落在 PROMPT_STDIN_FILE。
  */
 export const PROMPT_FILE = 'prompt.txt';
+
+/** 后检查提示词日志文件名（postCheckPrompt） */
+export const POST_CHECK_PROMPT_FILE = 'post_check_prompt.txt';
+
+/** 会话末尾总结提示词日志文件名（summarize） */
+export const SUMMARIZE_PROMPT_FILE = 'summarize_prompt.txt';
+
+/** 输出文件缺失时的重试提示词日志文件名 */
+export const FILE_MISSING_PROMPT_FILE = 'file_missing_prompt.txt';
+
+/** 输出校验失败后的修复提示词日志文件名 */
+export const VALIDATION_FIX_PROMPT_FILE = 'validation_fix_prompt.txt';
+
+// ============ 最终输出与执行轨迹文件名 ============
 
 /** 最终输出文件名（写入方：writeTaskLogs / shell 任务） */
 export const OUTPUT_FILE = 'output.txt';
@@ -63,17 +75,20 @@ export const OUTPUT_FILE = 'output.txt';
 /** 执行轨迹文件名（写入方：executor 子进程执行期间实时追加） */
 export const TRACE_FILE = 'verbose_output.txt';
 
-// ============ 提示词传输槽位 ============
-// 不属于证据集：每次执行覆盖，内容随最近一次执行变化
+// ============ stdin 提示词临时文件名 ============
+// 不属于日志文件：进程退出即删，目录里不留残留。
 
 /**
- * 送入 stdin 的提示词文件名（写入方：执行器，每次执行覆盖）
+ * stdin 提示词临时文件名（写入方：执行器，子进程退出即删）
  *
- * 这是提示词传输用的临时槽位，不是日志条目：同一任务目录内每次执行都会覆盖它，
- * 因此其内容始终与该目录里 command.sh 所引用的那次执行一致，复现脚本不会跑偏。
- * 与 PROMPT_FILE（任务提示词日志）、post_check_prompt.txt（后检查提示词日志）分属不同语义。
+ * 运行时把提示词写进该固定名文件，再从它读出喂给子进程 stdin；
+ * 子进程退出后立即删除。长期留存的是上面的提示词日志文件，
+ * 复现脚本（command.sh）引用的是它们，不是这个临时文件。
+ *
+ * 固定名的意义：所有执行（任务 / postCheck / 校验重试 / summarize / 自检）
+ * 在底层走同一条通路——写固定名文件 → 从它读 → 喂 stdin → 退出即删。
  */
-export const PROMPT_STDIN_FILE = 'prompt_stdin.txt';
+export const STDIN_PROMPT_FILE = '.stdin_prompt';
 
 /**
  * 提示词投递通道

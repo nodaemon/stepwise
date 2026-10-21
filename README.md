@@ -236,8 +236,7 @@ stepwise_exec_infos/
         ├── logs/
         │   ├── execute.log                      ← per-step start / end / retry / skip
         │   ├── 1_collect/                       ← the 1st collect step
-        │   │   ├── prompt.txt                   ←   the prompt actually sent (task prompt log)
-        │   │   ├── prompt_stdin.txt             ←   the prompt fed to stdin (per-execution transport slot)
+        │   │   ├── prompt.txt                   ←   the task prompt (what was actually sent)
         │   │   ├── output.txt                   ←   final output
         │   │   ├── verbose_output.txt           ←   full reasoning and tool-call trace
         │   │   ├── command.sh                   ←   re-runnable as-is with ./command.sh (prompt piped in)

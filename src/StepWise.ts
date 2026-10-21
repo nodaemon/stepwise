@@ -70,6 +70,10 @@ import {
   REPORT_DIR,
   SELF_CHECK_FILE,
   PROMPT_FILE,
+  POST_CHECK_PROMPT_FILE,
+  SUMMARIZE_PROMPT_FILE,
+  FILE_MISSING_PROMPT_FILE,
+  VALIDATION_FIX_PROMPT_FILE,
   OUTPUT_FILE,
   TRACE_FILE,
   TaskType,
@@ -655,7 +659,7 @@ export class StepWise {
     this.logger?.logTaskStart(lastTask?.taskIndex || 0, 'summarize', sessionId);
 
     if (logDir) {
-      this.logger?.writeTaskLog(logDir, 'summarize_prompt.txt', summarizePrompt);
+      this.logger?.writeTaskLog(logDir, SUMMARIZE_PROMPT_FILE, summarizePrompt);
     }
 
     try {
@@ -668,6 +672,7 @@ export class StepWise {
         sessionId: sessionId,
         useResume: true,
         taskLogDir: logDir,
+        promptLogFile: SUMMARIZE_PROMPT_FILE,
         logger: this.logger!,
         taskIndex: lastTask?.taskIndex || 0,
         taskType: 'summarize'
@@ -1260,6 +1265,7 @@ export class StepWise {
           sessionId: this.currentSessionId,
           useResume: true,
           taskLogDir: context.taskLogDir,
+          promptLogFile: FILE_MISSING_PROMPT_FILE,
           logger: this.logger!,
           taskIndex: context.taskIndex,
           taskType: context.taskType
@@ -1303,6 +1309,7 @@ export class StepWise {
         sessionId: this.currentSessionId,
         useResume: true,
         taskLogDir: context.taskLogDir,
+        promptLogFile: VALIDATION_FIX_PROMPT_FILE,
         logger: this.logger!,
         taskIndex: context.taskIndex,
         taskType: context.taskType
@@ -1332,7 +1339,7 @@ export class StepWise {
 
     // 写入 postCheckPrompt 日志
     if (taskLogDir) {
-      this.logger?.writeTaskLog(taskLogDir, 'post_check_prompt.txt', processedPostCheckPrompt);
+      this.logger?.writeTaskLog(taskLogDir, POST_CHECK_PROMPT_FILE, processedPostCheckPrompt);
     }
 
     // 捕获执行结果以透传重试等待耗时（供性能统计分离实际执行时间）
@@ -1342,6 +1349,7 @@ export class StepWise {
       sessionId,
       useResume: true,
       taskLogDir,
+      promptLogFile: POST_CHECK_PROMPT_FILE,
       logger: this.logger!,
       taskIndex,
       taskType: 'check'
@@ -1431,6 +1439,7 @@ export class StepWise {
           sessionId: reviewSessionId,
           useResume: false,
           taskLogDir: reviewLogDir,
+          promptLogFile: PROMPT_FILE,
           logger: this.logger!,
           taskIndex,
           taskType: 'self_check'
@@ -1572,6 +1581,7 @@ export class StepWise {
       useResume,
       fork,
       taskLogDir,
+      promptLogFile: PROMPT_FILE,
       logger: this.logger!,
       taskIndex,
       taskType,
@@ -1711,6 +1721,7 @@ export class StepWise {
       useResume,
       fork,
       taskLogDir,
+      promptLogFile: PROMPT_FILE,
       logger: this.logger!,
       taskIndex,
       taskType,
@@ -1875,6 +1886,7 @@ export class StepWise {
       useResume,
       fork,
       taskLogDir,
+      promptLogFile: PROMPT_FILE,
       logger: this.logger!,
       taskIndex,
       taskType,
@@ -2038,6 +2050,7 @@ export class StepWise {
       useResume,
       fork,
       taskLogDir,
+      promptLogFile: PROMPT_FILE,
       logger: this.logger!,
       taskIndex,
       taskType,
@@ -2201,6 +2214,7 @@ export class StepWise {
       useResume,
       fork,
       taskLogDir,
+      promptLogFile: PROMPT_FILE,
       logger: this.logger!,
       taskIndex,
       taskType,
@@ -2487,6 +2501,7 @@ export class StepWise {
         sessionId: sessionId,
         useResume: true,
         taskLogDir: logDir,
+        promptLogFile: PROMPT_FILE,
         logger: this.logger!,
         taskIndex,
         taskType: 'summarize'

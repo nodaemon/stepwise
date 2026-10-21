@@ -177,21 +177,34 @@ Linux 对单个 argv 字符串的硬上限是 `MAX_ARG_STRLEN = 32 × PAGE_SIZE 
 
 ### 落盘与复现
 
-- 运行时提示词在内存里直接进管道，**不需要临时文件**
-- 有任务日志目录时，执行器会把**实际送入 stdin 的原始字节**写入 `<taskLogDir>/prompt_stdin.txt`
-  ——这是提示词传输用的**临时槽位**（每次执行覆盖），内容始终与该目录里 `command.sh`
-  所引用的那次执行一致，复现脚本不会跑偏
-- 执行器**不写** `prompt.txt`：那是 StepWise 侧的任务提示词日志（语义 = 这一步要求 agent 做什么，
-  同一步骤内稳定不变）。同一任务目录内会用不同提示词重复执行（postCheck、输出校验重试、
-  会话末尾 summarize），若由执行器覆盖 `prompt.txt`，debug 模式自检复盘读到的证据就会变成
-  postCheck/校验提示词而非任务提示词
-- `command.sh` 末行因此变为管道形式，可直接 `sh command.sh` 原样重跑：
+任务日志目录里有两类文件，各司其职：
 
-  ```sh
-  cat '/abs/path/logs/3_task/prompt_stdin.txt' | claude --dangerously-skip-permissions ... -p
-  ```
+**1) 提示词记录文件（长期留存）**
 
-- `execution_info.json` 的 `args` 不再含提示词，另记录 `promptDelivery: "stdin"` 与 `promptStdinFile`
+执行器把**本次实际下发的提示词**写入 `options.promptLogFile` 指定的文件（默认 `prompt.txt`）。
+文件名由调用方按提示词类型给出，同一任务目录内的不同提示词各记各的、互不覆盖：
+
+| 提示词 | 记录文件 | 常量 |
+|---|---|---|
+| 任务本体 | `prompt.txt` | `PROMPT_FILE` |
+| postCheck | `post_check_prompt.txt` | `POST_CHECK_PROMPT_FILE` |
+| 会话末尾总结 | `summarize_prompt.txt` | `SUMMARIZE_PROMPT_FILE` |
+| 输出文件缺失重试 | `file_missing_prompt.txt` | `FILE_MISSING_PROMPT_FILE` |
+| 输出校验失败修复 | `validation_fix_prompt.txt` | `VALIDATION_FIX_PROMPT_FILE` |
+
+`command.sh` 末行引用其中与本次执行对应的那一份，因此复现的一定是同一次执行：
+
+```sh
+cat '/abs/path/logs/3_task/prompt.txt' | claude --dangerously-skip-permissions ... -p
+```
+
+**2) stdin 临时文件（用完即删）**
+
+运行时的提示词写进固定名文件 `STDIN_PROMPT_FILE`（`.stdin_prompt`），再从它读出喂给子进程 stdin；
+子进程退出后立即删除，目录里不留残留。固定名的意义是**所有执行在底层走同一条通路**：
+写固定名文件 → 从它读 → 喂 stdin → 退出即删。
+
+`execution_info.json` 的 `args` 不再含提示词，另记录 `promptDelivery: "stdin"` 与 `promptLogFile`。
 
 ### 迁移说明（面向继承 BaseExecutor 的第三方执行器）
 
