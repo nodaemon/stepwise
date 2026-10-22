@@ -41,6 +41,26 @@ export const MAX_DISPLAY_ERRORS = 50;
 /** debug 模式自检报告文件名（与 output.txt 同级，落在任务日志目录下） */
 export const SELF_CHECK_FILE = 'self_check.md';
 
+/**
+ * debug 模式自检提示词文件名（与 output.txt 同级，落在任务日志目录下）
+ *
+ * 自检不再使用独立的 self_check 目录，而是与步骤产物同处一个步骤目录；
+ * 凡是与步骤本体重名的文件都加 SELF_CHECK_ARTIFACT_PREFIX 前缀，
+ * 提示词记录文件由调用方显式指定（执行器不对它加前缀，避免二次加前缀）。
+ */
+export const SELF_CHECK_PROMPT_FILE = 'self_check_prompt.txt';
+
+/**
+ * debug 模式自检产物的文件名前缀
+ *
+ * 作用范围：执行器生成的产物（command.sh / execution_info.json / debug.log /
+ * verbose_output.txt / error_report.txt / stdin 临时文件）。
+ *
+ * 用前缀替代独立目录：审查者与步骤本体共用一个步骤目录，靠文件名区分，
+ * 既保留「审查者不覆盖步骤本地产物」的保证，又不必再开一个 self_check 目录。
+ */
+export const SELF_CHECK_ARTIFACT_PREFIX = 'self_check_';
+
 // ============ 任务日志目录内的提示词日志文件名 ============
 // 同一任务目录内会用不同提示词重复执行（任务本体、postCheck、输出校验重试、
 // 会话末尾 summarize），每种提示词各记一个文件、互不覆盖——
@@ -57,6 +77,40 @@ export const PROMPT_FILE = 'prompt.txt';
 
 /** 后检查提示词日志文件名（postCheckPrompt） */
 export const POST_CHECK_PROMPT_FILE = 'post_check_prompt.txt';
+
+/**
+ * 后检查判定结果文件名（postCheckPrompt）
+ *
+ * 后检查是「用同会话再问一次」的检查动作，判定文本此前只回显在会话里、
+ * 没有任何文件承载。落盘后，debug 模式的自检复盘才能把它当作输入：
+ * 提示词审「后检查要求是否清晰」，输出审「步骤产出是否满足后检查要求」。
+ */
+export const POST_CHECK_OUTPUT_FILE = 'post_check_output.txt';
+
+// ============ 同一步骤目录内多次执行的产物前缀 ============
+// 一个步骤目录里会先后跑好几次执行：步骤本体、后检查、输出缺失重试、
+// 校验失败修复、会话末尾总结、自检复盘。每次执行都会生成 command.sh /
+// execution_info.json / debug.log / verbose_output.txt 等产物——
+// 不加区分时，后一次执行会覆盖前一次的产物，步骤本体的复现脚本也会消失。
+//
+// 规则：**步骤本体**独占无前缀的名字（command.sh 就是「这一步」的复现脚本），
+// 其余每种执行都带自己的前缀（post_check_command.sh、file_missing_command.sh……），
+// 与该次执行的提示词记录文件同名前缀（post_check_prompt.txt ↔ post_check_command.sh）。
+//
+// 提示词记录文件不加前缀——它的名字由调用方显式指定（options.promptLogFile），
+// 避免「前缀 + 已带前缀的名字」造成二次加前缀。
+
+/** 后检查执行的产物前缀 */
+export const POST_CHECK_ARTIFACT_PREFIX = 'post_check_';
+
+/** 输出文件缺失重试的产物前缀 */
+export const FILE_MISSING_ARTIFACT_PREFIX = 'file_missing_';
+
+/** 输出校验失败修复的产物前缀 */
+export const VALIDATION_FIX_ARTIFACT_PREFIX = 'validation_fix_';
+
+/** 会话末尾总结的产物前缀（总结落在步骤目录内时使用） */
+export const SUMMARIZE_ARTIFACT_PREFIX = 'summarize_';
 
 /** 会话末尾总结提示词日志文件名（summarize） */
 export const SUMMARIZE_PROMPT_FILE = 'summarize_prompt.txt';

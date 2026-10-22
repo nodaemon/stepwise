@@ -280,10 +280,14 @@ export function buildSummarizePrompt(skillsDir: string): string {
  * 构建自检复盘提示词
  *
  * 该提示词运行在一个**全新会话**中：审查者没有参与被审查的执行，也没有相关记忆，
- * 只能依据传入的三个证据文件作判断。因此措辞不能出现「回顾你刚才的工作」这类
+ * 只能依据传入的文件作判断。因此措辞不能出现「回顾你刚才的工作」这类
  * 依赖记忆的表述，必须显式声明「你没有任何记忆」，把判断锚定回文件。
  *
- * @param params 工作流名称、步骤标识与三个证据文件、报告的绝对路径
+ * 审查对象是**输入本身的工作流程与思路**（提示词 / 后检查提示词 / Skill 内容），
+ * 而不是执行过程：模型自身的行为问题（工具调用命令写错、失败重试、重复思考等）
+ * 由「不要计入的问题」明确排除。执行轨迹因此不在输入列表内。
+ *
+ * @param params 工作流名称、步骤标识、输入文件与报告的绝对路径
  * @returns 完整提示词
  */
 export function buildSelfCheckPrompt(params: {
@@ -292,14 +296,105 @@ export function buildSelfCheckPrompt(params: {
   taskIndex: number;
   promptFilePath: string;
   outputFilePath: string;
-  traceFilePath: string;
+  /** 该步骤的真实产出文件（collect/report 的 JSON 等）；存在时作为证据输入 */
+  resultFilePath?: string;
+  /** 后检查提示词文件（该步骤配置了 postCheckPrompt 时才有） */
+  postCheckPromptFilePath?: string;
+  /** 后检查判定结果文件（后检查真实执行且产出结果时才有） */
+  postCheckOutputFilePath?: string;
+  /** 提示词要求加载的 skill 文件（SKILL.md） */
+  skillFilePaths?: string[];
+  /** skill 候选目录，供审查者自行查找 */
+  skillDirs?: string[];
+  /** 提示词要求使用 skill 但框架未能定位到文件 */
+  skillUnresolved?: boolean;
   reportPath: string;
 }): string {
-  const { taskName, stepLabel, taskIndex, promptFilePath, outputFilePath, traceFilePath, reportPath } = params;
+  const {
+    taskName,
+    stepLabel,
+    taskIndex,
+    promptFilePath,
+    outputFilePath,
+    resultFilePath,
+    postCheckPromptFilePath,
+    postCheckOutputFilePath,
+    skillFilePaths = [],
+    skillDirs = [],
+    skillUnresolved = false,
+    reportPath
+  } = params;
 
-  return `你是一位独立的质量审查者。下面是一个 AI 工作流中刚执行完的一步任务，以及它的完整执行记录。
+  // 输入文件列表按实际存在与否动态组装，序号随列表连续
+  interface InputItem { label: string; filePath: string }
+  const inputs: InputItem[] = [
+    { label: '本步骤收到的完整提示词', filePath: promptFilePath },
+    { label: '本步骤的最终输出', filePath: outputFilePath }
+  ];
+  if (resultFilePath) {
+    inputs.push({ label: '本步骤的实际产出文件', filePath: resultFilePath });
+  }
+  if (postCheckPromptFilePath) {
+    inputs.push({ label: '本步骤的后检查提示词', filePath: postCheckPromptFilePath });
+  }
+  if (postCheckOutputFilePath) {
+    inputs.push({ label: '本步骤的后检查结果', filePath: postCheckOutputFilePath });
+  }
+  for (const skillPath of skillFilePaths) {
+    inputs.push({ label: '本步骤要求加载的 Skill', filePath: skillPath });
+  }
 
-你没有参与这次执行，也没有任何关于它的记忆。请**仅依据下面三个文件**作出判断，不要依据任何推测。
+  const inputLines = inputs.map(
+    (item, index) => `${index + 1}. ${item.label}：${item.filePath}`
+  ).join('\n');
+
+  // 审查对象与输入文件序号的对应关系（只列出实际存在的对象）
+  const reviewObjects: string[] = ['- 对象 A：本步骤提示词（文件 1）'];
+  let postCheckPromptNo = 0;
+  let postCheckOutputNo = 0;
+  let skillNoStart = 0;
+  inputs.forEach((item, index) => {
+    if (item.label === '本步骤的后检查提示词') postCheckPromptNo = index + 1;
+    if (item.label === '本步骤的后检查结果') postCheckOutputNo = index + 1;
+  });
+  skillNoStart = inputs.findIndex(i => i.label === '本步骤要求加载的 Skill') + 1;
+
+  if (postCheckPromptNo > 0) {
+    reviewObjects.push(`- 对象 B：后检查提示词（文件 ${postCheckPromptNo}）`);
+  }
+  if (skillNoStart > 0) {
+    const skillNos = skillFilePaths.length === 1
+      ? `文件 ${skillNoStart}`
+      : `文件 ${skillNoStart}-${skillNoStart + skillFilePaths.length - 1}`;
+    reviewObjects.push(`- 对象 C：Skill 内容（${skillNos}）`);
+  }
+
+  // 后检查结果的用法小节（仅当真的有判定结果时出现）
+  const postCheckSection = postCheckOutputNo > 0 ? `
+
+## 后检查要求的达成情况
+
+${postCheckPromptNo > 0
+    ? `后检查提示词（文件 ${postCheckPromptNo}）对这一步提出了额外要求，后检查结果（文件 ${postCheckOutputNo}）是它的判定。`
+    : `后检查结果（文件 ${postCheckOutputNo}）是这一步的额外检查判定。`}
+
+- 若后检查结果判定为**不通过**：请定位**输入侧**的原因（目标有歧义 / 需要补充 / 内容冗余 / 存在逻辑错误），逐字引用相关原文后写入报告。
+- 若原因明显属于模型执行本身（工具用错、命令写错等），按下方「不要计入的问题」处理，不要写进报告。
+- 若后检查结果判定为通过：一般不写任何内容。
+` : '';
+
+  // skill 未定位到时的说明
+  const skillUnresolvedSection = skillUnresolved ? `
+
+**提示词要求使用 skill，但框架未能定位到具体的 skill 文件。** 候选目录：${skillDirs.length > 0 ? skillDirs.join('、') : '（无）'}。
+
+- 若你在这些目录里确实找不到对应的 SKILL.md，这属于「需要补充」的候选证据（提示词引用了一个环境中并不存在的 skill），请据此写报告并逐字引用提示词里提到 skill 的那句话。
+- 若确实存在，请自行读取后按同样的四个维度检查它。
+` : '';
+
+  return `你是一位独立的质量审查者。下面是一个 AI 工作流中刚执行完的一步任务，以及它的相关文件。
+
+你没有参与这次执行，也没有任何关于它的记忆。请**仅依据下面列出的文件**作出判断，不要依据任何推测。
 
 ## 待审步骤
 
@@ -308,57 +403,60 @@ export function buildSelfCheckPrompt(params: {
 
 ## 输入文件（必须读取后才能作答）
 
-1. 本步骤收到的完整提示词：${promptFilePath}
-2. 本步骤的最终输出：${outputFilePath}
-3. 本步骤的完整执行轨迹（思考过程 / 工具调用 / 工具返回）：${traceFilePath}
+${inputLines}
 
 读取方式：
 
-- 文件 1、文件 2 体积小，请完整读取
-- 文件 3 可能很大：先用 Grep 定位关键片段（如 \`[Thinking]\`、以 \`[\` 开头的工具调用段、\`[Tool Result]\`），需要更多上下文时再用 Read 的 offset/limit 分段读取
-- 若文件 3 为空或不存在，说明该步骤没有留下可用的过程记录：此时只依据文件 1 和文件 2 判断，并在报告中注明「执行轨迹不可用，维度四未审查」
+${resultFilePath
+    ? '- 「本步骤的最终输出」只是 agent 的最后一段话，往往很短；**「本步骤的实际产出文件」才是这一步真正交付的数据**，两者都要看\n'
+    : '- 除「本步骤的最终输出」外，其余文件体积都很小，请完整读取\n'}
+- 若某个文件为空或不存在，说明这一步没有留下该产物：此时只依据其余文件判断，并在报告中注明该文件不可用
 
 **文件里没有的信息，一律视为「无法确认」，不要推测。**
+
+## 审查对象
+
+本次审查有下列对象，各自独立接受下面同样的检查：
+
+${reviewObjects.join('\n')}
 
 ## 复盘原则
 
 只写你在证据中确实看到的问题。四个维度都可能没有问题——没问题的维度整节省略，连标题都不要写。
 
 不要为了填满四个维度而编造内容。找不到证据支撑的判断，直接不写。四个维度都没有问题时，只写一行：\`本次执行未发现需要改进的问题。\`
+${postCheckSection}${skillUnresolvedSection}
+## 维度一：目标与思路是否清晰
 
-## 维度一：目标是否清晰明确
-
-**计入标准**：任务目标存在歧义、可被合理理解为两种以上做法；或验收标准缺失，导致执行者必须自行猜测「做到什么程度算完成」。
+**计入标准**：目标存在歧义、可被合理理解为两种以上做法；或工作流程与思路没讲清楚（步骤顺序、前置条件、判定标准缺失），导致执行者必须自行猜测「该按哪种做法做」。
 
 **不计入**：换个说法会更好听；风格偏好；对框架自动生成的指令有意见（见下方「不要计入的问题」）。
 
-**证据要求**：从文件 1 逐字引用能证明存在歧义的那句话。
+**证据要求**：从被审查对象的文件里逐字引用能证明存在歧义或思路缺失的那句话。
 
-## 维度二：输入信息是否缺失
+## 维度二：是否需要补充
 
 **计入标准**：为了完成任务，执行者不得不**自己假设**某个信息，而这个假设影响了最终产出。
 
 **不计入**：「再多给点上下文会更好」这类泛泛之谈；执行者实际没有用到的信息。
 
-**证据要求**：指出文件 1 中**没有**说明该信息的位置，并引用文件 3 中执行者绕开这个空缺的做法（说明这个空缺真实存在）。
+**证据要求**：指出被审查对象的文件中**没有**说明该信息的位置，并引用「本步骤的最终输出」${resultFilePath ? '、「本步骤的实际产出文件」' : ''}或「后检查结果」里执行者绕开这个空缺的做法（说明这个空缺真实存在）。
 
-## 维度三：输入信息是否冗余
+## 维度三：是否冗余
 
-**计入标准**：文件 1 中存在与本次目标无关、重复、或互相冲突的内容，且它实际消耗了注意力或误导了判断。
+**计入标准**：被审查对象的文件中存在与本次目标无关、重复、或互相冲突的内容，且它实际消耗了注意力或误导了判断。
 
 **不计入**：内容虽长但确实被用到的部分；框架自动注入的内容（见下方）。
 
-**证据要求**：从文件 1 逐字引用你认为冗余的片段。
+**证据要求**：从被审查对象的文件里逐字引用你认为冗余的片段。
 
-## 维度四：工具调用与思考是否走了弯路
+## 维度四：是否有逻辑错误
 
-**计入标准**：文件 3 中真实发生过的返工——走错方向后回头、反复读取同一文件、工具选错、命令失败后重试、因前一步理解错误而连锁返工。
+**计入标准**：文件内部自相矛盾；两条要求互斥；步骤顺序颠倒；引用了不存在的文件或字段；验收标准与目标不一致。
 
-**不计入**：正常的信息收集过程；一次成功就直接完成的操作。
+**不计入**：可容忍的措辞不严；对框架行为的意见。
 
-**证据要求**：引用**连续片段**（通常是一个工具调用加上它的返回），让人能看出「这里本可以不走弯路」。孤立地引用一个失败结果无法证明存在弯路。
-
-**建议要求**：每条弯路都要给出**下次遇到同类情况可以直接照做的具体动作**，而不是「下次小心一点」。
+**证据要求**：逐字引用**互相冲突的两处**（或错误引用处），让人能看出问题所在。
 
 ## 不要计入的问题
 
@@ -367,9 +465,15 @@ export function buildSelfCheckPrompt(params: {
 - 文件 1 中由 \`---\` 分隔线隔开的框架注入段落（文件访问白名单、输出格式 / JSON Schema、调试模式说明等）
 - 工具返回内容被截断
 
+以下内容属于**模型执行层面的问题**，同样请勿写进报告——它们是模型自身的行为，不是提示词或 skill 的问题，即使在文件里清楚可见也不要写：
+
+- 工具调用命令写错、命令执行失败、失败后重试
+- 重复思考、反复读取同一文件、走错方向后回头、返工
+- 思考过程冗长、工具选型不佳、模型幻觉
+
 ## 证据要求（硬性）
 
-每一条结论都必须附带从上述文件中**逐字复制**的原文片段，放在代码块里，并注明来自哪个文件。
+每一条结论都必须附带从上述文件中**逐字复制**的原文片段，放在代码块里，并注明来自哪个文件、哪个审查对象。
 
 无法定位到原文的判断，说明你无法确认，不要写进报告。
 
@@ -387,20 +491,22 @@ export function buildSelfCheckPrompt(params: {
 按需包含下列小节，每条问题按下述格式书写：
 
 \`\`\`markdown
-## 目标清晰度
+## 目标与思路
 
 ### [严重级：高 | 中 | 低] 一句话问题标题
+- **审查对象**：本步骤提示词 / 后检查提示词 / Skill：<名字>
 - **现象**：实际发生了什么
-- **证据**（来自 提示词 / 输出 / 执行轨迹）：
+- **证据**（来自 提示词 / 后检查提示词 / Skill / 输出 / 后检查结果）：
   \`\`\`
   逐字引用的原文片段
   \`\`\`
 - **影响**：这个问题会如何影响结果
-- **建议**：工作流编写者可以怎样改进提示词（维度一/二/三）
-           或下次同类任务可以怎样做得更好（维度四）
+- **建议**：工作流编写者可以怎样改进提示词或 skill
 \`\`\`
 
 四个维度都没有问题时，文件中只写一行 \`本次执行未发现需要改进的问题。\`
+
+**无论有没有发现问题，都必须创建这个文件。** 没发现问题就写上面那一行，不要因为「没有可写的」而跳过创建。
 
 完成后回复一句简短的完成说明即可。`;
 }

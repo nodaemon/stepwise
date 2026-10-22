@@ -149,10 +149,28 @@ setResumePath('AnalyzeCodebase_20260307_103000_123');
 **自检复盘**
 
 开启调试模式后，`execPrompt` / `execCollectPrompt` / `execCheckPrompt` / `execReport` /
-`execPromptSchema` 每成功执行一步，框架会**新开一个会话**，把这一步的
-`prompt.txt`、`output.txt`、`verbose_output.txt` 交给一个独立的第三方审查者，
-复盘四个维度：目标是否清晰、输入信息是否缺失、输入信息是否冗余、
-工具调用与思考是否走了弯路。
+`execPromptSchema` 每成功执行一步，框架会**新开一个会话**，把这一步的**输入**交给一个
+独立的第三方审查者，复盘四个维度：目标与思路是否清晰、是否需要补充、是否冗余、
+是否有逻辑错误。
+
+审查对象有三个，各自接受同样的检查：
+
+- 本步骤的提示词（`prompt.txt`）
+- 后检查提示词（`post_check_prompt.txt`）与后检查判定结果（`post_check_output.txt`）——
+  该步骤配置了 `postCheckPrompt` 时才有
+- 提示词明确要求加载的 Skill 文件（`SKILL.md`）—— 框架按提示词点名与执行轨迹中
+  出现过的 `SKILL.md` 路径定位
+
+除审查对象外，审查者还能拿到这些**事实依据**：
+
+- 本步骤的最终输出（`output.txt`，agent 的最后一段话）
+- 本步骤的**实际产出文件**（collect / report / schema 步骤交付的 JSON）——
+  数据产出类步骤真正交付的东西就在这里，只看 `output.txt` 会漏掉全部数据
+- 后检查的判定结果（配置了 `postCheckPrompt` 时）
+
+**模型自身的行为问题不在复盘范围内**：工具调用命令写错、命令失败与重试、重复思考、
+反复读取同一文件、走错方向后回头等，都属于模型自身的行为，不是提示词或 Skill 的问题，
+不会被写进报告。执行轨迹 `verbose_output.txt` 因此也不作为审查输入。
 
 因为运行在全新会话中，审查者对原过程没有任何记忆，只能依据上述文件判断；
 同时提示词强制要求**每条结论逐字引用原文**，引用不到就不输出，以避免编造。
@@ -163,25 +181,40 @@ setResumePath('AnalyzeCodebase_20260307_103000_123');
 ```
 stepwise_exec_infos/<任务名>_<时间戳>/<Agent名>_<时间戳>/
 ├── logs/
-│   ├── 1_collect/                ← 被审查的步骤
-│   │   ├── prompt.txt            ← 证据
-│   │   ├── output.txt            ← 证据
-│   │   ├── verbose_output.txt    ← 证据
-│   │   ├── command.sh / execution_info.json / usage.json
-│   │   └── self_check.md         ← 自检报告（与 output.txt 同级）
-│   └── 1_self_check/             ← 审查者自身的执行日志
+│   ├── 1_collect/                   ← 被审查的步骤
+│   │   ├── prompt.txt               ← 证据
+│   │   ├── output.txt               ← 证据
+│   │   ├── post_check_prompt.txt    ← 后检查提示词（配置了 postCheckPrompt 时）
+│   │   ├── post_check_output.txt    ← 后检查判定结果
+│   │   ├── self_check_prompt.txt    ← 审查者的提示词
+│   │   ├── self_check.md            ← 自检报告（与 output.txt 同级）
+│   │   ├── self_check_verbose_output.txt
+│   │   ├── self_check_command.sh / self_check_execution_info.json
+│   │   └── command.sh / execution_info.json / usage.json
 ```
 
-报告文件名固定为 `self_check.md`。审查者的执行日志放在独立的 `1_self_check/`
-目录：它需要读取 `verbose_output.txt`，若共用目录会把自己的读取记录追加进这份
-证据文件，同时会覆盖父任务的 `command.sh` 等产物。
+报告文件名固定为 `self_check.md`，与步骤产物**同处一个步骤目录**（不再有独立的
+`1_self_check/` 目录）。审查者自己的产物一律加 `self_check_` 前缀，因此不会覆盖
+步骤本体的 `command.sh` / `execution_info.json` / `debug.log` / `verbose_output.txt`。
+
+**同一步骤目录内的多次执行各有各的复现脚本**：步骤本体独占无前缀的 `command.sh`，
+后检查、输出缺失重试、校验失败修复、会话末尾总结各自带前缀
+（`post_check_command.sh` / `file_missing_command.sh` /
+`validation_fix_command.sh` / `summarize_command.sh`），与该次执行的提示词记录文件
+同名前缀，互不覆盖。
+
+**`self_check.md` 必定存在**：没有问题时正文只写一行
+`本次执行未发现需要改进的问题。`；审查者没写文件或自检执行失败时，框架会补一份
+如实说明「未完成」的文件——不会谎报「未发现问题」。
 
 **注意事项**
 
 - 自检失败不会中断主流程，只在 `execute.log` 中记录
 - 自检不占用任务序号，也不写入 `progress.json`，不影响断点恢复
 - 自检耗时在 `performance.txt` 中以 `selfCheck` 类型单独统计
-- 断点恢复重跑时，报告会覆盖为最新结果，审查者日志追加到上次的 `1_self_check/`
+- 断点恢复重跑时，报告会覆盖为最新结果，审查者轨迹追加到上次的 `self_check_verbose_output.txt`
+- debug 模式下 `postCheckPrompt` **也会真实执行**（生产模式同理）：后检查失败
+  不中断主流程，只在 `execute.log` 中记录，判定结果仍会写入 `post_check_output.txt`
 
 **示例**
 
@@ -570,7 +603,7 @@ Linux 对单个 argv 字符串的硬上限是 128 KiB（`MAX_ARG_STRLEN`），�
 后检查记在 `post_check_prompt.txt`，会话末尾总结记在 `summarize_prompt.txt`，
 输出校验重试记在 `file_missing_prompt.txt` / `validation_fix_prompt.txt`。
 `command.sh` 引用其中与本次执行对应的那一份，因此复现的一定是同一次执行。
-运行时另有一个固定名的 stdin 临时文件供各执行统一使用，子进程退出后即被删除，目录里不留残留。
+运行时各执行各用一个 stdin 临时文件（无前缀时是 `.stdin_prompt`，带前缀时是 `.<前缀>stdin_prompt`），子进程退出后即被删除，目录里不留残留。
 
 `execution_info.json` 记录 `promptDelivery: "stdin"` 与 `promptLogFile` 路径，
 `args` 中不再内嵌提示词。

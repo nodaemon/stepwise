@@ -74,6 +74,20 @@ export interface AgentExecutorOptions {
    * 避免后一次执行覆盖前一次的记录。
    */
   promptLogFile?: string;
+
+  /**
+   * 产物文件名前缀（相对任务日志目录）
+   *
+   * 同一任务目录内会用不同提示词重复执行（任务本体、postCheck、自检复盘），
+   * 每次执行都会生成 command.sh / execution_info.json / debug.log /
+   * verbose_output.txt 等产物。加前缀后，本次执行的产物带前缀落盘，
+   * 不覆盖目录里已有同名文件。
+   *
+   * 作用范围：执行器自己生成的产物文件。
+   * **提示词记录文件不受影响**——它的文件名由 options.promptLogFile 显式指定，
+   * 避免「前缀 + 已带前缀的名字」造成二次加前缀。
+   */
+  artifactPrefix?: string;
 }
 
 /**

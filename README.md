@@ -214,7 +214,11 @@ await agent.execPrompt('Step 3: Process item $name', { data: { name: 'item1' } }
 
 **Self-check review in debug mode**
 
-After every AI step succeeds in debug mode, the framework opens a new session and hands that step's prompt, output, and execution trace to an independent reviewer, which checks whether the goal is clear, whether input is missing or redundant, and whether tool calls went down detours. The reviewer must quote source text verbatim to back each finding — anything it cannot quote is dropped. The report lands in `self_check.md` next to `output.txt`; see [Execution Output Layout](#execution-output-layout).
+After every AI step succeeds in debug mode, the framework opens a new session and hands that step's **inputs** to an independent reviewer: the step prompt, the final output, the step's post-check prompt and verdict (when `postCheckPrompt` is set), and any Skill file the prompt explicitly requires loading. What gets reviewed is the **input's own workflow and reasoning** — whether the goal and approach are clear, whether something needs to be added, whether anything is redundant, and whether there are logic errors. The model's own behaviour (malformed tool calls, failed-and-retried commands, repeated thinking, backtracking) is out of scope.
+
+The reviewer must quote source text verbatim to back each finding — anything it cannot quote is dropped. The report lands in `self_check.md` next to `output.txt` and is **always created**: with no findings it says so explicitly. See [Execution Output Layout](#execution-output-layout).
+
+In debug mode `postCheckPrompt` now **really runs** (as it does in production), so both the clarity of the post-check requirements and whether the step's output satisfies them are within the review's reach. A failing post-check never aborts the step in debug mode.
 
 ---
 
@@ -244,10 +248,19 @@ stepwise_exec_infos/
         │   │   ├── usage.json                   ←   token usage (NDJSON executors)
         │   │   ├── schema.json                  ←   schema definition for execPromptSchema
         │   │   ├── post_check_prompt.txt        ←   the postCheckPrompt text
+        │   │   ├── post_check_output.txt        ←   the post-check verdict
+        │   │   ├── post_check_command.sh        ←   re-runnable script of the post-check run
+        │   │   ├── file_missing_prompt.txt      ←   prompt of the "output missing" retry
+        │   │   ├── file_missing_command.sh      ←   re-runnable script of that retry
+        │   │   ├── validation_fix_prompt.txt    ←   prompt of the "validation failed" repair
+        │   │   ├── validation_fix_command.sh    ←   re-runnable script of that repair
+        │   │   ├── self_check_prompt.txt        ←   the reviewer's prompt (debug mode only)
+        │   │   ├── self_check.md                ←   self-check report (debug mode only)
+        │   │   ├── self_check_verbose_output.txt←   the reviewer's own execution trace
+        │   │   ├── self_check_command.sh        ←   the reviewer's re-runnable script
         │   │   ├── error.txt                    ←   failure reason (only on failure)
-        │   │   └── self_check.md                ←   self-check report (debug mode only)
-        │   ├── 2_task/                          ← 2nd step, and so on
-        │   └── 1_self_check/                    ← reviewer's own logs (debug mode only)
+        │   │   └── ...
+        │   └── 2_task/                          ← 2nd step, and so on
         └── collect/
             └── 1_collect/
                 └── collect_1.json               ← output of collection steps
@@ -261,7 +274,20 @@ Step folders are named `{index}_{type}`, where the type comes from the `exec*` c
 | `usage.json` | Using Claude Code / CodeAgent / mcode (NDJSON executors) |
 | `schema.json` | `execPromptSchema` |
 | `post_check_prompt.txt` | That step set `postCheckPrompt` |
+| `post_check_output.txt` | That step set `postCheckPrompt` (the post-check verdict) |
+| `post_check_command.sh` | Same (re-runnable script of the post-check run) |
+| `file_missing_prompt.txt` / `file_missing_command.sh` | An "output file missing" retry happened |
+| `validation_fix_prompt.txt` / `validation_fix_command.sh` | A "validation failed" repair happened |
+| `summarize_prompt.txt` / `summarize_command.sh` | The end-of-session summary landed in that step's directory |
 | `self_check.md` | Self-check review in debug mode |
+| `self_check_prompt.txt` / `self_check_verbose_output.txt` / `self_check_command.sh` | The reviewer's own artifacts in debug mode (`self_check_` prefix keeps them from overwriting the step's files of the same name) |
+
+A step folder runs several executions in sequence (the step body, the post-check, the
+output-missing retry, the validation-failed repair, the end-of-session summary, the
+self-check). The **step body owns the unprefixed `command.sh`** — it always is that
+step's re-runnable script. Every other execution carries its own prefix
+(`post_check_command.sh`, `file_missing_command.sh`, …) matching its prompt log
+(`post_check_prompt.txt` ↔ `post_check_command.sh`), so they never overwrite each other.
 
 Nothing here is write-only: `progress.json` decides where a resume picks up, `command.sh` lets any single step be re-run outside the framework, and `verbose_output.txt` preserves exactly what the agent saw, did, and where it wandered.
 
@@ -295,7 +321,7 @@ npm run test:coverage
 | Path | Responsibility |
 |---|---|
 | `src/executors/` | Adapter layer per CLI backend. `base.ts` defines the `BaseExecutor` abstract class (`agentType` / `buildArgs` / `getCommand` / `buildProbeArgs`); `claude.ts`, `opencode.ts`, `pi.ts`, `codeagent.ts`, and `mcode.ts` are the implementations; `ndjsonFormatter.ts` parses streamed output |
-| `src/utils/` | `validator.ts` output validation and repair retries, `sessionLinker.ts` cross-worktree session handling, `performanceTracker.ts` duration and token accounting, `reproScript.ts` emits `command.sh`, `promptBuilder.ts` prompts and self-check reviews |
+| `src/utils/` | `validator.ts` output validation and repair retries, `sessionLinker.ts` cross-worktree session handling, `performanceTracker.ts` duration and token accounting, `reproScript.ts` emits `command.sh`, `promptBuilder.ts` prompts and self-check reviews, `skillResolver.ts` locates the Skills a prompt requires loading |
 | `src/StepWise.ts` | Core class: step scheduling, checkpoint recovery, restore, quota waiting |
 | `src/forEachParallel.ts` | Parallel worker pool, shared queue, worktree isolation |
 | `src/types.ts` | Every public type — check compatibility before changing it |

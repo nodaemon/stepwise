@@ -17,7 +17,7 @@ import { CodeAgentExecutor } from '../src/executors/codeagent';
 import { PiExecutor } from '../src/executors/pi';
 import { McodeExecutor } from '../src/executors/mcode';
 import { OpenCodeExecutor } from '../src/executors/opencode';
-import { PROBE_PROMPT, PROMPT_FILE, STDIN_PROMPT_FILE } from '../src/constants';
+import { PROBE_PROMPT, PROMPT_FILE, STDIN_PROMPT_FILE, SELF_CHECK_PROMPT_FILE } from '../src/constants';
 import { AgentExecutorOptions } from '../src/executors/types';
 import { StepWise, setTaskName, enableDebugMode, _resetState } from '../src';
 
@@ -317,8 +317,7 @@ describe('提示词投递：同目录多次执行不污染任务提示词日志'
   }, 30000);
 
   it('execPromptSchema 的 postCheck 执行后，自检拿到的提示词证据仍是任务提示词', async () => {
-    // execPromptSchema 的 postCheck 没有 `!_isDebugMode()` 条件（StepWise:2219），
-    // 是唯一会在自检之前用不同提示词覆盖任务目录 prompt.txt 的路径——
+    // execPromptSchema 的 postCheck 会在自检之前用不同提示词覆盖任务目录 prompt.txt——
     // 自检随后把该文件当证据读，必须仍是任务提示词
     enableDebugMode(true);
     setTaskName('PromptDeliveryTest2');
@@ -334,10 +333,11 @@ describe('提示词投递：同目录多次执行不污染任务提示词日志'
 
     // execPromptSchema 的任务目录按 taskType=schema 命名
     const taskDir = path.join((agent as any).agentDir, 'logs', '1_schema');
-    const reviewDir = path.join((agent as any).agentDir, 'logs', '1_self_check');
 
-    // 审查者的提示词落在独立目录
-    expect(fs.existsSync(path.join(reviewDir, PROMPT_FILE))).toBe(true);
+    // 审查者与步骤本体共用目录，提示词记录文件带 self_check_ 前缀
+    expect(fs.existsSync(path.join(taskDir, SELF_CHECK_PROMPT_FILE))).toBe(true);
+    // 不再有独立的 self_check 目录
+    expect(fs.existsSync(path.join((agent as any).agentDir, 'logs', '1_self_check'))).toBe(false);
     // 被审查对象的提示词证据仍是任务提示词，不能被 postCheck 覆盖
     const taskPrompt = fs.readFileSync(path.join(taskDir, PROMPT_FILE), 'utf-8');
     expect(taskPrompt).toContain('ORIGINAL_TASK_PROMPT_MARKER');
@@ -362,8 +362,12 @@ describe('提示词投递：同目录多次执行不污染任务提示词日志'
     expect(fs.readFileSync(path.join(taskDir, 'post_check_prompt.txt'), 'utf-8')).toContain('POSTCHECK_PROMPT_MARKER');
     // stdin 临时文件用完即删
     expect(fs.existsSync(path.join(taskDir, STDIN_PROMPT_FILE))).toBe(false);
-    // command.sh 是 postCheck 那次执行写的，引用的是 postCheck 的记录文件
-    expect(script).toContain(`cat '${path.join(taskDir, 'post_check_prompt.txt')}' |`);
+    // command.sh 是**步骤本体**那次的复现脚本，引用的是任务提示词
+    expect(script).toContain(`cat '${path.join(taskDir, PROMPT_FILE)}' |`);
+
+    // 后检查有自己的复现脚本，不覆盖步骤本体的 command.sh
+    const postCheckScript = fs.readFileSync(path.join(taskDir, 'post_check_command.sh'), 'utf-8');
+    expect(postCheckScript).toContain(`cat '${path.join(taskDir, 'post_check_prompt.txt')}' |`);
   }, 30000);
 });
 

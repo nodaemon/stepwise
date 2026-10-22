@@ -3,8 +3,10 @@
  *
  * 关键回归点：
  * - 全新会话（useResume 显式为 false，sessionId 为新 uuid）
- * - 审查者日志目录独立于父任务目录（防止自指污染 + 覆盖 command.sh）
- * - 报告与 output.txt 同级
+ * - 审查者与步骤本体**共用步骤目录**，产物靠 `self_check_` 前缀区分（不再有独立 self_check 目录）
+ * - 报告与 output.txt 同级，且**必须存在**（审查者没写文件时框架补说明文件）
+ * - 后检查提示词与判定结果进入审查输入
+ * - 提示词要求加载 skill 时，SKILL.md 进入审查输入
  * - 不改动 progress.json / currentSessionId
  * - 失败不影响主流程
  */
@@ -186,32 +188,7 @@ describe('debug 模式自检复盘', () => {
       expect(path.basename(path.dirname(reportPath))).toBe('1_task');
     });
 
-    it('审查者日志目录应为 logs/{n}_self_check，且不同于父任务目录', async () => {
-      enableDebugMode(true);
-      setTaskName('TestTask');
-      const agent = new StepWise('Agent1');
-
-      await agent.execPrompt('Test prompt');
-
-      const selfCall = getSelfCheckCalls()[0];
-      expect(path.basename(selfCall.options.taskLogDir)).toBe('1_self_check');
-      expect(selfCall.options.taskLogDir).not.toBe('1_task');
-    });
-
-    it('应把父任务目录下的三个证据文件路径写进提示词', async () => {
-      enableDebugMode(true);
-      setTaskName('TestTask');
-      const agent = new StepWise('Agent1');
-
-      await agent.execPrompt('Test prompt');
-
-      const p = getSelfCheckCalls()[0].prompt;
-      expect(p).toContain(path.join('1_task', 'prompt.txt'));
-      expect(p).toContain(path.join('1_task', 'output.txt'));
-      expect(p).toContain(path.join('1_task', 'verbose_output.txt'));
-    });
-
-    it('审查者日志目录必须与父任务目录不同（否则会覆盖父任务产物）', async () => {
+    it('审查者应与步骤本体共用步骤目录，并给产物加 self_check_ 前缀', async () => {
       enableDebugMode(true);
       setTaskName('TestTask');
       const agent = new StepWise('Agent1');
@@ -221,18 +198,327 @@ describe('debug 模式自检复盘', () => {
       const selfCall = getSelfCheckCalls()[0];
       const parentTaskDir = path.join((agent as any).agentDir, 'logs', '1_task');
 
-      // 结构性保证：审查者绝不写入父任务目录
-      expect(selfCall.options.taskLogDir).not.toBe(parentTaskDir);
-      expect(selfCall.options.taskLogDir).toBe(path.join((agent as any).agentDir, 'logs', '1_self_check'));
+      // 同目录：不再有独立的 logs/{n}_self_check/
+      expect(selfCall.options.taskLogDir).toBe(parentTaskDir);
+      // 重名文件靠前缀区分
+      expect(selfCall.options.promptLogFile).toBe('self_check_prompt.txt');
+      expect(selfCall.options.artifactPrefix).toBe('self_check_');
+    });
 
-      // 行为验证：父任务目录中的既有产物不被自检改动
+    it('不应再创建独立的 self_check 目录', async () => {
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('Test prompt');
+
+      const logsDir = path.join((agent as any).agentDir, 'logs');
+      expect(fs.existsSync(path.join(logsDir, '1_self_check'))).toBe(false);
+      expect(fs.existsSync(path.join(logsDir, '1_task'))).toBe(true);
+    });
+
+    it('应把步骤提示词与最终输出写进审查提示词', async () => {
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('Test prompt');
+
+      const p = getSelfCheckCalls()[0].prompt;
+      expect(p).toContain(path.join('1_task', 'prompt.txt'));
+      expect(p).toContain(path.join('1_task', 'output.txt'));
+    });
+
+    it('执行轨迹不再作为审查输入', async () => {
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('Test prompt');
+
+      const p = getSelfCheckCalls()[0].prompt;
+      expect(p).not.toContain(path.join('1_task', 'verbose_output.txt'));
+    });
+
+    it('审查者的产物带前缀，不会覆盖步骤本体的文件', async () => {
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('Test prompt');
+
+      const parentTaskDir = path.join((agent as any).agentDir, 'logs', '1_task');
       const sentinel = path.join(parentTaskDir, 'command.sh');
       fs.writeFileSync(sentinel, '#!/bin/sh\n# sentinel\n', 'utf-8');
+
       await (agent as any).runSelfCheck({
         taskIndex: 2, taskType: 'task', taskLogDir: parentTaskDir,
         cwd: undefined, env: undefined
       });
+
+      // 步骤本地的 command.sh 不被自检覆盖
       expect(fs.readFileSync(sentinel, 'utf-8')).toBe('#!/bin/sh\n# sentinel\n');
+    });
+  });
+
+  describe('审查输入集合', () => {
+    it('配置 postCheckPrompt 时，后检查提示词与判定结果都应进入审查输入', async () => {
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('Test prompt', { postCheckPrompt: '检查产出是否完整' });
+
+      // debug 模式下后检查也真实执行
+      const postCheckCalls = executorMock.getCalls().filter((c: ExecCall) => c.options?.taskType === 'check');
+      expect(postCheckCalls.length).toBeGreaterThanOrEqual(1);
+
+      const p = getSelfCheckCalls()[0].prompt;
+      expect(p).toContain(path.join('1_task', 'post_check_prompt.txt'));
+      expect(p).toContain(path.join('1_task', 'post_check_output.txt'));
+    });
+
+    it('后检查的判定结果应落盘到 post_check_output.txt', async () => {
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('Test prompt', { postCheckPrompt: '检查产出是否完整' });
+
+      const taskDir = path.join((agent as any).agentDir, 'logs', '1_task');
+      expect(fs.existsSync(path.join(taskDir, 'post_check_prompt.txt'))).toBe(true);
+      expect(fs.existsSync(path.join(taskDir, 'post_check_output.txt'))).toBe(true);
+    });
+
+    it('未配置 postCheckPrompt 时，审查输入里不应有后检查文件', async () => {
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('Test prompt');
+
+      const p = getSelfCheckCalls()[0].prompt;
+      expect(p).not.toContain('post_check_prompt.txt');
+      expect(p).not.toContain('post_check_output.txt');
+    });
+
+    it('提示词要求加载 skill 时，SKILL.md 应进入审查输入', async () => {
+      const skillDir = path.join(tempDir, '.claude', 'skills', 'demo_skill');
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(skillDir, 'SKILL.md'),
+        '# demo_skill\n\n## 描述\n示例技能\n',
+        'utf-8'
+      );
+
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('请使用 demo_skill skill 完成本步骤');
+
+      const p = getSelfCheckCalls()[0].prompt;
+      expect(p).toContain(path.join('demo_skill', 'SKILL.md'));
+    });
+
+    it('提示词未提到 skill 时，不应产生 skill 输入', async () => {
+      const skillDir = path.join(tempDir, '.claude', 'skills', 'demo_skill');
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# demo_skill\n', 'utf-8');
+
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('普通提示词，不需要额外资料');
+
+      const p = getSelfCheckCalls()[0].prompt;
+      expect(p).not.toContain('SKILL.md');
+    });
+
+    it('提示词说「不要使用 skill」时，不应产生 skill 输入', async () => {
+      const skillDir = path.join(tempDir, '.claude', 'skills', 'demo_skill');
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# demo_skill\n', 'utf-8');
+
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('请不要使用 skill，直接统计行数');
+
+      const p = getSelfCheckCalls()[0].prompt;
+      expect(p).not.toContain('SKILL.md');
+      expect(p).not.toContain('未能定位到具体的 skill 文件');
+    });
+
+    it('数据产出类步骤应把真实产出文件纳入审查输入', async () => {
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      // 预置产出文件：collect 步骤真正交付的是 collect/1_collect/collect_1.json
+      const collectDir = path.join((agent as any).agentDir, 'collect', '1_collect');
+      fs.mkdirSync(collectDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(collectDir, 'collect_1.json'),
+        JSON.stringify([{ name: 'item1' }]),
+        'utf-8'
+      );
+
+      await agent.execCollectPrompt('收集数据', { name: { type: 'string' } });
+
+      const p = getSelfCheckCalls()[0].prompt;
+      expect(p).toContain('本步骤的实际产出文件');
+      expect(p).toContain(path.join('1_collect', 'collect_1.json'));
+    });
+
+    it('任务类步骤没有产出文件时，不应出现「实际产出文件」这一项', async () => {
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('Test prompt');
+
+      const p = getSelfCheckCalls()[0].prompt;
+      expect(p).not.toContain('本步骤的实际产出文件');
+    });
+  });
+
+  describe('报告必须存在', () => {
+    it('审查者没写文件时，框架应补一份说明文件', async () => {
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('Test prompt');
+
+      const reportPath = path.join((agent as any).agentDir, 'logs', '1_task', 'self_check.md');
+      expect(fs.existsSync(reportPath)).toBe(true);
+      // 兜底内容必须如实说明「未生成」，不得谎报未发现问题
+      const content = fs.readFileSync(reportPath, 'utf-8');
+      expect(content).toContain('未生成报告');
+      expect(content).not.toContain('本次执行未发现需要改进的问题。');
+    });
+
+    it('审查者本轮写的报告不得被框架覆盖', async () => {
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('Test prompt');
+
+      const reportPath = path.join((agent as any).agentDir, 'logs', '1_task', 'self_check.md');
+      const originalExecute = (agent as any).executor.execute;
+      (agent as any).executor.execute = async (p: string, o: any) => {
+        const r = await originalExecute(p, o);
+        if (o?.taskType === 'self_check') {
+          fs.writeFileSync(reportPath, '# 自检复盘：task（任务 1）\n\n本次执行未发现需要改进的问题。\n', 'utf-8');
+        }
+        return r;
+      };
+
+      await (agent as any).runSelfCheck({
+        taskIndex: 2, taskType: 'task',
+        taskLogDir: path.join((agent as any).agentDir, 'logs', '1_task'),
+        cwd: undefined, env: undefined
+      });
+
+      expect(fs.readFileSync(reportPath, 'utf-8')).toContain('本次执行未发现需要改进的问题。');
+    });
+
+    it('自检执行抛错时，报告文件仍应存在并说明失败原因', async () => {
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+      executorMock.setSelfCheckShouldThrow(true);
+
+      await agent.execPrompt('Test prompt');
+
+      const reportPath = path.join((agent as any).agentDir, 'logs', '1_task', 'self_check.md');
+      expect(fs.existsSync(reportPath)).toBe(true);
+      expect(fs.readFileSync(reportPath, 'utf-8')).toContain('自检执行失败');
+    });
+
+    it('上一轮遗留的报告不得冒充本轮结果', async () => {
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('Test prompt');
+
+      const reportPath = path.join((agent as any).agentDir, 'logs', '1_task', 'self_check.md');
+      // 断点恢复会复用同一个步骤目录：上一轮的报告还留在盘上
+      fs.writeFileSync(reportPath, '# 自检复盘：task（任务 1）\n\n上一轮的旧报告\n', 'utf-8');
+
+      // 本轮自检执行失败
+      executorMock.setSelfCheckShouldThrow(true);
+      await (agent as any).runSelfCheck({
+        taskIndex: 2, taskType: 'task',
+        taskLogDir: path.join((agent as any).agentDir, 'logs', '1_task'),
+        cwd: undefined, env: undefined
+      });
+
+      const content = fs.readFileSync(reportPath, 'utf-8');
+      expect(content).not.toContain('上一轮的旧报告');
+      expect(content).toContain('自检执行失败');
+    });
+
+    it('准备阶段失败时，上一轮的报告也不得冒充本轮结果', async () => {
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('Test prompt');
+
+      const reportPath = path.join((agent as any).agentDir, 'logs', '1_task', 'self_check.md');
+      // 断点恢复会复用同一个步骤目录：上一轮的报告还留在盘上
+      fs.writeFileSync(reportPath, '# 自检复盘：task（任务 1）\n\n上一轮的旧报告\n', 'utf-8');
+
+      // 让准备阶段失败（写审查提示词时抛错）
+      const logger = (agent as any).logger;
+      const originalWrite = logger.writeTaskLog.bind(logger);
+      logger.writeTaskLog = (dir: string, file: string, content: string) => {
+        if (file === 'self_check_prompt.txt') throw new Error('模拟磁盘写满');
+        return originalWrite(dir, file, content);
+      };
+
+      await (agent as any).runSelfCheck({
+        taskIndex: 2, taskType: 'task',
+        taskLogDir: path.join((agent as any).agentDir, 'logs', '1_task'),
+        cwd: undefined, env: undefined
+      });
+
+      const content = fs.readFileSync(reportPath, 'utf-8');
+      expect(content).not.toContain('上一轮的旧报告');
+      expect(content).toContain('自检准备失败');
+    });
+
+    it('本轮审查者写了报告时，内容必须被保留', async () => {
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      const agent = new StepWise('Agent1');
+
+      await agent.execPrompt('Test prompt');
+
+      const reportPath = path.join((agent as any).agentDir, 'logs', '1_task', 'self_check.md');
+      const taskDir = path.dirname(reportPath);
+      // 模拟审查者在执行期间写入了报告
+      const originalExecute = (agent as any).executor.execute;
+      (agent as any).executor.execute = async (p: string, o: any) => {
+        const r = await originalExecute(p, o);
+        if (o?.taskType === 'self_check') {
+          fs.writeFileSync(reportPath, '# 自检复盘：task（任务 1）\n\n本次执行未发现需要改进的问题。\n', 'utf-8');
+        }
+        return r;
+      };
+
+      await (agent as any).runSelfCheck({
+        taskIndex: 2, taskType: 'task', taskLogDir: taskDir,
+        cwd: undefined, env: undefined
+      });
+
+      expect(fs.readFileSync(reportPath, 'utf-8')).toContain('本次执行未发现需要改进的问题。');
     });
   });
 
@@ -279,6 +565,33 @@ describe('debug 模式自检复盘', () => {
       // 只配置了 allowRead，提示词中没有写白名单小节，故截取到「重要约束」为止
       const readSection = /允许读取的目录[\s\S]*?重要约束/.exec(prompt)?.[0] || '';
       expect(readSection).toContain((agent as any).agentDir);
+    });
+
+    it('读白名单应包含真实产出文件所在目录（report 步骤的产物在 agentDir 之外）', async () => {
+      enableDebugMode(true);
+      setTaskName('TestTask');
+      setAllowRead(['.']);
+      const agent = new StepWise('Agent1');
+
+      const taskLogDir = path.join((agent as any).agentDir, 'logs', '1_report');
+      fs.mkdirSync(taskLogDir, { recursive: true });
+
+      // report 步骤的真实产物布局：{taskDir}/report/*.json —— 在 agentDir 之外
+      const outDir = path.join((agent as any).taskDir, 'report');
+      fs.mkdirSync(outDir, { recursive: true });
+      const resultFile = path.join(outDir, 'report.json');
+      fs.writeFileSync(resultFile, '[]', 'utf-8');
+
+      await (agent as any).runSelfCheck({
+        taskIndex: 1, taskType: 'report', taskLogDir,
+        cwd: undefined, env: undefined,
+        resultFilePath: resultFile
+      });
+
+      // 审查者读不到产出文件，就等于没给这份输入
+      const prompt = getSelfCheckCalls()[0].prompt;
+      const readSection = /允许读取的目录[\s\S]*?重要约束/.exec(prompt)?.[0] || '';
+      expect(readSection).toContain(outDir);
     });
   });
 
@@ -332,23 +645,19 @@ describe('debug 模式自检复盘', () => {
   });
 
   describe('磁盘产物布局', () => {
-    it('审查者日志目录应真实落盘，且与父任务目录平级', async () => {
+    it('审查者提示词应落在步骤目录内并带 self_check_ 前缀', async () => {
       enableDebugMode(true);
       setTaskName('TestTask');
       const agent = new StepWise('Agent1');
 
       await agent.execPrompt('Test prompt');
 
-      const logsDir = path.join((agent as any).agentDir, 'logs');
-      const taskDir = path.join(logsDir, '1_task');
-      const reviewDir = path.join(logsDir, '1_self_check');
-
-      expect(fs.existsSync(taskDir)).toBe(true);
-      expect(fs.existsSync(reviewDir)).toBe(true);
-      // 审查者自己的 prompt.txt 应落在独立目录
-      expect(fs.existsSync(path.join(reviewDir, 'prompt.txt'))).toBe(true);
-      // 报告写在父任务目录，但由 AI 产出，mock 不写文件，此处只验证路径可推导
-      expect(path.join(taskDir, 'self_check.md')).not.toBe(path.join(reviewDir, 'self_check.md'));
+      const taskDir = path.join((agent as any).agentDir, 'logs', '1_task');
+      expect(fs.existsSync(path.join(taskDir, 'self_check_prompt.txt'))).toBe(true);
+      // 报告写在步骤目录
+      expect(path.join(taskDir, 'self_check.md')).toBe(
+        path.join(taskDir, 'self_check.md')
+      );
     });
 
     it('自检的日志写入不应污染父任务目录的既有文件', async () => {
@@ -359,10 +668,9 @@ describe('debug 模式自检复盘', () => {
       await agent.execPrompt('Test prompt');
 
       const taskDir = path.join((agent as any).agentDir, 'logs', '1_task');
-      // 父任务目录不应出现审查者的执行信息
+      // 父任务目录下的 prompt.txt 是被审查对象，不能是自检提示词
       expect(fs.existsSync(path.join(taskDir, 'prompt.txt'))).toBe(true);
       const taskPrompt = fs.readFileSync(path.join(taskDir, 'prompt.txt'), 'utf-8');
-      // 父任务 prompt.txt 是被审查对象，不能是自检提示词
       expect(taskPrompt).not.toContain('你是一位独立的质量审查者');
     });
   });

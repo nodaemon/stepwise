@@ -339,7 +339,10 @@ export abstract class BaseExecutor implements AgentExecutor {
 
     // 保存错误报告到日志文件
     if (options.taskLogDir) {
-      const errorReportFile = path.join(options.taskLogDir, 'error_report.txt');
+      const errorReportFile = path.join(
+        options.taskLogDir,
+        this.artifactName('error_report.txt', options.artifactPrefix)
+      );
       fs.writeFileSync(errorReportFile, fullErrorReport, 'utf-8');
     }
 
@@ -372,7 +375,9 @@ export abstract class BaseExecutor implements AgentExecutor {
     }
 
     // 构建 debug 日志文件路径
-    const debugFile = taskLogDir ? path.join(taskLogDir, 'debug.log') : undefined;
+    const debugFile = taskLogDir
+      ? path.join(taskLogDir, this.artifactName('debug.log', options.artifactPrefix))
+      : undefined;
 
     // 构建命令参数（由子类实现，参数中不含提示词——见 buildArgs 的契约）
     const args = this.buildArgs(sessionId, options.useResume === true, debugFile, options.fork === true);
@@ -405,7 +410,9 @@ export abstract class BaseExecutor implements AgentExecutor {
       this.writePromptFile(promptLogFile, prompt);
     }
 
-    const stdinFile = taskLogDir ? path.join(taskLogDir, STDIN_PROMPT_FILE) : null;
+    const stdinFile = taskLogDir
+      ? path.join(taskLogDir, this.artifactName(STDIN_PROMPT_FILE, options.artifactPrefix))
+      : null;
     if (stdinFile) {
       this.writeStdinFile(stdinFile, prompt);
     }
@@ -422,7 +429,11 @@ export abstract class BaseExecutor implements AgentExecutor {
 
       // 保存执行信息到日志目录
       if (taskLogDir) {
-        this.saveExecutionInfo(taskLogDir, reproCommand, sessionId, args, cwd, timeout, options.useResume, debugFile, options.env, promptLogFile);
+        this.saveExecutionInfo(
+          taskLogDir, reproCommand, sessionId, args, cwd, timeout,
+          options.useResume, debugFile, options.env, promptLogFile,
+          options.artifactPrefix
+        );
       }
 
       // 执行命令
@@ -483,7 +494,10 @@ export abstract class BaseExecutor implements AgentExecutor {
       let derivedSessionIdNotified = false;
 
       if (taskLogDir) {
-        const verboseFile = path.join(taskLogDir, TRACE_FILE);
+        const verboseFile = path.join(
+          taskLogDir,
+          this.artifactName(TRACE_FILE, options.artifactPrefix)
+        );
         verboseStream = fs.createWriteStream(verboseFile, { encoding: 'utf-8', flags: 'a' });
         // 如果文件已存在且有内容，添加分隔标记
         if (fs.existsSync(verboseFile) && fs.statSync(verboseFile).size > 0) {
@@ -707,10 +721,14 @@ export abstract class BaseExecutor implements AgentExecutor {
     useResume?: boolean,
     debugFile?: string,
     env?: string[],
-    promptLogFile?: string | null
+    promptLogFile?: string | null,
+    artifactPrefix?: string
   ): void {
     // 保存执行信息 JSON
-    const execInfoFile = path.join(taskLogDir, 'execution_info.json');
+    const execInfoFile = path.join(
+      taskLogDir,
+      this.artifactName('execution_info.json', artifactPrefix)
+    );
     const execInfo = {
       command: fullCommand,
       sessionId,
@@ -730,9 +748,30 @@ export abstract class BaseExecutor implements AgentExecutor {
     fs.writeFileSync(execInfoFile, JSON.stringify(execInfo, null, 2), 'utf-8');
 
     // 单独保存可直接执行的复现脚本，包含 cwd 和 env 信息
-    const commandFile = path.join(taskLogDir, 'command.sh');
+    const commandFile = path.join(taskLogDir, this.artifactName('command.sh', artifactPrefix));
     const commandContent = this.buildCommandFileContent(fullCommand, cwd, env, timeout);
     writeReproScript(commandFile, commandContent);
+  }
+
+  /**
+   * 生成带前缀的产物文件名
+   *
+   * 前缀用于区分同一步骤目录内的多次执行（步骤本体 / postCheck / 自检复盘），
+   * 避免后一次执行覆盖前一次的产物。
+   *
+   * 隐藏文件（以 `.` 开头）保持隐藏语义：前缀插到点号之后，
+   * `.stdin_prompt` + 前缀 `self_check_` → `.self_check.stdin_prompt`。
+   *
+   * @param name 原始文件名
+   * @param prefix 前缀（可选）
+   * @returns 实际落盘的文件名
+   */
+  protected artifactName(name: string, prefix?: string): string {
+    if (!prefix) return name;
+    if (name.startsWith('.')) {
+      return `.${prefix}${name.slice(1)}`;
+    }
+    return `${prefix}${name}`;
   }
 
   /**

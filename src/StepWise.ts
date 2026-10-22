@@ -69,8 +69,15 @@ import {
   LOGS_DIR,
   REPORT_DIR,
   SELF_CHECK_FILE,
+  SELF_CHECK_PROMPT_FILE,
+  SELF_CHECK_ARTIFACT_PREFIX,
   PROMPT_FILE,
   POST_CHECK_PROMPT_FILE,
+  POST_CHECK_OUTPUT_FILE,
+  POST_CHECK_ARTIFACT_PREFIX,
+  FILE_MISSING_ARTIFACT_PREFIX,
+  VALIDATION_FIX_ARTIFACT_PREFIX,
+  SUMMARIZE_ARTIFACT_PREFIX,
   SUMMARIZE_PROMPT_FILE,
   FILE_MISSING_PROMPT_FILE,
   VALIDATION_FIX_PROMPT_FILE,
@@ -92,6 +99,7 @@ import {
 } from './globalState';
 import { trackPerformance } from './utils/performanceDecorator';
 import { PerformanceTracker } from './utils/performanceTracker';
+import { resolveSkillRefs } from './utils/skillResolver';
 
 /**
  * StepWise 主类
@@ -673,6 +681,8 @@ export class StepWise {
         useResume: true,
         taskLogDir: logDir,
         promptLogFile: SUMMARIZE_PROMPT_FILE,
+        // 总结落在步骤目录内，产物加前缀，不覆盖步骤本体的 command.sh
+        artifactPrefix: SUMMARIZE_ARTIFACT_PREFIX,
         logger: this.logger!,
         taskIndex: lastTask?.taskIndex || 0,
         taskType: 'summarize'
@@ -1266,6 +1276,8 @@ export class StepWise {
           useResume: true,
           taskLogDir: context.taskLogDir,
           promptLogFile: FILE_MISSING_PROMPT_FILE,
+          // 重试是独立的一次执行，产物加前缀，不覆盖步骤本体的 command.sh
+          artifactPrefix: FILE_MISSING_ARTIFACT_PREFIX,
           logger: this.logger!,
           taskIndex: context.taskIndex,
           taskType: context.taskType
@@ -1310,6 +1322,8 @@ export class StepWise {
         useResume: true,
         taskLogDir: context.taskLogDir,
         promptLogFile: VALIDATION_FIX_PROMPT_FILE,
+        // 修复重试是独立的一次执行，产物加前缀，不覆盖步骤本体的 command.sh
+        artifactPrefix: VALIDATION_FIX_ARTIFACT_PREFIX,
         logger: this.logger!,
         taskIndex: context.taskIndex,
         taskType: context.taskType
@@ -1324,6 +1338,13 @@ export class StepWise {
 
   /**
    * 执行 postCheckPrompt
+   *
+   * 产物：
+   * - `post_check_prompt.txt`：本次实际下发的后检查提示词
+   * - `post_check_output.txt`：后检查的判定结果（stdout），失败时写入错误信息
+   *
+   * 判定结果落盘的意义：debug 模式下自检复盘要把后检查当作输入文件，
+   * 「后检查要求是否清晰」与「步骤产出是否满足后检查要求」都要有据可查。
    */
   @trackPerformance('postCheck')
   private async runPostCheck(
@@ -1350,42 +1371,94 @@ export class StepWise {
       useResume: true,
       taskLogDir,
       promptLogFile: POST_CHECK_PROMPT_FILE,
+      // 后检查与步骤本体共用目录，产物加前缀，不覆盖步骤本体的 command.sh
+      artifactPrefix: POST_CHECK_ARTIFACT_PREFIX,
       logger: this.logger!,
       taskIndex,
       taskType: 'check'
     });
 
+    // 判定结果落盘：自检复盘要拿它当输入
+    if (taskLogDir) {
+      const content = execResult.success
+        ? (execResult.output ?? '')
+        : `后检查执行失败：${execResult.error ?? '未知错误'}`;
+      this.logger?.writeTaskLog(taskLogDir, POST_CHECK_OUTPUT_FILE, content);
+    }
+
     return { duration: Date.now() - startTime, retryWaitMs: execResult.retryWaitMs ?? 0 };
   }
 
   /**
-   * 取得某任务日志目录下的证据文件路径集合
+   * 触发后检查，按 debug 模式区分失败语义
    *
-   * 三个文件合起来构成「这一步到底发生了什么」的全部证据：提示词说明被要求做什么，
-   * 输出说明实际做出了什么，轨迹说明过程中走过哪些弯路。集中在一处返回，
-   * 避免调用点各自拼路径时写错文件名。
+   * - 生产模式：后检查失败向上抛出，中断该 exec* 调用（既有行为，不改动）
+   * - debug 模式：后检查失败**不中断**步骤，只记录日志并继续走自检复盘
+   *   ——自检是诊断手段，不应因为诊断对象本身出错而丢失；
+   *   「后检查未完成」这一事实会通过 post_check_output.txt 呈现给审查者。
+   *
+   * @returns 本轮后检查产出的文件（未配置后检查时为 undefined）
    */
-  private getTaskEvidencePaths(taskLogDir: string): { promptFilePath: string; outputFilePath: string; traceFilePath: string } {
-    return {
-      promptFilePath: path.join(taskLogDir, PROMPT_FILE),
-      outputFilePath: path.join(taskLogDir, OUTPUT_FILE),
-      traceFilePath: path.join(taskLogDir, TRACE_FILE)
+  private async triggerPostCheck(
+    postCheckPrompt: string,
+    cwd: string | undefined,
+    env: string[] | undefined,
+    sessionId: string,
+    taskLogDir: string,
+    taskIndex: number
+  ): Promise<{ promptFilePath: string; outputFilePath: string } | undefined> {
+    // 只有本轮真的跑了后检查，才把它的产物交给自检——
+    // 否则断点恢复时会把上一轮残留的 post_check_*.txt 当成本轮输入
+    const files = {
+      promptFilePath: path.join(taskLogDir, POST_CHECK_PROMPT_FILE),
+      outputFilePath: path.join(taskLogDir, POST_CHECK_OUTPUT_FILE)
     };
+
+    if (!_isDebugMode()) {
+      await this.runPostCheck(postCheckPrompt, cwd, env, sessionId, taskLogDir, taskIndex);
+      return files;
+    }
+
+    try {
+      await this.runPostCheck(postCheckPrompt, cwd, env, sessionId, taskLogDir, taskIndex);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.logger?.writeSummaryLog(`[debug] 后检查执行失败，已跳过（不影响主流程）: ${errorMsg}`);
+      console.warn(`[StepWise] 后检查执行失败，已跳过: ${errorMsg}`);
+      // 判定结果文件仍要落盘，让自检复盘知道「后检查没跑成」
+      if (taskLogDir) {
+        this.logger?.writeTaskLog(
+          taskLogDir,
+          POST_CHECK_OUTPUT_FILE,
+          `后检查执行失败：${errorMsg}`
+        );
+      }
+    }
+    return files;
   }
 
   /**
    * debug 模式自检复盘
    *
-   * 在**全新会话**中把父任务的 prompt.txt / output.txt / verbose_output.txt
-   * 作为证据交给一个独立审查者，复盘目标清晰度、输入缺失/冗余、过程弯路，
-   * 报告写入父任务日志目录下的 self_check.md（与 output.txt 同级）。
+   * 在**全新会话**中把这一步的输入文件交给一个独立审查者，复盘**输入本身**
+   * 的工作流程与思路（目标与思路是否清晰 / 是否需要补充 / 是否冗余 /
+   * 是否有逻辑错误），报告写入步骤日志目录下的 self_check.md（与 output.txt 同级）。
    *
-   * 三条关键约束：
+   * 输入文件：
+   * 1. prompt.txt —— 本步骤收到的提示词
+   * 2. output.txt —— 本步骤的最终输出
+   * 3. post_check_prompt.txt / post_check_output.txt —— 该步骤配置了 postCheckPrompt 时才有
+   * 4. 提示词要求加载的 SKILL.md —— 由 skillResolver 定位
+   *
+   * 执行轨迹（verbose_output.txt）**不作为输入**：它既不是审查对象，
+   * 又是「模型执行层面问题」的唯一来源；执行层面的问题由提示词里的禁止清单排除。
+   *
+   * 四条关键约束：
    * 1. 不调用 getNextTaskIndex()，复用父任务 taskIndex —— 否则恢复模式下任务序号整体错位；
-   * 2. 审查者日志写入独立的 logs/{n}_self_check/ —— 它要读 verbose_output.txt，
-   *    共用目录会让自己的 Read/Grep 调用被追加进这份证据文件（自指污染），
-   *    同时也会覆盖父任务的 command.sh / execution_info.json / usage.json；
-   * 3. 失败一律吞掉，绝不影响主流程。
+   * 2. 审查者与步骤本体**共用步骤目录**，靠 `self_check_` 前缀区分产物
+   *    （command.sh / execution_info.json / debug.log / verbose_output.txt 均不受影响）；
+   * 3. self_check.md **必须存在**：审查者没写文件时由框架补一份说明文件；
+   * 4. 失败一律吞掉，绝不影响主流程。
    */
   @trackPerformance('selfCheck')
   private async runSelfCheck(params: {
@@ -1396,35 +1469,87 @@ export class StepWise {
     env: string[] | undefined;
     allowRead?: string[];
     allowWrite?: string[];
+    /** 该步骤的真实产出文件（collect/report 的 JSON 等），存在时纳入审查输入 */
+    resultFilePath?: string;
+    /** 本轮真实执行过的后检查产物（不传则视为本轮没有后检查） */
+    postCheckFiles?: { promptFilePath: string; outputFilePath: string };
   }): Promise<{ duration: number; retryWaitMs: number }> {
     if (!_isDebugMode()) return { duration: 0, retryWaitMs: 0 };
 
-    const { taskIndex, taskType, taskLogDir, cwd, env, allowRead, allowWrite } = params;
+    const {
+      taskIndex, taskType, taskLogDir, cwd, env, allowRead, allowWrite,
+      resultFilePath, postCheckFiles
+    } = params;
 
-    // 两层 try 是有意为之：外层兜住「准备阶段」异常（拼路径、建目录、构造提示词），
+    // 两层 try 是有意为之：外层兜住「准备阶段」异常（拼路径、读文件、构造提示词），
     // 此时尚未 logTaskStart，不需要配对的 logTaskComplete；内层只兜执行阶段的异常，
     // 此时已经打过 logTaskStart，必须补一条 logTaskComplete 保持开始/结束日志成对。
     try {
       // 报告与证据同级：logs/{n}_{type}/self_check.md
       const reportPath = path.join(taskLogDir, SELF_CHECK_FILE);
+      const stepLabel = TASK_TYPE_NAMES[taskType];
 
-      // 审查者自身日志独立目录：logs/{n}_self_check
-      const reviewLogDir = this.logger?.createTaskLogDir(taskIndex, 'self_check');
-      if (!reviewLogDir) return { duration: 0, retryWaitMs: 0 };
+      // 清掉上一轮遗留的报告：断点恢复会复用同一个步骤目录，
+      // 旧报告若留下会被当成本轮结论（「文件存在」不再等于「本轮审查者写的」）。
+      // 必须放在最前面：下面任何一步抛错都会走到外层 catch 的兜底，
+      // 而兜底逻辑是「文件已存在就直接返回」，若此时旧报告还在，
+      // 上一轮的结论就会冒充本轮结论。
+      this.removeFileSafe(reportPath);
+
+      // ---- 组装输入文件 ----
+      const promptFilePath = path.join(taskLogDir, PROMPT_FILE);
+      const outputFilePath = path.join(taskLogDir, OUTPUT_FILE);
+
+      // 真实产出文件（collect/report 的 JSON）：审查者要能看到这一步到底交付了什么
+      const hasResultFile = !!resultFilePath && fs.existsSync(resultFilePath);
+
+      // 后检查的提示词与判定结果：只有本轮真的跑过后检查才算数，
+      // 避免断点恢复时把上一轮残留的 post_check_*.txt 当成本轮输入
+      const postCheckPromptFilePath = postCheckFiles?.promptFilePath;
+      const postCheckOutputFilePath = postCheckFiles?.outputFilePath;
+      const hasPostCheckPrompt = !!postCheckPromptFilePath && fs.existsSync(postCheckPromptFilePath);
+      const hasPostCheckOutput = !!postCheckOutputFilePath && fs.existsSync(postCheckOutputFilePath);
+
+      // Skill 引用解析：提示词点名 + 各次执行轨迹里出现过的 SKILL.md
+      // 轨迹按执行分文件存放（verbose_output.txt / post_check_verbose_output.txt …），
+      // 这里全部扫一遍，避免漏掉在重试或后检查里加载的 skill。
+      // 排除自检自己的轨迹：审查者读它会形成自指。
+      const promptText = this.readTextFileSafe(promptFilePath, 0);
+      const traceText = this.readStepTraceText(taskLogDir);
+      const skillResolution = resolveSkillRefs({ promptText, traceText, cwd });
+      const skillFilePaths = skillResolution.skillFiles.map(s => s.filePath);
 
       const prompt = buildSelfCheckPrompt({
         taskName: _getTaskName(),
-        stepLabel: TASK_TYPE_NAMES[taskType],
+        stepLabel,
         taskIndex,
-        ...this.getTaskEvidencePaths(taskLogDir),
+        promptFilePath,
+        outputFilePath,
+        resultFilePath: hasResultFile ? resultFilePath : undefined,
+        postCheckPromptFilePath: hasPostCheckPrompt ? postCheckPromptFilePath : undefined,
+        postCheckOutputFilePath: hasPostCheckOutput ? postCheckOutputFilePath : undefined,
+        skillFilePaths,
+        skillDirs: skillResolution.skillDirs,
+        skillUnresolved: skillResolution.unresolved,
         reportPath
       });
 
-      // 全新会话下审查者没有记忆，必须显式放行 agentDir 才能读到证据文件
-      const accessPrompt = this.buildMergedFileAccessPrompt(allowRead, allowWrite, [this.agentDir]);
+      // 全新会话下审查者没有记忆，必须显式放行 agentDir 才能读到证据文件；
+      // skill 文件通常在 cwd 下，配置了读取白名单时也要放行它所在目录。
+      // 真实产出文件（如 report 步骤的 {taskDir}/report/*.json）可能落在 agentDir 之外，
+      // 审查者读不到就等于没给这份输入，所以其所在目录也要一并放行。
+      const extraReadDirs = [this.agentDir, taskLogDir];
+      for (const skill of skillResolution.skillFiles) {
+        extraReadDirs.push(path.dirname(skill.filePath));
+      }
+      if (hasResultFile) {
+        extraReadDirs.push(path.dirname(resultFilePath));
+      }
+      const accessPrompt = this.buildMergedFileAccessPrompt(allowRead, allowWrite, extraReadDirs);
       const fullPrompt = accessPrompt ? `${accessPrompt}\n\n---\n\n${prompt}` : prompt;
 
-      this.logger?.writeTaskLog(reviewLogDir, PROMPT_FILE, fullPrompt);
+      // 审查者提示词与步骤本体的 prompt.txt 同目录，靠文件名区分
+      this.logger?.writeTaskLog(taskLogDir, SELF_CHECK_PROMPT_FILE, fullPrompt);
 
       // 预生成新 sessionId：既保证走 --session-id 分支创建全新会话，也让开始日志能记录真实 ID
       const reviewSessionId = generateUUID();
@@ -1438,8 +1563,10 @@ export class StepWise {
           env,
           sessionId: reviewSessionId,
           useResume: false,
-          taskLogDir: reviewLogDir,
-          promptLogFile: PROMPT_FILE,
+          // 与步骤本体共用目录，产物加前缀，绝不覆盖步骤本体的文件
+          taskLogDir,
+          promptLogFile: SELF_CHECK_PROMPT_FILE,
+          artifactPrefix: SELF_CHECK_ARTIFACT_PREFIX,
           logger: this.logger!,
           taskIndex,
           taskType: 'self_check'
@@ -1462,6 +1589,16 @@ export class StepWise {
           result.error
         );
 
+        // 报告必须存在：审查者没写文件时补一份说明（不得谎报「未发现问题」）
+        this.ensureSelfCheckReport(
+          reportPath,
+          stepLabel,
+          taskIndex,
+          result.success
+            ? '审查者未生成报告文件。'
+            : `自检执行失败：${result.error ?? '未知错误'}`
+        );
+
         // 返回值供 @trackPerformance 装饰器提取（与 runPostCheck 同约定）
         return { duration, retryWaitMs };
       } catch (error) {
@@ -1469,12 +1606,135 @@ export class StepWise {
         this.logger?.logTaskComplete(taskIndex, 'self_check', false, Date.now() - startTime, errorMsg);
         // 自检失败不影响主流程，只记录日志
         console.warn(`[StepWise] 自检复盘执行失败，已跳过: ${errorMsg}`);
+        this.ensureSelfCheckReport(reportPath, stepLabel, taskIndex, `自检执行失败：${errorMsg}`);
         return { duration: Date.now() - startTime, retryWaitMs: 0 };
       }
     } catch (error) {
       // 自检是调试辅助，任何异常都不得中断被调试的流程
-      console.warn(`[StepWise] 自检复盘准备失败，已跳过: ${error instanceof Error ? error.message : String(error)}`);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.warn(`[StepWise] 自检复盘准备失败，已跳过: ${errorMsg}`);
+      this.ensureSelfCheckReport(
+        path.join(taskLogDir, SELF_CHECK_FILE),
+        TASK_TYPE_NAMES[taskType],
+        taskIndex,
+        `自检准备失败：${errorMsg}`
+      );
       return { duration: 0, retryWaitMs: 0 };
+    }
+  }
+
+  /**
+   * 读取某步骤目录下所有执行轨迹的文本（供 Skill 引用解析使用）
+   *
+   * 一个步骤目录里每次执行各有一份轨迹（verbose_output.txt /
+   * post_check_verbose_output.txt / file_missing_verbose_output.txt …），
+   * 全部拼起来扫一遍，避免漏掉在重试或后检查里加载的 skill。
+   *
+   * 排除自检自己的轨迹（self_check_verbose_output.txt）：审查者读它会形成自指。
+   * 总长度上限 5 MB，超出部分丢弃——只用于匹配 SKILL.md 路径，不需要全文。
+   */
+  private readStepTraceText(taskLogDir: string): string {
+    const MAX_TOTAL_BYTES = 5 * 1024 * 1024;
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(taskLogDir);
+    } catch {
+      return '';
+    }
+
+    const parts: string[] = [];
+    let total = 0;
+    for (const entry of entries) {
+      if (!entry.endsWith(TRACE_FILE)) continue;
+      if (entry.startsWith(SELF_CHECK_ARTIFACT_PREFIX)) continue;
+
+      // 先看文件大小再决定读多少，避免峰值内存超过上限
+      let size: number;
+      try {
+        size = fs.statSync(path.join(taskLogDir, entry)).size;
+      } catch {
+        continue;
+      }
+      const remaining = MAX_TOTAL_BYTES - total;
+      if (remaining <= 0) break;
+      if (size <= 0) continue;
+
+      const text = this.readTextFileSafe(
+        path.join(taskLogDir, entry),
+        Math.min(size, remaining)
+      );
+      if (!text) continue;
+      total += text.length;
+      parts.push(text);
+    }
+    return parts.join('\n');
+  }
+
+  /**
+   * 安全删除文件（不存在或删不掉时静默忽略）
+   */
+  private removeFileSafe(filePath: string): void {
+    try {
+      if (filePath && fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch {
+      // 删不掉就留着，后续兜底逻辑会按「文件是否存在」处理
+    }
+  }
+
+  /**
+   * 保证 self_check.md 存在
+   *
+   * 审查者可能没写文件（执行失败、或它没遵守「必须创建」的约束）。
+   * 此时由框架补一份**如实说明未完成**的文件——绝不谎报「未发现问题」。
+   *
+   * @param reportPath 报告文件路径
+   * @param stepLabel 步骤类型名
+   * @param taskIndex 任务序号
+   * @param reason 未生成报告的原因
+   */
+  private ensureSelfCheckReport(
+    reportPath: string,
+    stepLabel: string,
+    taskIndex: number,
+    reason: string
+  ): void {
+    try {
+      if (fs.existsSync(reportPath)) return;
+      const content = `# 自检复盘：${stepLabel}（任务 ${taskIndex}）\n\n> ${reason}详见同目录 ${SELF_CHECK_ARTIFACT_PREFIX}verbose_output.txt。\n`;
+      this.logger?.writeTaskLog(path.dirname(reportPath), SELF_CHECK_FILE, content);
+    } catch {
+      // 兜底本身失败也不能影响主流程
+    }
+  }
+
+  /**
+   * 安全读取文本文件（不存在或读失败时返回空串）
+   *
+   * @param filePath 文件路径
+   * @param maxBytes 最多读取的字节数（0 表示不限制）；超长时只读前 maxBytes
+   */
+  private readTextFileSafe(filePath: string, maxBytes: number): string {
+    try {
+      if (!fs.existsSync(filePath)) return '';
+      if (maxBytes > 0) {
+        const stat = fs.statSync(filePath);
+        if (stat.size <= maxBytes) {
+          return fs.readFileSync(filePath, 'utf-8');
+        }
+        const fd = fs.openSync(filePath, 'r');
+        try {
+          const buffer = Buffer.alloc(maxBytes);
+          const bytesRead = fs.readSync(fd, buffer, 0, maxBytes, 0);
+          return buffer.subarray(0, bytesRead).toString('utf-8');
+        } finally {
+          fs.closeSync(fd);
+        }
+      }
+      return fs.readFileSync(filePath, 'utf-8');
+    } catch {
+      return '';
     }
   }
 
@@ -1600,14 +1860,15 @@ export class StepWise {
     this.logger?.logTaskComplete(taskIndex, taskType, result.success, result.duration, result.error);
 
     if (result.success) {
-      if (options?.postCheckPrompt && !_isDebugMode()) {
-        await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, result.sessionId, taskLogDir, taskIndex);
-      }
+      const postCheckFiles = options?.postCheckPrompt
+        ? await this.triggerPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, result.sessionId, taskLogDir, taskIndex)
+        : undefined;
       // debug 模式：主步骤成功后追加一次自检复盘
       await this.runSelfCheck({
         taskIndex, taskType, taskLogDir,
         cwd: effectiveCwd, env: effectiveEnv,
-        allowRead: options?.allowRead, allowWrite: options?.allowWrite
+        allowRead: options?.allowRead, allowWrite: options?.allowWrite,
+        postCheckFiles
       });
       this.recordTaskComplete(taskIndex, `${taskIndex}_task`, result.sessionId, taskType);
     }
@@ -1737,8 +1998,9 @@ export class StepWise {
     }
 
     // 在读取 JSON 之前执行 postCheckPrompt
-    if (result.success && options?.postCheckPrompt && !_isDebugMode()) {
-      await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, result.sessionId, taskLogDir, taskIndex);
+    let postCheckFiles: { promptFilePath: string; outputFilePath: string } | undefined;
+    if (result.success && options?.postCheckPrompt) {
+      postCheckFiles = await this.triggerPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, result.sessionId, taskLogDir, taskIndex);
     }
 
     // debug 模式：主步骤成功后追加一次自检复盘
@@ -1746,7 +2008,10 @@ export class StepWise {
       await this.runSelfCheck({
         taskIndex, taskType, taskLogDir,
         cwd: effectiveCwd, env: effectiveEnv,
-        allowRead: options?.allowRead, allowWrite: options?.allowWrite
+        allowRead: options?.allowRead, allowWrite: options?.allowWrite,
+        // 这一步真正交付的数据（collect/report 的 JSON），审查者要能看到
+        resultFilePath: outputPath,
+        postCheckFiles
       });
     }
 
@@ -1902,8 +2167,9 @@ export class StepWise {
     }
 
     // 在读取 check result JSON 之前执行 postCheckPrompt
-    if (result.success && options?.postCheckPrompt && !_isDebugMode()) {
-      await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, result.sessionId, taskLogDir, taskIndex);
+    let postCheckFiles: { promptFilePath: string; outputFilePath: string } | undefined;
+    if (result.success && options?.postCheckPrompt) {
+      postCheckFiles = await this.triggerPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, result.sessionId, taskLogDir, taskIndex);
     }
 
     // debug 模式：主步骤成功后追加一次自检复盘
@@ -1911,7 +2177,10 @@ export class StepWise {
       await this.runSelfCheck({
         taskIndex, taskType, taskLogDir,
         cwd: effectiveCwd, env: effectiveEnv,
-        allowRead: options?.allowRead, allowWrite: options?.allowWrite
+        allowRead: options?.allowRead, allowWrite: options?.allowWrite,
+        // 这一步真正交付的数据（check result JSON），审查者要能看到
+        resultFilePath: outputPath,
+        postCheckFiles
       });
     }
 
@@ -2066,8 +2335,9 @@ export class StepWise {
     }
 
     // 在读取 JSON 之前执行 postCheckPrompt
-    if (result.success && options?.postCheckPrompt && !_isDebugMode()) {
-      await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, result.sessionId, taskLogDir, taskIndex);
+    let postCheckFiles: { promptFilePath: string; outputFilePath: string } | undefined;
+    if (result.success && options?.postCheckPrompt) {
+      postCheckFiles = await this.triggerPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, result.sessionId, taskLogDir, taskIndex);
     }
 
     // debug 模式：主步骤成功后追加一次自检复盘
@@ -2075,7 +2345,10 @@ export class StepWise {
       await this.runSelfCheck({
         taskIndex, taskType, taskLogDir,
         cwd: effectiveCwd, env: effectiveEnv,
-        allowRead: options?.allowRead, allowWrite: options?.allowWrite
+        allowRead: options?.allowRead, allowWrite: options?.allowWrite,
+        // 这一步真正交付的数据（collect/report 的 JSON），审查者要能看到
+        resultFilePath: outputPath,
+        postCheckFiles
       });
     }
 
@@ -2230,8 +2503,9 @@ export class StepWise {
     }
 
     // 执行 postCheckPrompt（如果指定）
+    let postCheckFiles: { promptFilePath: string; outputFilePath: string } | undefined;
     if (result.success && options?.postCheckPrompt) {
-      await this.runPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, result.sessionId, taskLogDir, taskIndex);
+      postCheckFiles = await this.triggerPostCheck(options.postCheckPrompt, effectiveCwd, effectiveEnv, result.sessionId, taskLogDir, taskIndex);
     }
 
     // debug 模式：主步骤成功后追加一次自检复盘
@@ -2239,7 +2513,10 @@ export class StepWise {
       await this.runSelfCheck({
         taskIndex, taskType, taskLogDir,
         cwd: effectiveCwd, env: effectiveEnv,
-        allowRead: options?.allowRead, allowWrite: options?.allowWrite
+        allowRead: options?.allowRead, allowWrite: options?.allowWrite,
+        // 这一步真正交付的数据（schema 输出 JSON），审查者要能看到
+        resultFilePath: outputPath,
+        postCheckFiles
       });
     }
 
@@ -2501,6 +2778,8 @@ export class StepWise {
         sessionId: sessionId,
         useResume: true,
         taskLogDir: logDir,
+        // 总结独占一个目录，目录里只有它一次执行 → 它就是该目录的「步骤本体」，
+        // 沿用无前缀的命名（只有落在步骤目录内的总结才加 summarize_ 前缀）
         promptLogFile: PROMPT_FILE,
         logger: this.logger!,
         taskIndex,

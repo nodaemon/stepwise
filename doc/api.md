@@ -149,11 +149,31 @@ Enables or disables debug mode.
 
 With debug mode enabled, every successful `execPrompt` / `execCollectPrompt` /
 `execCheckPrompt` / `execReport` / `execPromptSchema` step triggers a review. The
-framework opens a **brand-new session** and hands that step's `prompt.txt`,
-`output.txt` and `verbose_output.txt` to an independent third-party reviewer, which
-inspects four dimensions: whether the goal is clear, whether input information is
-missing, whether it is redundant, and whether tool calls / reasoning went down
-detour paths.
+framework opens a **brand-new session** and hands that step's **inputs** to an
+independent third-party reviewer, which inspects four dimensions: whether the goal and
+approach are clear, whether something needs to be added, whether anything is redundant,
+and whether there are logic errors.
+
+There are three review objects, each judged by the same four dimensions:
+
+- the step's prompt (`prompt.txt`)
+- the post-check prompt (`post_check_prompt.txt`) and its verdict
+  (`post_check_output.txt`) — present when the step set `postCheckPrompt`
+- the Skill file the prompt explicitly requires loading (`SKILL.md`) — located by
+  matching the name mentioned in the prompt and by `SKILL.md` paths seen in the trace
+
+Alongside the review objects, the reviewer gets these **factual inputs**:
+
+- the step's final output (`output.txt` — the agent's closing message)
+- the step's **actual deliverable** (the JSON produced by collect / report / schema
+  steps) — for data-producing steps that is where the real data lives; `output.txt`
+  alone hides all of it
+- the post-check verdict (when `postCheckPrompt` is set)
+
+**The model's own behaviour is out of scope**: malformed tool calls, failed-and-retried
+commands, repeated thinking, re-reading the same file, backtracking — those are the
+model's behaviour, not a defect of the prompt or the Skill, and never reach the report.
+The execution trace `verbose_output.txt` is therefore not a review input either.
 
 Because it runs in a fresh session, the reviewer has no memory of the original
 execution and can only judge from those files. The prompt also requires every
@@ -165,26 +185,44 @@ which prevents fabrication. Dimensions with no findings are omitted entirely.
 ```
 stepwise_exec_infos/<Task>_<ts>/<Agent>_<ts>/
 ├── logs/
-│   ├── 1_collect/                ← the reviewed step
-│   │   ├── prompt.txt            ← evidence
-│   │   ├── output.txt            ← evidence
-│   │   ├── verbose_output.txt    ← evidence
-│   │   ├── command.sh / execution_info.json / usage.json
-│   │   └── self_check.md         ← the review report (sibling of output.txt)
-│   └── 1_self_check/             ← the reviewer's own execution logs
+│   ├── 1_collect/                   ← the reviewed step
+│   │   ├── prompt.txt               ← evidence
+│   │   ├── output.txt               ← evidence
+│   │   ├── post_check_prompt.txt    ← the post-check prompt (when configured)
+│   │   ├── post_check_output.txt    ← the post-check verdict
+│   │   ├── self_check_prompt.txt    ← the reviewer's prompt
+│   │   ├── self_check.md            ← the review report (sibling of output.txt)
+│   │   ├── self_check_verbose_output.txt
+│   │   ├── self_check_command.sh / self_check_execution_info.json
+│   │   └── command.sh / execution_info.json / usage.json
 ```
 
-The report file is always named `self_check.md`. The reviewer's logs live in a
-separate `1_self_check/` directory because it has to read `verbose_output.txt`;
-sharing the directory would append its own read records into that evidence file
-and overwrite the parent step's `command.sh`.
+The report file is always named `self_check.md` and lives **in the step's own
+directory** (there is no separate `1_self_check/` directory any more). The reviewer's
+own artifacts always carry a `self_check_` prefix, so they never overwrite the step's
+`command.sh` / `execution_info.json` / `debug.log` / `verbose_output.txt`.
+
+**Every execution in a step folder gets its own re-runnable script**: the step body
+owns the unprefixed `command.sh`, while the post-check, the output-missing retry, the
+validation-failed repair and the end-of-session summary carry their own prefixes
+(`post_check_command.sh` / `file_missing_command.sh` / `validation_fix_command.sh` /
+`summarize_command.sh`) matching their prompt log (`post_check_prompt.txt` ↔
+`post_check_command.sh`), so they never overwrite each other.
+
+**`self_check.md` is always created**: with no findings its body is a single line,
+`本次执行未发现需要改进的问题。`; if the reviewer never wrote the file, or the review
+itself failed, the framework writes a file that states plainly that the review did not
+complete — it never claims "no problems found" on the reviewer's behalf.
 
 **Notes**
 
 - A failed self-check never interrupts the main flow; it is only recorded in `execute.log`
 - The self-check consumes no task index and never writes `progress.json`, so checkpoint recovery is unaffected
 - Its cost is tracked separately as the `selfCheck` type in `performance.txt`
-- On checkpoint re-runs the report is overwritten with the latest result, while the reviewer's logs append to the previous `1_self_check/`
+- On checkpoint re-runs the report is overwritten with the latest result, while the reviewer's trace appends to the previous `self_check_verbose_output.txt`
+- In debug mode `postCheckPrompt` **really runs** (as it does in production): a failing
+  post-check does not abort the step, it is only recorded in `execute.log`, and its
+  verdict still lands in `post_check_output.txt`
 
 **Example**
 
@@ -568,7 +606,7 @@ cat '<abs>/logs/<N_task>/prompt.txt' | claude --dangerously-skip-permissions --v
 
 Linux caps a single argv string at 128 KiB (`MAX_ARG_STRLEN`), so a longer prompt passed as an argument makes `spawn` fail with `E2BIG` ("Argument list too long"). A pipe has no such limit.
 
-Prompts are recorded **per prompt type** in the task log directory, so nothing overwrites anything else: the task prompt goes to `prompt.txt`, the post-check to `post_check_prompt.txt`, the end-of-session summary to `summarize_prompt.txt`, and output-validation retries to `file_missing_prompt.txt` / `validation_fix_prompt.txt`. `command.sh` references the one matching the execution it was written for, so replaying it always replays the same execution. At runtime a fixed-name stdin temporary file is used by every execution; it is deleted once the child process exits, leaving no residue behind.
+Prompts are recorded **per prompt type** in the task log directory, so nothing overwrites anything else: the task prompt goes to `prompt.txt`, the post-check to `post_check_prompt.txt`, the end-of-session summary to `summarize_prompt.txt`, and output-validation retries to `file_missing_prompt.txt` / `validation_fix_prompt.txt`. Every execution writes its own re-runnable script under a matching prefix — `command.sh` for the step body, `post_check_command.sh`, `file_missing_command.sh`, `validation_fix_command.sh`, `summarize_command.sh` — so `command.sh` always replays the step itself. At runtime each execution uses its own stdin temporary file (`.stdin_prompt`, or `.<prefix>stdin_prompt` for prefixed executions); it is deleted once the child process exits, leaving no residue behind.
 
 `execution_info.json` records `promptDelivery: "stdin"` and the `promptLogFile` path rather than embedding the prompt in `args`.
 

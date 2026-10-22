@@ -47,7 +47,7 @@ StepWise 补的就是这几件事，把一次长任务从「agent 尽力而为�
 |---|---|
 | 进程被杀或机器重启，前功尽弃 | 恢复执行时自动跳过已完成步骤——用启动时打印的恢复路径重跑同一个脚本即可 |
 | 跑一晚上的任务被配额打断 | 429 与 503 自动等待重试，且不消耗重试预算；先用用完即弃的会话探测是否恢复，429 报错不会污染真实上下文 |
-| 中途静默跑偏，无人察觉 | debug 模式下每步自动追加一次自检复盘：独立审查者复核目标清晰度、输入缺失与冗余、过程弯路，结论必须逐字引用原文佐证 |
+| 中途静默跑偏，无人察觉 | debug 模式下每步自动追加一次自检复盘：独立审查者复核**输入本身**的目标与思路、信息缺失与冗余、逻辑错误，结论必须逐字引用原文佐证 |
 | AI 说「做完了」只是一句空话 | 声明输出格式；StepWise 先确认文件存在、再校验内容，然后自动生成修复提示词并重试 |
 | 长任务为什么出错、耗时与 token 消耗等难以分析 | 每一步都可观测——耗时与 token 消耗逐项统计，AI 的思考过程与工具调用全程留痕，任务时间与限额等待分开算，任何一步都能原样重跑 |
 | 并行的 agent 互相踩文件 | 每个 Worker 独占一个 git worktree，任务从共享队列领取；分支只提交到自己分支，绝不自动合并进主分支 |
@@ -214,7 +214,13 @@ await agent.execPrompt('步骤3：处理条目 $name', { data: { name: 'item1' }
 
 **debug 模式下的自检复盘**
 
-调试模式下每成功执行一个 AI 步骤，框架会新开一个会话，把这一步的提示词、输出和执行轨迹交给一个独立审查者，复盘目标是否清晰、输入是否缺失或冗余、工具调用是否走了弯路。审查者必须逐字引用原文佐证每条结论，引用不到就不输出；报告写在同目录的 `self_check.md`。详见[执行结果目录结构](#执行结果目录结构)。
+调试模式下每成功执行一个 AI 步骤，框架会新开一个会话，把这一步的**输入**交给一个独立审查者：步骤提示词、最终输出、该步骤的后检查提示词与判定结果（配置了 `postCheckPrompt` 时），以及提示词明确要求加载的 Skill 文件。审查对象是**输入本身的工作流程与思路**——目标与思路是否清晰、是否需要补充、是否冗余、是否有逻辑错误；模型自身的行为问题（工具调用命令写错、失败重试、重复思考、返工等）不在复盘范围内。
+
+审查者必须逐字引用原文佐证每条结论，引用不到就不输出；报告写在同目录的 `self_check.md`，**无论有没有发现问题都会生成**：没问题就写明「本次执行未发现需要改进的问题。」
+
+debug 模式下 `postCheckPrompt` 也会**真实执行**（生产模式同理），因此后检查的要求是否清晰、产出是否满足要求，都在复盘范围内；后检查失败不会中断主流程。
+
+详见[执行结果目录结构](#执行结果目录结构)。
 
 ---
 
@@ -244,10 +250,19 @@ stepwise_exec_infos/
         │   │   ├── usage.json                   ←   token 用量（NDJSON 执行器）
         │   │   ├── schema.json                  ←   execPromptSchema 的 schema 定义
         │   │   ├── post_check_prompt.txt        ←   postCheckPrompt 原文
+        │   │   ├── post_check_output.txt        ←   后检查的判定结果
+        │   │   ├── post_check_command.sh        ←   后检查那次的复现脚本
+        │   │   ├── file_missing_prompt.txt      ←   输出缺失重试的提示词
+        │   │   ├── file_missing_command.sh      ←   输出缺失重试那次的复现脚本
+        │   │   ├── validation_fix_prompt.txt    ←   校验失败修复的提示词
+        │   │   ├── validation_fix_command.sh    ←   校验失败修复那次的复现脚本
+        │   │   ├── self_check_prompt.txt        ←   自检审查者的提示词（仅 debug 模式）
+        │   │   ├── self_check.md                ←   自检报告（仅 debug 模式）
+        │   │   ├── self_check_verbose_output.txt←   自检审查者自己的执行轨迹
+        │   │   ├── self_check_command.sh        ←   自检审查者的复现脚本
         │   │   ├── error.txt                    ←   失败原因（仅失败时）
-        │   │   └── self_check.md                ←   自检报告（仅 debug 模式）
-        │   ├── 2_task/                          ← 第 2 个步骤，以此类推
-        │   └── 1_self_check/                    ← 自检审查者自身的日志（仅 debug 模式）
+        │   │   └── ...
+        │   └── 2_task/                          ← 第 2 个步骤，以此类推
         └── collect/
             └── 1_collect/
                 └── collect_1.json               ← 收集类任务的输出
@@ -261,7 +276,15 @@ stepwise_exec_infos/
 | `usage.json` | 使用 Claude Code / CodeAgent / mcode 等 NDJSON 执行器 |
 | `schema.json` | `execPromptSchema` |
 | `post_check_prompt.txt` | 该步骤配置了 `postCheckPrompt` |
+| `post_check_output.txt` | 该步骤配置了 `postCheckPrompt`（后检查的判定结果） |
+| `post_check_command.sh` | 同上（后检查那次的复现脚本） |
+| `file_missing_prompt.txt` / `file_missing_command.sh` | 出现过「输出文件缺失」重试 |
+| `validation_fix_prompt.txt` / `validation_fix_command.sh` | 出现过「输出校验失败」修复重试 |
+| `summarize_prompt.txt` / `summarize_command.sh` | 会话末尾总结落在该步骤目录内时 |
 | `self_check.md` | debug 模式下的自检报告 |
+| `self_check_prompt.txt` / `self_check_verbose_output.txt` / `self_check_command.sh` | debug 模式下自检审查者自己的产物（带 `self_check_` 前缀，不覆盖步骤本体的同名文件） |
+
+一个步骤目录里会先后跑好几次执行（步骤本体、后检查、输出缺失重试、校验失败修复、会话末尾总结、自检复盘）。**步骤本体独占无前缀的 `command.sh`**——它始终是「这一步」的复现脚本；其余每次执行都带自己的前缀（`post_check_command.sh`、`file_missing_command.sh`……），与该次执行的提示词记录文件同名前缀，互不覆盖。
 
 没有任何东西是不可还原的：`progress.json` 决定断点续跑从哪继续，`command.sh` 让任何一步都能脱离框架单独重跑，`verbose_output.txt` 保留了 AI 当时究竟看到了什么、做了什么、走过哪些弯路。
 
@@ -295,7 +318,7 @@ npm run test:coverage
 | 目录 | 职责 |
 |---|---|
 | `src/executors/` | 各 CLI 后端的适配层。`base.ts` 定义 `BaseExecutor` 抽象类（`agentType` / `buildArgs` / `getCommand` / `buildProbeArgs`），`claude.ts` `opencode.ts` `pi.ts` `codeagent.ts` `mcode.ts` 是各自的实现，`ndjsonFormatter.ts` 解析流式输出 |
-| `src/utils/` | `validator.ts` 输出校验与修复重试、`sessionLinker.ts` 跨 worktree 会话管理、`performanceTracker.ts` 耗时与 token 统计、`reproScript.ts` 生成 `command.sh`、`promptBuilder.ts` 提示词与自检复盘 |
+| `src/utils/` | `validator.ts` 输出校验与修复重试、`sessionLinker.ts` 跨 worktree 会话管理、`performanceTracker.ts` 耗时与 token 统计、`reproScript.ts` 生成 `command.sh`、`promptBuilder.ts` 提示词与自检复盘、`skillResolver.ts` 定位提示词要求加载的 Skill |
 | `src/StepWise.ts` | 核心类：步骤调度、断点续跑、恢复、配额等待 |
 | `src/forEachParallel.ts` | 并行 worker 池、共享队列、worktree 隔离 |
 | `src/types.ts` | 全部公开类型，改动前先确认兼容性 |

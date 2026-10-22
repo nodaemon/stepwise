@@ -191,6 +191,7 @@ Linux 对单个 argv 字符串的硬上限是 `MAX_ARG_STRLEN = 32 × PAGE_SIZE 
 | 会话末尾总结 | `summarize_prompt.txt` | `SUMMARIZE_PROMPT_FILE` |
 | 输出文件缺失重试 | `file_missing_prompt.txt` | `FILE_MISSING_PROMPT_FILE` |
 | 输出校验失败修复 | `validation_fix_prompt.txt` | `VALIDATION_FIX_PROMPT_FILE` |
+| 自检复盘 | `self_check_prompt.txt` | `SELF_CHECK_PROMPT_FILE` |
 
 `command.sh` 末行引用其中与本次执行对应的那一份，因此复现的一定是同一次执行：
 
@@ -198,11 +199,49 @@ Linux 对单个 argv 字符串的硬上限是 `MAX_ARG_STRLEN = 32 × PAGE_SIZE 
 cat '/abs/path/logs/3_task/prompt.txt' | claude --dangerously-skip-permissions ... -p
 ```
 
-**2) stdin 临时文件（用完即删）**
+**2) 产物文件名前缀（`options.artifactPrefix`）**
 
-运行时的提示词写进固定名文件 `STDIN_PROMPT_FILE`（`.stdin_prompt`），再从它读出喂给子进程 stdin；
+同一步骤目录内会先后跑好几次执行（步骤本体、postCheck、输出缺失重试、校验失败修复、
+会话末尾总结、自检复盘），每次执行都会生成 `command.sh` / `execution_info.json` /
+`debug.log` / `verbose_output.txt` 等产物。不加区分时，后一次执行会覆盖前一次的产物，
+步骤本体的复现脚本也会消失。
+
+传 `artifactPrefix` 后，本次执行的产物带前缀落盘，**不会覆盖目录里已有的同名文件**：
+
+| 产物 | 带 `artifactPrefix: 'self_check_'` 时 |
+|---|---|
+| `command.sh` | `self_check_command.sh` |
+| `execution_info.json` | `self_check_execution_info.json` |
+| `debug.log` | `self_check_debug.log` |
+| `verbose_output.txt` | `self_check_verbose_output.txt` |
+| `error_report.txt` | `self_check_error_report.txt` |
+| stdin 临时文件 | `.self_check.stdin_prompt`（隐藏语义保留：前缀插到点号之后） |
+
+**提示词记录文件不受前缀影响**——它的文件名由 `options.promptLogFile` 显式指定，
+避免「前缀 + 已带前缀的名字」造成二次加前缀。
+
+框架里各次执行使用的常量（`src/constants.ts`）：
+
+| 执行 | 提示词记录文件 | 产物前缀常量 |
+|---|---|---|
+| 步骤本体 | `prompt.txt` | 无（独占无前缀的名字） |
+| postCheck | `post_check_prompt.txt` | `POST_CHECK_ARTIFACT_PREFIX` |
+| 输出缺失重试 | `file_missing_prompt.txt` | `FILE_MISSING_ARTIFACT_PREFIX` |
+| 校验失败修复 | `validation_fix_prompt.txt` | `VALIDATION_FIX_ARTIFACT_PREFIX` |
+| 会话末尾总结 | `summarize_prompt.txt` | `SUMMARIZE_ARTIFACT_PREFIX` |
+| 自检复盘 | `self_check_prompt.txt` | `SELF_CHECK_ARTIFACT_PREFIX` |
+
+前缀与提示词记录文件同名，保证「同一次执行」的文件能对上号：
+`post_check_prompt.txt` ↔ `post_check_command.sh`。
+
+**3) stdin 临时文件（用完即删）**
+
+运行时的提示词写进 `STDIN_PROMPT_FILE`（`.stdin_prompt`），再从它读出喂给子进程 stdin；
 子进程退出后立即删除，目录里不留残留。固定名的意义是**所有执行在底层走同一条通路**：
 写固定名文件 → 从它读 → 喂 stdin → 退出即删。
+
+带 `artifactPrefix` 的执行用同一条通路，只是文件名带上前缀
+（`.self_check.stdin_prompt`）——**隐藏语义保留**：前缀插到点号之后。
 
 `execution_info.json` 的 `args` 不再含提示词，另记录 `promptDelivery: "stdin"` 与 `promptLogFile`。
 
