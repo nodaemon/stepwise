@@ -26,8 +26,16 @@ export const EXECUTE_LOG = 'execute.log';
 /** 最大重试次数 */
 export const MAX_RETRIES = 3;
 
-/** 默认执行超时时间：3 小时（毫秒）- AI 任务 */
-export const DEFAULT_TIMEOUT_MS = 3 * 60 * 60 * 1000;
+/** 默认执行超时时间：5 小时（毫秒）- AI 任务 */
+export const DEFAULT_TIMEOUT_MS = 5 * 60 * 60 * 1000;
+
+/**
+ * 进程终止宽限期（毫秒）
+ *
+ * 超时后先给子进程发 SIGTERM，宽限期到了还没退出才升级为 SIGKILL。
+ * SIGKILL 无法被捕获，是「超时后子进程一定退出」的最终保障。
+ */
+export const PROCESS_TERMINATE_GRACE_MS = 3000;
 
 /** 错误重试默认等待时间（毫秒）：5 分钟 */
 export const DEFAULT_RETRY_WAIT_MS = 5 * 60 * 1000;

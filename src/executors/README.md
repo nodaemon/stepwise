@@ -258,6 +258,28 @@ cat '/abs/path/logs/3_task/prompt.txt' | claude --dangerously-skip-permissions .
 "从 stdin 读提示词"，把对应开关写进 `buildArgs()` 内部（如 mcode 的 `--input -`）。
 `buildProbeArgs()` 同样去掉提示词，探测提示词由基类经 `spawnSync` 的 `input` 选项传入。
 
+## 超时终止
+
+基类在超时后按「优雅终止 → 强制终止」两步走，保证**直接子进程一定退出**。第三方执行器**不需要做任何改动**，但要知道它的行为约定。
+
+### SIGTERM → 宽限期 → SIGKILL
+
+超时时先给子进程发 `SIGTERM`，宽限期（`PROCESS_TERMINATE_GRACE_MS`，3 秒）内没退出就发 `SIGKILL`。`SIGKILL` 不可捕获、不可忽略，是「超时后子进程一定退出」的最终保障——AI 任务常因 CLI 自身的 event loop 卡住而无法响应 `SIGTERM`，只有 `SIGKILL` 能收掉它。
+
+升级分支**不能**写成 `if (!child.killed)`：`child.killed` 只表示「信号已发出」，`SIGTERM` 发出后它就是 `true`，那个条件永远不成立，`SIGKILL` 从不执行，卡死的子进程会一直残留。
+
+### 不改动宿主进程的信号语义
+
+框架**不接管** `SIGINT` / `SIGTERM`，子进程也留在父进程的前台进程组里：终端的 Ctrl-C 照常送达子进程，行为与框架自身无关。宿主程序注册的信号监听器不会被框架触碰。
+
+### 已知边界：孙进程不在清理范围
+
+框架只保证**直接子进程**退出。子进程派生的孙进程（如 agent 正在跑的 bash 工具）会被 init 收养后继续运行，不在清理范围内。
+
+这带来一个连带问题：孙进程持有 stdout 管道时，`close` 事件不会触发。为此超时路径自己做收尾——销毁 stdout/stderr 管道（否则框架自身的事件循环会被挂住，框架反而退不出去）、flush `verbose_output.txt`、删 stdin 临时文件。
+
+> 另有一条固有限制：父进程被 `SIGKILL` 或机器掉电时无法执行任何清理（Node 没有 `PR_SET_PDEATHSIG` 的等价能力）。
+
 ## isResume 参数说明
 
 不同 CLI 工具对会话恢复的处理方式不同：

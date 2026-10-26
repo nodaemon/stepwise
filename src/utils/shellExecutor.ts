@@ -11,7 +11,7 @@ import * as childProcess from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ShellOptions, ShellResult } from '../types';
-import { DEFAULT_SHELL_TIMEOUT_MS } from '../constants';
+import { DEFAULT_SHELL_TIMEOUT_MS, PROCESS_TERMINATE_GRACE_MS } from '../constants';
 import { parseEnvEntries } from './envHelper';
 import { buildReproScript, writeReproScript } from './reproScript';
 
@@ -125,12 +125,18 @@ export class ShellExecutor {
         // 先尝试优雅终止
         child.kill('SIGTERM');
 
-        // 3秒后强制终止
+        // 宽限期后强制终止。
+        // 关键：这里不能写成 if (!child.killed) —— child.killed 只表示
+        // 「信号已发出」，SIGTERM 发出后它就是 true，那个分支永远不执行，
+        // 忽略 SIGTERM 的子进程会一直残留。SIGKILL 不可捕获，
+        // 是「超时后子进程一定退出」的最终保障。
         sigkillTimerId = setTimeout(() => {
-          if (!child.killed) {
-            child.kill('SIGKILL');
-          }
-        }, 3000);
+          child.kill('SIGKILL');
+          // 命令派生的孙进程可能仍持有 stdout 管道：销毁它，
+          // 否则框架自身的事件循环被挂住，框架反而退不出去
+          child.stdout?.destroy?.();
+          child.stderr?.destroy?.();
+        }, PROCESS_TERMINATE_GRACE_MS);
 
         reject(timeoutError);
       }, options.timeout);

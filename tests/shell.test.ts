@@ -258,6 +258,46 @@ describe('execShell 功能测试', () => {
     });
   });
 
+  describe('execShell 超时终止', () => {
+    it('超时应终止子进程并抛出超时错误', async () => {
+      // 模拟卡死的命令：永不触发 close
+      mockSpawn.mockImplementation((command: string, args: string[], options: any) => {
+        return {
+          stdout: { on: jest.fn() },
+          stderr: { on: jest.fn() },
+          stdin: { end: jest.fn() },
+          on: jest.fn(),
+          kill: jest.fn(),
+          killed: false
+        };
+      });
+
+      setTaskName('ShellTimeoutTest');
+      setAgentType('claude');
+
+      const agent = new StepWise('Agent1');
+
+      await expect(
+        agent.execShell('sleep 100', { timeout: 1000 })
+      ).rejects.toThrow('Command timed out after 1000ms');
+
+      // 超时必须真的把子进程杀掉（此前因 child.killed 判断错误，SIGKILL 从不触发）
+      const mockChild = mockSpawn.mock.results[0].value;
+      expect(mockChild.kill).toHaveBeenCalledWith('SIGTERM');
+
+      // 宽限期后必须升级为 SIGKILL —— 这是「一定退出」的最终保障
+      // （超时错误是立即抛出的，SIGKILL 在宽限期后才发，这里要等它）
+      const deadline = Date.now() + 10000;
+      while (
+        Date.now() < deadline &&
+        !mockChild.kill.mock.calls.some((call: string[]) => call[0] === 'SIGKILL')
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(mockChild.kill).toHaveBeenCalledWith('SIGKILL');
+    }, 30000);
+  });
+
   describe('AI + Shell 混合任务', () => {
     it('应该正确管理混合任务的序号', async () => {
       setTaskName('ShellMixedTest');

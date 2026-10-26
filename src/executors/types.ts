@@ -57,7 +57,7 @@ export interface AgentExecutorOptions {
   /** 任务类型 */
   taskType?: TaskType;
 
-  /** 执行超时时间（毫秒），默认 3 小时 */
+  /** 执行超时时间（毫秒），默认 5 小时 */
   timeout?: number;
 
   /** 额外的环境变量数组，格式为 "KEY=VALUE" */
