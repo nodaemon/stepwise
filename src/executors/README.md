@@ -272,6 +272,28 @@ cat '/abs/path/logs/3_task/prompt.txt' | claude --dangerously-skip-permissions .
 
 框架**不接管** `SIGINT` / `SIGTERM`，子进程也留在父进程的前台进程组里：终端的 Ctrl-C 照常送达子进程，行为与框架自身无关。宿主程序注册的信号监听器不会被框架触碰。
 
+### 结算前子进程必已退出
+
+超时**不会立刻**把 Promise 判为失败。基类只在子进程真正退出之后才结算：
+
+- 正常结束：`close` 事件（进程已退出 **且** stdio 管道已关闭）
+- 超时结束：`SIGTERM` → 宽限期 → `SIGKILL` 之后，等 `close` 到达再结算
+
+孙进程持有 stdout 管道时 `close` 可能一直不触发，为此超时路径在发出 `SIGKILL` 后额外挂一道兜底闸门（`SIGKILL_SETTLE_GATE_MS`，1 秒），到期强制结算，避免 Promise 永远挂住。此时 `SIGKILL` 早已生效，直接子进程确定已退出。
+
+这条契约的意义：框架抛错返回时，上一个 agent 进程一定已经死了。紧接着发起的重试不会和还活着的旧进程抢同一个会话文件。
+
+### 重试一律续接同一会话
+
+`execute()` 的重试循环里，「是否 resume」由独立的 `sessionStarted` 标志决定，**与重试预算计数 `attempts` 分离**：
+
+- `attempts` 是预算（普通错误消耗，429/503 不消耗），决定还能重试几次
+- `sessionStarted` 表达「这个会话已经存在了」，决定重试时该怎么调用 CLI
+
+判据**不能**写成 `attempts > 1`：429/503 分支会执行 `attempts--` 把计数退回去，用 `attempts` 判定会让 429 之后的第一次重试退回「新建会话」模式。对 Claude 而言，这等于用同一个 uuid 再次 `--session-id`，而该 uuid 的会话文件在首次执行时已落盘，CLI 直接报 `Session ID ... is already in use.`，整轮重试机制随之失效。
+
+语义：只要本会话已启动过一次，后续任何重试（含 429/503 分支）都必须续用同一会话。首次执行不强制 resume（调用方显式传入 `useResume` 时则原样透传）。
+
 ### 已知边界：孙进程不在清理范围
 
 框架只保证**直接子进程**退出。子进程派生的孙进程（如 agent 正在跑的 bash 工具）会被 init 收养后继续运行，不在清理范围内。

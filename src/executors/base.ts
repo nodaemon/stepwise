@@ -28,6 +28,17 @@ function nowTimestamp(): string {
 }
 
 /**
+ * SIGKILL 兜底闸门窗口（毫秒）
+ *
+ * 超时路径上，SIGKILL 发出后直接子进程必然被内核终止，
+ * 但 close 事件还要求「stdio 管道已关闭」——孙进程持有管道写端时，
+ * close 可能一直不触发，Promise 会永远挂住。
+ * 闸门给 close 一个上限：到期仍未 close 就强制结算，
+ * 此时 SIGKILL 早已生效，直接子进程确定已死。
+ */
+const SIGKILL_SETTLE_GATE_MS = 1000;
+
+/**
  * 速率限制信息
  * 当检测到 API 限额达到上限时返回
  */
@@ -188,6 +199,24 @@ export abstract class BaseExecutor implements AgentExecutor {
     let lastExitCode: number | null = null;
     let attempts = 0;
 
+    /**
+     * 本次 execute() 是否已经用同一个 sessionId 启动过子进程
+     *
+     * 与「重试预算计数」attempts 严格区分：
+     * - attempts 是预算（普通错误消耗，429/503 不消耗），决定还能重试几次；
+     * - sessionStarted 表达「这个会话已经存在了」，决定重试时该怎么调用 CLI。
+     *
+     * 判据不能用 attempts > 1：429/503 分支会执行 attempts-- 把计数退回去，
+     * 用 attempts 判定会让 429 之后的第一次重试退回「新建会话」模式。
+     * 对 Claude 而言，这等于用 --session-id 复用同一个 uuid，而该 uuid 的
+     * 会话文件在首次执行时已落盘 → CLI 报 `Session ID ... is already in use.`，
+     * 整轮重试机制随之失效。
+     *
+     * 语义：只要本会话已启动过一次，后续任何重试（含 429/503 分支）都必须
+     * 续用同一会话，而不是新建。
+     */
+    let sessionStarted = false;
+
     // 重试循环逻辑：
     // 1. 普通错误：attempts++，最多重试 MAX_RETRIES 次
     // 2. 速率限制(429)：等待重置时间后继续，不计入重试次数
@@ -195,10 +224,12 @@ export abstract class BaseExecutor implements AgentExecutor {
       attempts++;
 
       try {
-        // 重试时使用恢复模式，在之前失败的基础上继续
-        const retryOptions = attempts > 1
+        // 重试时使用恢复模式，在之前失败的基础上继续。
+        // 判据是「本会话是否已启动过」，与重试预算计数无关。
+        const retryOptions = sessionStarted
           ? { ...options, useResume: true }
           : options;
+        sessionStarted = true;
 
         const result = await this.runCommand(prompt, sessionId, retryOptions);
 
@@ -444,20 +475,67 @@ export abstract class BaseExecutor implements AgentExecutor {
         shell: process.platform === 'win32'
       });
 
+      // ── 结算状态 ──────────────────────────────────────────────
+      // Promise 只结算一次：error 与 close 事件可能都到达
+      // （spawn 失败时先 error 后 close），settled 闸门保证只结算一次。
+      let settled = false;
+      // 超时错误：超时后统一以它拒绝，不再走正常 resolve
+      let timeoutError: Error | null = null;
+      // 运行期错误（spawn 失败等）：close 之前先记下来
+      let pendingError: Error | null = null;
+      // 退出码：由 close 事件带回
+      let exitCode: number | null = null;
+
       // SIGKILL 定时器引用，用于在 close/error 事件中清除
       let sigkillTimerId: NodeJS.Timeout | null = null;
+      // SIGKILL 兜底闸门引用：孙进程持有管道时 close 不触发，
+      // 闸门到期强制结算，避免 Promise 永远挂住
+      let sigkillGateTimerId: NodeJS.Timeout | null = null;
 
       // 提取定时器清理逻辑，避免重复代码
       const clearAllTimers = () => {
         clearTimeout(timeoutId);
         if (sigkillTimerId) {
           clearTimeout(sigkillTimerId);
+          sigkillTimerId = null;
+        }
+        if (sigkillGateTimerId) {
+          clearTimeout(sigkillGateTimerId);
+          sigkillGateTimerId = null;
+        }
+      };
+
+      /**
+       * 统一结算出口
+       *
+       * 结算时机：只在子进程真正退出之后发生——
+       * - 正常退出：close 事件（进程已退出且 stdio 管道已关闭）
+       * - 超时：SIGTERM → SIGKILL 之后，close 到达（或兜底闸门到期）
+       *
+       * 这样上层拿到结果时直接子进程一定已经退出，
+       * 紧接着发起的重试不会和上一个还活着的进程抢同一个会话。
+       */
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        clearAllTimers();
+        finalizeStreams();
+        if (timeoutError) {
+          reject(timeoutError);
+        } else if (pendingError) {
+          reject(pendingError);
+        } else {
+          resolve({
+            stdout,
+            stderr,
+            exitCode
+          });
         }
       };
 
       // 设置超时
       const timeoutId = setTimeout(() => {
-        const timeoutError = new Error(
+        timeoutError = new Error(
           `${command} process timed out after ${timeout}ms (${timeout / 1000}s)`
         );
         // 先尝试优雅终止
@@ -473,18 +551,15 @@ export abstract class BaseExecutor implements AgentExecutor {
           // 否则框架自身的事件循环被挂住，框架反而退不出去
           child.stdout?.destroy?.();
           child.stderr?.destroy?.();
-          // 收尾：孙进程持有管道时 close 事件不会触发，
-          // 这里的清理不能依赖它（stdin 临时文件与 verbose 日志都要落地）
-          if (verboseStream) {
-            flushLineBuffers();
-            verboseStream.end();
-            verboseStream = null;
-          }
-          if (stdinFile) {
-            this.removeStdinFile(stdinFile);
-          }
+          // 兜底闸门：孙进程持有管道时 close 事件不会触发，
+          // 给 close 一个上限，到期强制结算，避免 Promise 永远挂住。
+          // 此时 SIGKILL 早已生效，直接子进程确定已退出。
+          sigkillGateTimerId = setTimeout(() => {
+            settle();
+          }, SIGKILL_SETTLE_GATE_MS);
         }, PROCESS_TERMINATE_GRACE_MS);
-        reject(timeoutError);
+        // 这里不立即 reject —— 结算推迟到子进程真正退出（close）之后，
+        // 保证「步骤结束时子进程一定同步退出」。
       }, timeout);
 
       // 提示词经 stdin 管道下发
@@ -626,34 +701,42 @@ export abstract class BaseExecutor implements AgentExecutor {
         }
       };
 
-      child.on('error', (error) => {
-        clearAllTimers();
-        // 刷新剩余 buffer 并关闭流
+      /**
+       * 收尾：刷新残留行、关闭 verbose 流、删除 stdin 临时文件
+       *
+       * 只执行一次：verboseStream 置 null 作为防重入闸门
+       * （close 与 error 两个事件可能都到达）
+       */
+      const finalizeStreams = () => {
         if (verboseStream) {
           flushLineBuffers();
           verboseStream.end();
-          verboseStream = null; // 防止 close handler 重复关闭
-        }
-        reject(error);
-      });
-
-      child.on('close', (code) => {
-        clearAllTimers();
-        // 刷新剩余的不完整行
-        if (verboseStream) {
-          flushLineBuffers();
-          verboseStream.end();
+          verboseStream = null; // 防止重复关闭
         }
         // stdin 临时文件用完即删，目录里不留残留
         // （长期留存的是提示词记录文件，command.sh 引用的是它）
         if (stdinFile) {
           this.removeStdinFile(stdinFile);
         }
-        resolve({
-          stdout,
-          stderr,
-          exitCode: code
-        });
+      };
+
+      child.on('error', (error) => {
+        // 记录运行期错误。多数情况是 spawn 失败（命令不存在 / 无权限），
+        // 此时 child.pid 为 undefined —— 根本没有子进程在跑，
+        // 可以直接结算，不必等 close。
+        // 若子进程确实已经启动，'error' 可能是 kill 失败这类运行期错误，
+        // 进程可能还活着：此时不结算，等它真正退出（close）再说，
+        // 保证「框架返回时子进程一定已退出」。
+        pendingError = error;
+        if (child.pid === undefined) {
+          settle();
+        }
+      });
+
+      child.on('close', (code) => {
+        // close = 进程已退出 且 stdio 管道已关闭 —— 这是唯一可以安全结算的时刻
+        exitCode = code;
+        settle();
       });
     });
   }

@@ -156,4 +156,51 @@ describeLinux('执行器超时后的子进程终止', () => {
     const stdinFile = path.join(logDir, '.stdin_prompt');
     expect(await waitFor(() => !fs.existsSync(stdinFile), 5000)).toBe(true);
   }, 60000);
+
+  it('超时报错抛出的瞬间，直接子进程必须已经退出', async () => {
+    const executor = new FakeExecutor(agentScript, pidFile);
+
+    // 捕获 reject 的瞬间的进程存活数：
+    // 修复前，超时分支立即 reject，子进程还活着（要到 3 秒后 SIGKILL 才死），
+    // 于是「步骤结束时子进程一定同步退出」这条契约是不成立的。
+    let aliveAtReject = -1;
+    try {
+      await executor.execute('做一个任务', {
+        cwd: tmpDir,
+        timeout: 1000,
+        taskLogDir: logDir,
+        taskIndex: 0,
+        taskType: 'task'
+      });
+    } catch (error) {
+      // 抛错这一刻同步取样：子进程必须已经死了
+      aliveAtReject = countProcessesByCmdline(agentScript);
+      expect(String(error)).toMatch(/timed out after 1000ms/);
+    }
+
+    // 抛错瞬间不得还有任何该 agent 的存活进程
+    expect(aliveAtReject).toBe(0);
+  }, 60000);
+
+  it('超时后子进程被 SIGKILL 杀掉，但框架不会挂死（Promise 一定结算）', async () => {
+    const executor = new FakeExecutor(agentScript, pidFile);
+
+    // 结算只能发生在子进程退出之后，因此耗时必然超过「超时 + SIGTERM 宽限期」
+    const startedAt = Date.now();
+    await expect(
+      executor.execute('做一个任务', {
+        cwd: tmpDir,
+        timeout: 1000,
+        taskLogDir: logDir,
+        taskIndex: 0,
+        taskType: 'task'
+      })
+    ).rejects.toThrow(/timed out after 1000ms/);
+
+    const elapsed = Date.now() - startedAt;
+    // 1000ms 超时 + 3000ms SIGTERM 宽限期（忽略 SIGTERM ⇒ 走 SIGKILL）
+    expect(elapsed).toBeGreaterThanOrEqual(4000);
+    // 结算时子进程已死
+    expect(countProcessesByCmdline(agentScript)).toBe(0);
+  }, 60000);
 });
