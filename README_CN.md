@@ -35,7 +35,7 @@ Claude Code 很适合你坐在终端里边聊边改——看到问题就纠正�
 
 StepWise 补的就是这几件事，把一次长任务从「agent 尽力而为」变成「流程有章可循」：
 
-- **知道自己走到了哪一步。** 每一步完成就把序号、状态和会话 ID 落到磁盘上；中断之后重跑同一个脚本即可跳过已完成的工作，不重算，原会话是否还在都不影响恢复。
+- **知道自己走到了哪一步。** 每一步完成就把序号、状态和会话 ID 落到磁盘上；中断之后重跑同一个脚本即可跳过已完成的工作，不重算。
 - **扛得住跑一夜的中断。** 撞上 429 / 503 不直接失败，而是用用完即弃的会话探测配额是否恢复，等待不消耗重试预算，限流报错也不会写进真实上下文。
 - **交回来之前先自查。** 先确认产物文件确实存在，再校验内容，不合格自动生成修复提示词重试；debug 模式下每一步还会由独立审查者复盘一遍。
 
@@ -197,57 +197,37 @@ const forked = await agent.execPrompt('尝试另一种实现思路', {
 
 ### 7. 断点恢复
 
-长任务总会在半路断掉——进程被杀、机器重启、限流打满。断点恢复靠的是磁盘上的进度文件：每一步完成时写下自己的序号、状态和会话 ID，恢复时按这份记录决定「跳过、续跑，还是重来」。
+长任务跑到一半被中断——进程被杀、机器重启、限流打满——重跑时不想从头再来。
 
-**怎么恢复**
-
-启动横幅会打印任务目录名，它就是恢复路径。把它作为 `initTask` 的第二个参数传回来，重跑同一个脚本：
+启动时框架会打印任务目录名，把它作为 `initTask` 的第二个参数传回来，重跑同一个脚本即可：已完成的步骤自动跳过，断掉的那一步从原地继续。
 
 ```typescript
 import { initTask, StepWise } from 'stepwise';
 
-initTask('RefactorAuth', 'RefactorAuth_20260315_143000_123');
+initTask('RefactorAuth', 'RefactorAuth_20260315_143000_123');   // 启动时打印的目录名
 const agent = new StepWise('MainAgent');
 
-await agent.execPrompt('分析模块依赖关系');   // 已完成 → 跳过
-await agent.execPrompt('重构核心逻辑');       // 未完成 → 正常执行
+await agent.execPrompt('分析模块依赖关系');   // 上次已完成 → 跳过
+await agent.execPrompt('重构核心逻辑');       // 上次没跑到 → 继续执行
 ```
 
-横幅里打印的 `恢复命令` 用的是已废弃的 `setResumePath`；`initTask(任务名, 恢复路径)` 与它等价，且不依赖调用顺序。
+横幅里打印的 `恢复命令` 用的是已废弃的 `setResumePath`，`initTask(任务名, 恢复路径)` 与它等价。
 
-**恢复时每一步会怎样**
-
-| 磁盘上的记录 | 恢复时的行为 |
-|---|---|
-| `completed` | 跳过，不重跑；collect / report 的产出从磁盘读回，调用方拿到的数据和上次一致（debug 模式下同样只保留第一条）。被跳过的 `execPrompt` 返回 `success: true`、`output` 为空串、耗时为 0 |
-| `in_progress`（断在中途） | 清掉这一步上次留下的半成品产物后重跑，并沿用记录下来的会话 ID 续接上下文 |
-| 没有记录 | 正常执行 |
-
-**三条硬约束**
-
-1. **步骤按「序号 + 类型」匹配，不看提示词内容。** 中断后在脚本前面插一个新步骤，它会顶掉原来第 1 步的位置，并被当成「已完成」直接跳过。想恢复就别改脚本的步骤顺序；某个序号上的 `exec*` 接口换了类型，框架会打印 `任务 N 类型不匹配` 的警告并把它当作新步骤执行。
-2. **Agent 名要一致。** 进度写在 `<任务目录>/<Agent 名>_<时间戳>/data/progress.json` 里，换个 Agent 名就是另一份进度，全部从头跑。
-3. **会话文件还在不在，决定续接成不成立。** 恢复后新执行的步骤会带着历史会话 ID 走 `--resume`，而会话文件是各 CLI 存在自己的配置目录下（Claude 在 `~/.claude/projects/<cwd>/`、CodeAgent 在 `~/.cac/projects/<cwd>/`）——文件被清掉后这一步会报 `No conversation found with session ID` 而失败（Pi 会用同一个 ID 新建会话，上下文归零但流程继续）。已经完成的步骤不受影响：跳过只读磁盘进度，不碰会话。
-
-**并行任务也能恢复**
-
-`forEachParallel` 恢复时会复用已有的 worktree（分支上未整合的改动会保留），并扫描每个条目的状态：已完成的跳过，断在中间的交还给原来的 Worker 重跑。
+并行任务同样适用——恢复路径照传，已完成的条目跳过，断在中间的条目重新执行：
 
 ```typescript
 initTask('BatchJob', 'BatchJob_20260315_143000_123');
-await forEachParallel(items, workerConfigs, handler);   // 已完成的条目自动跳过
+await forEachParallel(items, workerConfigs, handler);
 ```
-
-恢复路径找不到对应目录时会直接报错退出，不会静默从头跑。
 
 ### 8. 调试模式
 
-调试模式让整条流程只跑一条数据，用来在真正跑长任务之前把整条链路验证一遍：
+写完一条流程，先确认整条链路通不通，再决定要不要跑全量数据。
 
 ```typescript
 import { initTask, StepWise, enableDebugMode } from 'stepwise';
 
-enableDebugMode(true);   // collect 只取 1 条，forEachParallel 只处理第 1 个条目
+enableDebugMode(true);   // 收集类步骤只处理 1 条数据
 
 initTask('MyTask');
 const agent = new StepWise('MainAgent');
@@ -262,9 +242,7 @@ await agent.execCollectPrompt('步骤2：收集数据', fmt);   // 只收集 1 �
 
 审查者必须逐字引用原文佐证每条结论，引用不到就不输出；报告写在同目录的 `self_check.md`，**无论有没有发现问题都会生成**：没问题就写明「本次执行未发现需要改进的问题。」
 
-debug 模式下 `postCheckPrompt` 也会**真实执行**（生产模式同样会执行），因此后检查的要求是否清晰、产出是否满足要求，都在复盘范围内。两处的失败语义不同：**生产模式**下后检查失败会中断该步骤；**debug 模式**下不中断，只在 `execute.log` 里记录，并把「后检查执行失败」写进 `post_check_output.txt`，让审查者知道这一项没跑成。
-
-自检不占用任务序号，也不写入 `progress.json`，因此不影响断点恢复。
+debug 模式下 `postCheckPrompt` 也会**真实执行**，因此后检查的要求是否清晰、产出是否满足要求，都在复盘范围内；后检查失败不会中断主流程。
 
 详见[执行结果目录结构](#执行结果目录结构)。
 

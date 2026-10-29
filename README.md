@@ -35,7 +35,7 @@ Claude Code is built for the terminal, where you watch it work, correct it when 
 
 StepWise covers exactly those gaps, turning "the agent does its best" into "the process is accountable":
 
-- **It knows how far it got.** Every step writes its index, status, and session ID to disk, so re-running the same script after an interruption skips completed work instead of recomputing it — whether or not the original session is still around.
+- **It knows how far it got.** Every step writes its index, status, and session ID to disk, so re-running the same script after an interruption skips completed work instead of recomputing it.
 - **It survives an overnight run.** On 429 / 503 it does not simply fail; recovery is probed with a throwaway session, so waiting never burns retry budget and rate-limit errors never enter your real context.
 - **It checks its own work before reporting.** The artifact is confirmed to exist and its contents are validated, with an auto-generated repair prompt and retry when they fail; in debug mode an independent reviewer also re-reads every step afterwards.
 
@@ -197,57 +197,37 @@ const forked = await agent.execPrompt('Try an alternative approach', {
 
 ### 7. Checkpoint Recovery
 
-Long tasks always break somewhere — the process gets killed, the machine reboots, the quota runs out. Checkpoint recovery is driven by state on disk: every step writes its index, status, and session ID as it completes, and on resume that record decides whether a step is skipped, continued, or re-run.
+A long task gets interrupted halfway — the process is killed, the machine reboots, the quota runs out — and you don't want to start over.
 
-**How to resume**
-
-The startup banner prints the task directory name — that is the resume path. Pass it back as the second argument of `initTask` and run the same script again:
+Startup prints the task directory name. Pass it back as the second argument of `initTask` and run the same script again: completed steps are skipped, and the step that broke picks up where it left off.
 
 ```typescript
 import { initTask, StepWise } from 'stepwise';
 
-initTask('RefactorAuth', 'RefactorAuth_20260315_143000_123');
+initTask('RefactorAuth', 'RefactorAuth_20260315_143000_123');   // the directory name printed at startup
 const agent = new StepWise('MainAgent');
 
-await agent.execPrompt('Analyze module dependencies');   // completed → skipped
-await agent.execPrompt('Refactor core logic');           // not reached → runs
+await agent.execPrompt('Analyze module dependencies');   // already done → skipped
+await agent.execPrompt('Refactor core logic');           // never reached → runs
 ```
 
-The `恢复命令` line in the banner shows the deprecated `setResumePath`; `initTask(taskName, resumePath)` is equivalent and doesn't depend on call order.
+The `恢复命令` line in the banner shows the deprecated `setResumePath`; `initTask(taskName, resumePath)` is equivalent.
 
-**What happens to each step on resume**
-
-| What is on disk | Behavior on resume |
-|---|---|
-| `completed` | Skipped, not re-run. The collect / report output is read back from disk, so the caller sees the same data as last time (in debug mode still only the first entry). A skipped `execPrompt` returns `success: true`, an empty `output`, and zero duration |
-| `in_progress` (interrupted mid-step) | That step's leftover artifacts are cleared, then it runs again, continuing on the session ID recorded for it |
-| No record | Runs normally |
-
-**Three hard constraints**
-
-1. **Steps are matched by index + type, not by prompt content.** Insert a new step at the front of the script after an interruption and it takes over slot 1, where the old completed record lives — so it gets skipped as "already done". Don't reorder the script's steps when you resume; if the `exec*` type at some index changed, the framework prints a `任务 N 类型不匹配` warning and runs it as a new step.
-2. **The agent name must match.** Progress lives in `<task dir>/<agent name>_<timestamp>/data/progress.json`; a different agent name is a different set of progress, and everything runs from scratch.
-3. **Whether the session file survives decides if continuation works.** A step that runs after a resume goes out with the historical session ID (`--resume`), and each CLI keeps those sessions under its own config directory (Claude in `~/.claude/projects/<cwd>/`, CodeAgent in `~/.cac/projects/<cwd>/`) — once the file is gone the step fails with `No conversation found with session ID` (Pi recreates a session under the same ID, losing context but continuing the run). Completed steps are unaffected: skipping reads disk state only and never touches the session.
-
-**Parallel runs resume too**
-
-`forEachParallel` reuses existing worktrees on resume (unintegrated changes on the branch are preserved) and scans the state of every item: completed ones are skipped, interrupted ones are handed back to the worker that owned them.
+Parallel runs work the same way — pass the resume path again and completed items are skipped while interrupted ones run again:
 
 ```typescript
 initTask('BatchJob', 'BatchJob_20260315_143000_123');
-await forEachParallel(items, workerConfigs, handler);   // completed items are skipped
+await forEachParallel(items, workerConfigs, handler);
 ```
-
-If the resume path has no matching directory, StepWise fails loudly instead of silently starting over.
 
 ### 8. Debug Mode
 
-Debug mode runs the whole workflow over a single item, so you can validate the entire chain before committing to the real long run:
+You just wrote a workflow — check that the whole chain works before deciding to run it over all the data.
 
 ```typescript
 import { initTask, StepWise, enableDebugMode } from 'stepwise';
 
-enableDebugMode(true);   // collect returns 1 item; forEachParallel processes only the first
+enableDebugMode(true);   // collecting steps process only 1 item
 
 initTask('MyTask');
 const agent = new StepWise('MainAgent');
@@ -262,9 +242,7 @@ After every AI step succeeds in debug mode, the framework opens a new session an
 
 The reviewer must quote source text verbatim to back each finding — anything it cannot quote is dropped. The report lands in `self_check.md` next to `output.txt` and is **always created**: with no findings it says so explicitly. See [Execution Output Layout](#execution-output-layout).
 
-In debug mode `postCheckPrompt` now **really runs** (as it does in production), so both the clarity of the post-check requirements and whether the step's output satisfies them are within the review's reach. The failure semantics differ between the two: in **production** a failing post-check aborts the step; in **debug mode** it does not — it is only recorded in `execute.log`, and "后检查执行失败" is written into `post_check_output.txt` so the reviewer knows that check never completed.
-
-The self-check occupies no task index and is not written to `progress.json`, so it never affects checkpoint recovery.
+In debug mode `postCheckPrompt` now **really runs**, so both the clarity of the post-check requirements and whether the step's output satisfies them are within the review's reach; a failing post-check never aborts the step.
 
 ---
 
