@@ -6,11 +6,11 @@
 
 <p align="center">
   StepWise 是一个 TypeScript SDK，以无头模式驱动 Claude Code / OpenCode / CodeAgent / Pi / mcode。<br>
-  你写下目标就可以离开；回来时拿到的是一份可验证、可追溯、可复现的执行结果，而不是一句「已完成」。
+  高效构建基于 AI agent 的工作流，长任务稳定执行，结果可验证、可追溯、可复现。
 </p>
 
 <p align="center">
-  <a href="#核心思路">核心思路</a> • <a href="#为什么需要-stepwise">为什么需要</a> • <a href="#工作原理">工作原理</a> • <a href="#快速开始">快速开始</a> • <a href="#用法示例">用法示例</a> • <a href="#执行结果目录结构">目录结构</a> • <a href="#文档">文档</a> • <a href="#参与开发">参与开发</a> • <a href="README.md">English</a>
+  <a href="#核心思路">核心思路</a> • <a href="#为什么需要-stepwise">为什么需要</a> • <a href="#快速开始">快速开始</a> • <a href="#用法示例">用法示例</a> • <a href="#执行结果目录结构">目录结构</a> • <a href="#文档">文档</a> • <a href="#参与开发">参与开发</a> • <a href="README.md">English</a>
 </p>
 
 <p align="center">
@@ -23,14 +23,14 @@
 
 ![在 AI Agent 之上搭建 Workflow](assets/stepwise-core-idea.cn.svg)
 
-Anthropic 在 [Building effective agents](https://www.anthropic.com/research/building-effective-agents) 里区分了两种 agentic 系统：**workflow 是路径由代码预先写死的系统**，**agent 是路径由 LLM 临场决定的系统**。StepWise 做的，就是在 agent 之上搭一层 workflow。
+StepWise 是一层写在你自己的代码里的工作流，架在真正的 AI agent 之上：**上层是 workflow，路径由代码写死；下层是 agent，步骤内部由 LLM 自主决策。**
 
 - **上层是 workflow。** 步骤、顺序、分支、失败了怎么办，都写在你自己的 TypeScript 里——`execPrompt`、`execCheckPrompt`、`forEachParallel`、`postCheckPrompt` 就是这层的积木。路径不藏在 prompt 里，可读、可测、可 diff。
 - **下层是 agent。** 每个 `exec*` 步骤都真的下沉给 agent CLI（Claude Code / OpenCode / CodeAgent / Pi / mcode）去执行：它自己规划、自己挑工具、从环境反馈里判断进展，直到这一步完成。
 - **两层之间只隔一个 prompt。** 上层决定「这一步做什么、做完怎么验」，下层决定「这一步内部怎么做」。
 - **一个步骤可以扇出成并行任务。** `execCollectPrompt` 负责采集，`forEachParallel` 把条目并行铺开——每个 worker 一个 git worktree——跑完再汇聚回下一步。
 
-同一套 agent 引擎，可以被编排成不同形态：提示链、路由、并行化、编排-工人、评估-优化。
+同一套 agent 引擎，串行、分支、并行、派发、循环，都只是不同的编排写法。
 
 **路径由代码决定，产出由 agent 决定，完成由校验决定。**
 
@@ -79,12 +79,6 @@ StepWise 只解决上面这一类问题。边聊边改的交互式开发、只�
 需要跨机器、分布式、可审计的长时恢复时，也不该用 StepWise——那一层属于 Temporal、Restate 这类持久化执行基础设施，它们为此要引入外部服务与状态存储。StepWise 的取舍正好相反：单进程、零外部依赖、状态全部落在磁盘上，一次运行就是一个可检查、可归档的文件夹。
 
 ---
-
-## 工作原理
-
-1. **你写一个脚本。** 每个 `exec*` 调用就是流程中的一格。没有 YAML，没有常驻进程，没有控制台。
-2. **状态落在磁盘上。** 每一步完成时都会写下自己的序号、状态和会话 ID，因此一次运行就是一个文件夹——你可以检查它、归档它，或者从中恢复。
-3. **上下文是你掌控的会话。** 各步骤默认复用同一个会话；你可以开新会话，也可以分叉出一条分支去试另一种做法而不动原会话。
 
 ---
 

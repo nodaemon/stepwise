@@ -6,11 +6,11 @@
 
 <p align="center">
   StepWise is a TypeScript SDK that drives Claude Code / OpenCode / CodeAgent / Pi / mcode headlessly.<br>
-  Write the goal and walk away; what you come back to is a verifiable, traceable, reproducible result — not a claim that it finished.
+  Efficiently build workflows on top of AI agents: long tasks run reliably, and the result is verifiable, traceable, reproducible.
 </p>
 
 <p align="center">
-  <a href="#core-idea">Core Idea</a> • <a href="#why-stepwise">Why StepWise</a> • <a href="#how-it-works">How It Works</a> • <a href="#quick-start">Quick Start</a> • <a href="#examples">Examples</a> • <a href="#execution-output-layout">Layout</a> • <a href="#documentation">Documentation</a> • <a href="#contributing">Contributing</a> • <a href="README_CN.md">中文文档</a>
+  <a href="#core-idea">Core Idea</a> • <a href="#why-stepwise">Why StepWise</a> • <a href="#quick-start">Quick Start</a> • <a href="#examples">Examples</a> • <a href="#execution-output-layout">Layout</a> • <a href="#documentation">Documentation</a> • <a href="#contributing">Contributing</a> • <a href="README_CN.md">中文文档</a>
 </p>
 
 <p align="center">
@@ -23,14 +23,14 @@
 
 ![Building a workflow on top of an AI agent](assets/stepwise-core-idea.en.svg)
 
-Anthropic's [Building effective agents](https://www.anthropic.com/research/building-effective-agents) distinguishes two kinds of agentic systems: **workflows**, where LLMs and tools are orchestrated through predefined code paths, and **agents**, where the LLM dynamically directs its own process and tool usage. StepWise puts a workflow layer on top of an agent.
+StepWise is a workflow layer written in your own code, sitting on top of a real AI agent: **the upper layer is the workflow, with the path fixed in code; the lower layer is the agent, deciding on its own inside each step.**
 
 - **The upper layer is the workflow.** Steps, order, branching, and what happens on failure are written in your own TypeScript — `execPrompt`, `execCheckPrompt`, `forEachParallel`, `postCheckPrompt` are the building blocks. The path does not hide inside a prompt: it is readable, testable, diffable.
 - **The lower layer is the agent.** Every `exec*` step really runs on an agent CLI (Claude Code / OpenCode / CodeAgent / Pi / mcode), which plans on its own, picks its own tools, and judges progress from the environment's feedback until the step is done.
 - **Only a prompt separates the two layers.** The upper layer decides *what this step is and how it will be checked*; the lower layer decides *how to do the step*.
 - **One step can fan out into parallel tasks.** `execCollectPrompt` collects, `forEachParallel` runs the items in parallel — one git worktree per worker — and they converge back before the next step.
 
-The same agent engine can be arranged into different shapes: prompt chaining, routing, parallelization, orchestrator-workers, evaluator-optimizer.
+The same agent engine — chaining, branching, fanning out, delegating, iterating — is only a different way to arrange it.
 
 **The path is decided by code, the output is produced by the agent, and completion is proven by checks.**
 
@@ -79,12 +79,6 @@ StepWise only solves the class of problem described above. Interactive work wher
 For cross-machine, distributed, auditable long-running recovery, StepWise is the wrong tool too: that layer belongs to durable execution infrastructure like Temporal or Restate, which pay for it by introducing external services and state stores. StepWise's trade-off is the opposite — single process, no external dependencies, state entirely on disk, and one run is one inspectable, archivable folder.
 
 ---
-
-## How It Works
-
-1. **You write a script.** Each `exec*` call is one cell of the workflow. No YAML, no daemon, no dashboard.
-2. **State lives on disk.** Every step writes its index, status, and session ID as it completes, so a run is a folder you can inspect, archive, or resume.
-3. **Context is a session you control.** Steps reuse one session by default; start a new one or fork a branch to try an alternative without losing the original.
 
 ---
 
