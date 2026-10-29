@@ -10,12 +10,29 @@
 </p>
 
 <p align="center">
-  <a href="#why-stepwise">Why StepWise</a> • <a href="#how-it-works">How It Works</a> • <a href="#quick-start">Quick Start</a> • <a href="#examples">Examples</a> • <a href="#execution-output-layout">Layout</a> • <a href="#documentation">Documentation</a> • <a href="#contributing">Contributing</a> • <a href="README_CN.md">中文文档</a>
+  <a href="#core-idea">Core Idea</a> • <a href="#why-stepwise">Why StepWise</a> • <a href="#how-it-works">How It Works</a> • <a href="#quick-start">Quick Start</a> • <a href="#examples">Examples</a> • <a href="#execution-output-layout">Layout</a> • <a href="#documentation">Documentation</a> • <a href="#contributing">Contributing</a> • <a href="README_CN.md">中文文档</a>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License">
 </p>
+
+---
+
+## Core Idea
+
+![Building a workflow on top of an AI agent](assets/stepwise-core-idea.en.svg)
+
+Anthropic's [Building effective agents](https://www.anthropic.com/research/building-effective-agents) distinguishes two kinds of agentic systems: **workflows**, where LLMs and tools are orchestrated through predefined code paths, and **agents**, where the LLM dynamically directs its own process and tool usage. StepWise puts a workflow layer on top of an agent.
+
+- **The upper layer is the workflow.** Steps, order, branching, and what happens on failure are written in your own TypeScript — `execPrompt`, `execCheckPrompt`, `forEachParallel`, `postCheckPrompt` are the building blocks. The path does not hide inside a prompt: it is readable, testable, diffable.
+- **The lower layer is the agent.** Every `exec*` step really runs on an agent CLI (Claude Code / OpenCode / CodeAgent / Pi / mcode), which plans on its own, picks its own tools, and judges progress from the environment's feedback until the step is done.
+- **Only a prompt separates the two layers.** The upper layer decides *what this step is and how it will be checked*; the lower layer decides *how to do the step*.
+- **One step can fan out into parallel tasks.** `execCollectPrompt` collects, `forEachParallel` runs the items in parallel — one git worktree per worker — and they converge back before the next step.
+
+The same agent engine can be arranged into different shapes: prompt chaining, routing, parallelization, orchestrator-workers, evaluator-optimizer.
+
+**The path is decided by code, the output is produced by the agent, and completion is proven by checks.**
 
 ---
 

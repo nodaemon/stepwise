@@ -10,12 +10,29 @@
 </p>
 
 <p align="center">
-  <a href="#为什么需要-stepwise">为什么需要</a> • <a href="#工作原理">工作原理</a> • <a href="#快速开始">快速开始</a> • <a href="#用法示例">用法示例</a> • <a href="#执行结果目录结构">目录结构</a> • <a href="#文档">文档</a> • <a href="#参与开发">参与开发</a> • <a href="README.md">English</a>
+  <a href="#核心思路">核心思路</a> • <a href="#为什么需要-stepwise">为什么需要</a> • <a href="#工作原理">工作原理</a> • <a href="#快速开始">快速开始</a> • <a href="#用法示例">用法示例</a> • <a href="#执行结果目录结构">目录结构</a> • <a href="#文档">文档</a> • <a href="#参与开发">参与开发</a> • <a href="README.md">English</a>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License">
 </p>
+
+---
+
+## 核心思路
+
+![在 AI Agent 之上搭建 Workflow](assets/stepwise-core-idea.cn.svg)
+
+Anthropic 在 [Building effective agents](https://www.anthropic.com/research/building-effective-agents) 里区分了两种 agentic 系统：**workflow 是路径由代码预先写死的系统**，**agent 是路径由 LLM 临场决定的系统**。StepWise 做的，就是在 agent 之上搭一层 workflow。
+
+- **上层是 workflow。** 步骤、顺序、分支、失败了怎么办，都写在你自己的 TypeScript 里——`execPrompt`、`execCheckPrompt`、`forEachParallel`、`postCheckPrompt` 就是这层的积木。路径不藏在 prompt 里，可读、可测、可 diff。
+- **下层是 agent。** 每个 `exec*` 步骤都真的下沉给 agent CLI（Claude Code / OpenCode / CodeAgent / Pi / mcode）去执行：它自己规划、自己挑工具、从环境反馈里判断进展，直到这一步完成。
+- **两层之间只隔一个 prompt。** 上层决定「这一步做什么、做完怎么验」，下层决定「这一步内部怎么做」。
+- **一个步骤可以扇出成并行任务。** `execCollectPrompt` 负责采集，`forEachParallel` 把条目并行铺开——每个 worker 一个 git worktree——跑完再汇聚回下一步。
+
+同一套 agent 引擎，可以被编排成不同形态：提示链、路由、并行化、编排-工人、评估-优化。
+
+**路径由代码决定，产出由 agent 决定，完成由校验决定。**
 
 ---
 
