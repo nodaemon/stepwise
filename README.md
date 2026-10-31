@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="#core-idea">Core Idea</a> • <a href="#why-stepwise">Why StepWise</a> • <a href="#quick-start">Quick Start</a> • <a href="#examples">Examples</a> • <a href="#execution-output-layout">Layout</a> • <a href="#documentation">Documentation</a> • <a href="#contributing">Contributing</a> • <a href="README_CN.md">中文文档</a>
+  <a href="#core-idea">Core Idea</a> • <a href="#when-to-use-stepwise">When to Use</a> • <a href="#quick-start">Quick Start</a> • <a href="#examples">Examples</a> • <a href="#execution-output-layout">Layout</a> • <a href="#documentation">Documentation</a> • <a href="#contributing">Contributing</a> • <a href="README_CN.md">中文文档</a>
 </p>
 
 <p align="center">
@@ -23,62 +23,29 @@
 
 ![Building a workflow on top of an AI agent](assets/stepwise-core-idea.en.svg)
 
-StepWise is a workflow layer written in your own code, sitting on top of a real AI agent: **the upper layer is the workflow, with the path fixed in code; the lower layer is the agent, deciding on its own inside each step.**
-
-- **The upper layer is the workflow.** Steps, order, branching, and what happens on failure are written in your own TypeScript — `execPrompt`, `execCheckPrompt`, `forEachParallel`, `postCheckPrompt` are the building blocks. The path does not hide inside a prompt: it is readable, testable, diffable.
-- **The lower layer is the agent.** Every `exec*` step really runs on an agent CLI (Claude Code / OpenCode / CodeAgent / Pi / mcode), which plans on its own, picks its own tools, and judges progress from the environment's feedback until the step is done.
-- **Only a prompt separates the two layers.** The upper layer decides *what this step is and how it will be checked*; the lower layer decides *how to do the step*.
-- **One step can fan out into parallel tasks.** `execCollectPrompt` collects, `forEachParallel` runs the items in parallel — one git worktree per worker — and they converge back before the next step.
-
-The same agent engine — chaining, branching, fanning out, delegating, iterating — is only a different way to arrange it.
-
-**The path is decided by code, the output is produced by the agent, and completion is proven by checks.**
+StepWise turns AI agents into an orchestrated workflow: the path is fixed in your code, every step really runs on an agent, and the result is verifiable, traceable, and reproducible.
 
 ---
 
-## Why StepWise?
+## When to Use StepWise
 
-### Long tasks need trust, not intelligence
+A single task is something an AI agent already completes reliably. What needs StepWise is **a large number of tasks**: hundreds of the same kind, all of which must finish, survive an interruption, and stay explainable step by step.
 
-You hand an AI a long task and walk away. Hours later it may have drifted, quietly dropped half the requirements, or failed partway through — and you have no way to tell how much of what came back actually got done.
+That is exactly what StepWise adds:
 
-Better models do not solve this. A long task spans hours, sometimes overnight, and nobody is there to watch it, stop it, or take over when it goes wrong. What is missing is a **trustworthy executor**: one that knows how far it got, picks up where it left off after an interruption, and confirms the work before calling it done.
-
-StepWise does not replace your agent. It is what makes an agent dependable on a long task — progress you can check, interruptions you can survive, results you can verify.
-
-### Why not just use Claude Code
-
-Claude Code is built for the terminal, where you watch it work, correct it when it goes wrong, and stop it when it drifts. A long task is a different relationship: nobody is there, so it does not know which step it is on, where it stopped last time, or whether what it hands back counts as finished.
-
-StepWise covers exactly those gaps, turning "the agent does its best" into "the process is accountable":
-
-- **It knows how far it got.** Every step writes its index, status, and session ID to disk, so re-running the same script after an interruption skips completed work instead of recomputing it.
-- **It survives an overnight run.** On 429 / 503 it does not simply fail; recovery is probed with a throwaway session, so waiting never burns retry budget and rate-limit errors never enter your real context.
-- **It checks its own work before reporting.** The artifact is confirmed to exist and its contents are validated, with an auto-generated repair prompt and retry when they fail; in debug mode an independent reviewer also re-reads every step afterwards.
-
-The second one matters most: on non-interactive `claude -p` and SDK runs the platform fails outright when the quota runs out instead of waiting, and rate limiting is exactly the failure mode long tasks hit most often.
-
-### What you get back after a full night
-
-| What goes wrong | How StepWise handles it |
-|---|---|
-| The process is killed or the machine restarts, and the work is lost | Completed steps are skipped on resume — re-run the same script with the resume path printed at startup |
-| Overnight jobs get cut off by quota | 429 and 503 wait and retry without burning retry budget; recovery is probed with a throwaway session, so 429 errors never poison your real context |
-| It drifts silently in the middle, and nobody notices | In debug mode every step gets an automatic review: an independent reviewer checks goal clarity, missing or redundant input, and detours, and must quote source text verbatim to back each finding |
-| "Done" is only a claim | Declare the output format; StepWise checks the file exists *and* validates, then auto-generates a repair prompt and retries |
-| Hard to tell why a long run failed, or to analyze where its time and tokens went | Every step is observable — duration and token spend itemized, the agent's reasoning and tool calls captured as they happen, task time counted separately from quota wait, and any step re-runnable exactly as it ran |
-| Parallel agents trample each other | Each worker gets its own git worktree and items come off a shared queue; branches are committed but never auto-merged into your main branch |
-| Locked into a single agent CLI | Claude Code (default), OpenCode, CodeAgent, Pi, and mcode share one workflow script, so switching backends does not mean rewriting |
-| The same trap springs every week | What worked is distilled into a Skill, which your agent CLI loads natively next session |
-| The blast radius is too large | `setAllowRead` / `setAllowWrite` scope a step to specific directories — a prompt-level guardrail, not an OS sandbox |
+- **Completes reliably.** Every task is handed to an agent; failures retry automatically, failed checks generate a repair prompt and rerun; parallel tasks each get their own git worktree, so they never collide.
+- **Checkpoint recovery.** Killed process, rebooted machine, exhausted quota — rerun the same script and completed steps are skipped; 429 / 503 wait for a throwaway session to probe whether the quota is back, so waiting never burns retry budget.
+- **Traceable by default.** Every step's prompt, output, post-check verdict, duration and token spend land on disk, and any single step can be re-run exactly as it ran.
+- **The workflow itself is debuggable.** Debug mode runs a few samples first and gives every step an independent review (findings must quote the source verbatim), so the workflow can be verified and corrected before the full run.
+- **Self-evolving.** What worked is distilled into a Skill that the agent CLI loads natively next session, so the same trap is not sprung twice.
+- **Swappable backends.** Claude Code / OpenCode / CodeAgent / Pi / mcode share one workflow script — changing backend means no rewrite.
+- **Contained blast radius.** `setAllowRead` / `setAllowWrite` scope a step to specific directories — a prompt-level guardrail.
 
 ### When you do not need it
 
-StepWise only solves the class of problem described above. Interactive work where you chat and edit as you go, a two- or three-step task that does not justify a framework, or simply wanting one agent's stronger single-shot ability — all of these are easier with Claude Code's native features.
+Interactive work where you chat and edit as you go, a two- or three-step task that does not justify a framework, or simply wanting one agent's stronger single-shot ability — all of these are easier with Claude Code's native features.
 
 For cross-machine, distributed, auditable long-running recovery, StepWise is the wrong tool too: that layer belongs to durable execution infrastructure like Temporal or Restate, which pay for it by introducing external services and state stores. StepWise's trade-off is the opposite — single process, no external dependencies, state entirely on disk, and one run is one inspectable, archivable folder.
-
----
 
 ---
 
