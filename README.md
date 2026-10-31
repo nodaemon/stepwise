@@ -53,17 +53,16 @@ For cross-machine, distributed, auditable long-running recovery, StepWise is the
 
 Requires **Node.js 16+** (the build target is `moduleResolution: Node16`) and at least one coding agent CLI on your `PATH` — Claude Code (default), OpenCode, CodeAgent, Pi, or mcode. With OpenCode, set `"permission": "allow"` in `opencode.json` so it stops asking for confirmations.
 
-StepWise is not published to npm yet, so build it from source:
+Install it from npm:
 
 ```bash
-git clone https://gitee.com/nodaemon/stepwise.git
-cd stepwise && npm install && npm run build
+npm install @dreamcheck/stepwise
 ```
 
 Then write your workflow. Startup prints the task directory and a resume command — pass it back as the second argument of `initTask` and every completed step is skipped:
 
 ```typescript
-import { initTask, StepWise } from './stepwise/dist';
+import { initTask, StepWise } from '@dreamcheck/stepwise';
 
 initTask('RefactorAuth');   // resume with: initTask('RefactorAuth', 'RefactorAuth_20260315_143000_123')
 const agent = new StepWise('MainAgent');

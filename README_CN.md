@@ -53,17 +53,16 @@ StepWise 提供的正是这一套能力：
 
 需要 **Node.js 16+**（构建目标为 `moduleResolution: Node16`），以及 `PATH` 上至少一个 AI 编程助手 CLI——Claude Code（默认）、OpenCode、CodeAgent、Pi 或 mcode。使用 OpenCode 时，请在 `opencode.json` 中设置 `"permission": "allow"`，否则它会不停弹确认。
 
-StepWise 尚未发布到 npm，请从源码构建：
+直接从 npm 安装：
 
 ```bash
-git clone https://gitee.com/nodaemon/stepwise.git
-cd stepwise && npm install && npm run build
+npm install @dreamcheck/stepwise
 ```
 
 然后写你的工作流。启动时会打印任务目录和恢复命令——把它作为 `initTask` 的第二个参数传回来，所有已完成的步骤都会被跳过：
 
 ```typescript
-import { initTask, StepWise } from './stepwise/dist';
+import { initTask, StepWise } from '@dreamcheck/stepwise';
 
 initTask('RefactorAuth');   // 恢复执行: initTask('RefactorAuth', 'RefactorAuth_20260315_143000_123')
 const agent = new StepWise('MainAgent');
